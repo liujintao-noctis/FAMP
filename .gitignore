@@ -1,0 +1,38 @@
+# Build output
+build/
+build-*/
+out/
+cmake-build-*/
+CMakeUserPresets.json
+
+# Local dependency checkout
+.deps/
+vcpkg_installed/
+
+# IDE and compiler noise
+.vs/
+.vscode/
+*.VC.db
+*.suo
+*.user
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.o
+
+# Runtime/generated point-cloud files
+PCD2Las.pcd
+Point_PCD2LAS.pcd
+cloud_DP_*.pcd
+ordercloud*.pcd
+projectPointCloud*.pcd
+KNNAlphaShape.pcd
+vog_cloud.pcd
+inCloud.pcd
+
+# Legacy binary distributions are intentionally not part of FAMP
+Release/
+x64/
+安装包/

@@ -1,0 +1,40 @@
+{
+  "name": "famp",
+  "version-string": "0.1.0",
+  "description": "Field Archaeology Mapping Program",
+  "dependencies": [
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "gui",
+        "widgets",
+        "opengl",
+        "fontconfig",
+        "png",
+        "jpeg",
+        "thread",
+        "xcb",
+        "xcb-sm",
+        "xcb-xlib",
+        "xrender"
+      ]
+    },
+    {
+      "name": "vtk",
+      "default-features": false,
+      "features": [
+        "opengl",
+        "qt"
+      ]
+    },
+    {
+      "name": "pcl",
+      "default-features": false,
+      "features": [
+        "visualization",
+        "qt"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,837 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MainWindowClass</class>
+ <widget class="QMainWindow" name="MainWindowClass">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1371</width>
+    <height>803</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>FAMS</string>
+  </property>
+  <property name="windowIcon">
+   <iconset>
+    <normaloff>:/images/images/bfc51b65a37504fd80673364f912057.png</normaloff>:/images/images/bfc51b65a37504fd80673364f912057.png</iconset>
+  </property>
+  <widget class="QWidget" name="centralWidget">
+   <widget class="QOpenGLWidget" name="openGLWidget">
+    <property name="geometry">
+     <rect>
+      <x>30</x>
+      <y>80</y>
+      <width>291</width>
+      <height>231</height>
+     </rect>
+    </property>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menuBar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1371</width>
+     <height>26</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menu">
+    <property name="title">
+     <string>窗口</string>
+    </property>
+    <widget class="QMenu" name="menu_2">
+     <property name="title">
+      <string>显示</string>
+     </property>
+     <addaction name="acGraViewVisible"/>
+     <addaction name="actVTKVisible"/>
+     <addaction name="actConsoleVisible"/>
+     <addaction name="actDBTreeVisible"/>
+    </widget>
+    <widget class="QMenu" name="menu_3">
+     <property name="title">
+      <string>浮动</string>
+     </property>
+     <addaction name="actGRaViewFloat"/>
+     <addaction name="actDBTreeFloat"/>
+     <addaction name="actConsoleFloat"/>
+    </widget>
+    <addaction name="actFullScreen"/>
+    <addaction name="menu_2"/>
+    <addaction name="menu_3"/>
+   </widget>
+   <widget class="QMenu" name="menu_4">
+    <property name="title">
+     <string>文件</string>
+    </property>
+    <addaction name="actOpenCloud"/>
+    <addaction name="actSave"/>
+   </widget>
+   <widget class="QMenu" name="menu_5">
+    <property name="title">
+     <string>切割</string>
+    </property>
+    <addaction name="actRandomPlane"/>
+    <addaction name="actHorizonalPlane"/>
+    <addaction name="actVerticalPlane"/>
+   </widget>
+   <widget class="QMenu" name="menu_6">
+    <property name="title">
+     <string>投影</string>
+    </property>
+    <addaction name="actProjXOY"/>
+    <addaction name="actProjXOZ"/>
+    <addaction name="actProjYOZ"/>
+    <addaction name="actOverLookProj"/>
+   </widget>
+   <widget class="QMenu" name="menu_7">
+    <property name="title">
+     <string>制图</string>
+    </property>
+    <addaction name="actProjLine"/>
+    <addaction name="actCompass"/>
+    <addaction name="separator"/>
+    <addaction name="actMoveUp"/>
+    <addaction name="actMoveDown"/>
+    <addaction name="actMoveLeft"/>
+    <addaction name="actMoveRight"/>
+    <addaction name="separator"/>
+    <addaction name="actEditFront"/>
+    <addaction name="acEditBack"/>
+    <addaction name="separator"/>
+    <addaction name="actDeleteItem"/>
+    <addaction name="actClearScene"/>
+    <addaction name="separator"/>
+    <addaction name="actSave"/>
+   </widget>
+   <widget class="QMenu" name="menu_8">
+    <property name="title">
+     <string>帮助</string>
+    </property>
+   </widget>
+   <addaction name="menu_4"/>
+   <addaction name="menu"/>
+   <addaction name="menu_5"/>
+   <addaction name="menu_6"/>
+   <addaction name="menu_7"/>
+   <addaction name="menu_8"/>
+  </widget>
+  <widget class="QToolBar" name="mainToolBar">
+   <property name="toolButtonStyle">
+    <enum>Qt::ToolButtonTextUnderIcon</enum>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>TopToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actOpenCloud"/>
+   <addaction name="actFullScreen"/>
+   <addaction name="actDelete"/>
+   <addaction name="acQuit"/>
+  </widget>
+  <widget class="QStatusBar" name="statusBar"/>
+  <widget class="QDockWidget" name="dockWidget1">
+   <property name="maximumSize">
+    <size>
+     <width>600</width>
+     <height>524287</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>内容列表</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_1">
+    <layout class="QGridLayout" name="gridLayout">
+     <item row="0" column="0">
+      <widget class="QTreeView" name="treeView"/>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget2">
+   <property name="minimumSize">
+    <size>
+     <width>500</width>
+     <height>134</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>GraphicsView</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>2</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_10">
+    <layout class="QGridLayout" name="gridLayout_2">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>5</number>
+     </property>
+     <item row="0" column="0">
+      <widget class="MyGraphicsView" name="graphicsView"/>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="dockWidget3">
+   <property name="sizePolicy">
+    <sizepolicy hsizetype="Preferred" vsizetype="Preferred">
+     <horstretch>0</horstretch>
+     <verstretch>0</verstretch>
+    </sizepolicy>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>111</width>
+     <height>136</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>600</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>控制台</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>8</number>
+   </attribute>
+   <widget class="QWidget" name="dockWidgetContents_11">
+    <layout class="QGridLayout" name="gridLayout_3">
+     <item row="0" column="0">
+      <widget class="QListWidget" name="listWidget"/>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QToolBar" name="VTKToolBar">
+   <property name="minimumSize">
+    <size>
+     <width>0</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>点云</string>
+   </property>
+   <property name="toolButtonStyle">
+    <enum>Qt::ToolButtonTextBesideIcon</enum>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>LeftToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="actVTKVisible"/>
+   <addaction name="separator"/>
+   <addaction name="actFrontView"/>
+   <addaction name="actBackView"/>
+   <addaction name="actTopView"/>
+   <addaction name="actBottomView"/>
+   <addaction name="actLeftView"/>
+   <addaction name="actRightView"/>
+   <addaction name="separator"/>
+   <addaction name="actAABB"/>
+   <addaction name="separator"/>
+   <addaction name="actRandomPlane"/>
+   <addaction name="actHorizonalPlane"/>
+   <addaction name="actVerticalPlane"/>
+   <addaction name="separator"/>
+   <addaction name="actProjXOY"/>
+   <addaction name="actProjXOZ"/>
+   <addaction name="actProjYOZ"/>
+   <addaction name="actOverLookProj"/>
+  </widget>
+  <widget class="QToolBar" name="GraViewToolBar">
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="minimumSize">
+    <size>
+     <width>0</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>图纸</string>
+   </property>
+   <property name="toolButtonStyle">
+    <enum>Qt::ToolButtonTextBesideIcon</enum>
+   </property>
+   <attribute name="toolBarArea">
+    <enum>RightToolBarArea</enum>
+   </attribute>
+   <attribute name="toolBarBreak">
+    <bool>false</bool>
+   </attribute>
+   <addaction name="acGraViewVisible"/>
+   <addaction name="actGRaViewFloat"/>
+   <addaction name="separator"/>
+   <addaction name="actCompass"/>
+   <addaction name="actMiGe"/>
+   <addaction name="actPlotTab"/>
+   <addaction name="actProjLine"/>
+   <addaction name="separator"/>
+   <addaction name="actText"/>
+   <addaction name="actGroup"/>
+   <addaction name="actBreak"/>
+   <addaction name="actEditFront"/>
+   <addaction name="acEditBack"/>
+   <addaction name="actMoveUp"/>
+   <addaction name="actMoveDown"/>
+   <addaction name="actMoveLeft"/>
+   <addaction name="actMoveRight"/>
+   <addaction name="separator"/>
+   <addaction name="actDeleteItem"/>
+   <addaction name="actClearScene"/>
+   <addaction name="separator"/>
+   <addaction name="actSave"/>
+  </widget>
+  <action name="acGraViewVisible">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/CAD图纸显示.png</normaloff>:/images/images/CAD图纸显示.png</iconset>
+   </property>
+   <property name="text">
+    <string>制图界面</string>
+   </property>
+   <property name="toolTip">
+    <string>制图界面</string>
+   </property>
+  </action>
+  <action name="actGRaViewFloat">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/右浮动.png</normaloff>:/images/images/右浮动.png</iconset>
+   </property>
+   <property name="text">
+    <string>制图浮动</string>
+   </property>
+   <property name="toolTip">
+    <string>制图浮动</string>
+   </property>
+  </action>
+  <action name="actVTKVisible">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/显示图标-5_画板 1.png</normaloff>:/images/images/显示图标-5_画板 1.png</iconset>
+   </property>
+   <property name="text">
+    <string>点云界面</string>
+   </property>
+   <property name="toolTip">
+    <string>点云界面</string>
+   </property>
+  </action>
+  <action name="actConsoleVisible">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Console界面</string>
+   </property>
+  </action>
+  <action name="actDBTreeVisible">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>DBTree界面</string>
+   </property>
+  </action>
+  <action name="actConsoleFloat">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>Console浮动</string>
+   </property>
+  </action>
+  <action name="actDBTreeFloat">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>DBTree浮动</string>
+   </property>
+  </action>
+  <action name="actFullScreen">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccFullScreen.png</normaloff>:/images/images/ccFullScreen.png</iconset>
+   </property>
+   <property name="text">
+    <string>全屏</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+F12</string>
+   </property>
+  </action>
+  <action name="acQuit">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/退出.png</normaloff>:/images/images/退出.png</iconset>
+   </property>
+   <property name="text">
+    <string>退出</string>
+   </property>
+  </action>
+  <action name="actFrontView">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccViewYpos.png</normaloff>:/images/images/ccViewYpos.png</iconset>
+   </property>
+   <property name="text">
+    <string>正视</string>
+   </property>
+  </action>
+  <action name="actTopView">
+   <property name="icon">
+    <iconset>
+     <normalon>:/images/images/ccViewZpos.png</normalon>
+    </iconset>
+   </property>
+   <property name="text">
+    <string>顶视</string>
+   </property>
+  </action>
+  <action name="actLeftView">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccViewXpos.png</normaloff>:/images/images/ccViewXpos.png</iconset>
+   </property>
+   <property name="text">
+    <string>左视</string>
+   </property>
+  </action>
+  <action name="actRightView">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccViewXneg.png</normaloff>:/images/images/ccViewXneg.png</iconset>
+   </property>
+   <property name="text">
+    <string>右视</string>
+   </property>
+  </action>
+  <action name="actBackView">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccViewYneg.png</normaloff>:/images/images/ccViewYneg.png</iconset>
+   </property>
+   <property name="text">
+    <string>后视</string>
+   </property>
+  </action>
+  <action name="actBottomView">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccViewZneg.png</normaloff>:/images/images/ccViewZneg.png</iconset>
+   </property>
+   <property name="text">
+    <string>底视</string>
+   </property>
+  </action>
+  <action name="actOpenCloud">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccOpen.png</normaloff>:/images/images/ccOpen.png</iconset>
+   </property>
+   <property name="text">
+    <string>打开点云</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+O</string>
+   </property>
+  </action>
+  <action name="actDelete">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccDelete.png</normaloff>:/images/images/ccDelete.png</iconset>
+   </property>
+   <property name="text">
+    <string>删除</string>
+   </property>
+  </action>
+  <action name="actAABB">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/图标-包围盒蓝色.png</normaloff>:/images/images/图标-包围盒蓝色.png</iconset>
+   </property>
+   <property name="text">
+    <string>包围盒</string>
+   </property>
+  </action>
+  <action name="actRandomPlane">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/切割.png</normaloff>:/images/images/切割.png</iconset>
+   </property>
+   <property name="text">
+    <string>任意平面切割</string>
+   </property>
+  </action>
+  <action name="actHorizonalPlane">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/裁切.png</normaloff>:/images/images/裁切.png</iconset>
+   </property>
+   <property name="text">
+    <string>水平平面切割</string>
+   </property>
+  </action>
+  <action name="actVerticalPlane">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/切割 (1).png</normaloff>:/images/images/切割 (1).png</iconset>
+   </property>
+   <property name="text">
+    <string>竖直平面切割</string>
+   </property>
+  </action>
+  <action name="actMiGe">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/4方格纸.png</normaloff>:/images/images/4方格纸.png</iconset>
+   </property>
+   <property name="text">
+    <string>米格纸</string>
+   </property>
+   <property name="iconText">
+    <string> 米格纸</string>
+   </property>
+  </action>
+  <action name="actpoints">
+   <property name="text">
+    <string>画点</string>
+   </property>
+  </action>
+  <action name="actProjLine">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/连线.png</normaloff>:/images/images/连线.png</iconset>
+   </property>
+   <property name="text">
+    <string>自动绘图</string>
+   </property>
+  </action>
+  <action name="actProjXOY">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/投影面积测量.png</normaloff>:/images/images/投影面积测量.png</iconset>
+   </property>
+   <property name="text">
+    <string>投影到XOY面</string>
+   </property>
+  </action>
+  <action name="actProjXOZ">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/投影面积测量.png</normaloff>:/images/images/投影面积测量.png</iconset>
+   </property>
+   <property name="text">
+    <string>投影到XOZ面</string>
+   </property>
+  </action>
+  <action name="actProjYOZ">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/投影面积测量.png</normaloff>:/images/images/投影面积测量.png</iconset>
+   </property>
+   <property name="text">
+    <string>投影到YOZ面</string>
+   </property>
+  </action>
+  <action name="actDeleteItem">
+   <property name="checkable">
+    <bool>false</bool>
+   </property>
+   <property name="checked">
+    <bool>false</bool>
+   </property>
+   <property name="enabled">
+    <bool>true</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/删除.png</normaloff>:/images/images/删除.png</iconset>
+   </property>
+   <property name="text">
+    <string>删除</string>
+   </property>
+   <property name="shortcut">
+    <string>Del</string>
+   </property>
+  </action>
+  <action name="actClearScene">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/清空.png</normaloff>:/images/images/清空.png</iconset>
+   </property>
+   <property name="text">
+    <string>清空</string>
+   </property>
+  </action>
+  <action name="actOverLookProj">
+   <property name="enabled">
+    <bool>false</bool>
+   </property>
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/投影面积测量.png</normaloff>:/images/images/投影面积测量.png</iconset>
+   </property>
+   <property name="text">
+    <string>俯视垂直投影</string>
+   </property>
+  </action>
+  <action name="actGroup">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/建立组合.png</normaloff>:/images/images/建立组合.png</iconset>
+   </property>
+   <property name="text">
+    <string>组合</string>
+   </property>
+  </action>
+  <action name="actBreak">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/打散.png</normaloff>:/images/images/打散.png</iconset>
+   </property>
+   <property name="text">
+    <string>打散</string>
+   </property>
+  </action>
+  <action name="actRotateLeft">
+   <property name="text">
+    <string>逆时针旋转</string>
+   </property>
+  </action>
+  <action name="actRotateRight">
+   <property name="text">
+    <string>顺时针旋转</string>
+   </property>
+  </action>
+  <action name="actMoveUp">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/上移 (2).png</normaloff>:/images/images/上移 (2).png</iconset>
+   </property>
+   <property name="text">
+    <string>上移</string>
+   </property>
+   <property name="shortcut">
+    <string>Up</string>
+   </property>
+  </action>
+  <action name="actMoveDown">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/下移 (1).png</normaloff>:/images/images/下移 (1).png</iconset>
+   </property>
+   <property name="text">
+    <string>下移</string>
+   </property>
+   <property name="shortcut">
+    <string>Down</string>
+   </property>
+  </action>
+  <action name="actMoveLeft">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/左移.png</normaloff>:/images/images/左移.png</iconset>
+   </property>
+   <property name="text">
+    <string>左移</string>
+   </property>
+   <property name="shortcut">
+    <string>Left</string>
+   </property>
+  </action>
+  <action name="actMoveRight">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/右移.png</normaloff>:/images/images/右移.png</iconset>
+   </property>
+   <property name="text">
+    <string>右移</string>
+   </property>
+   <property name="shortcut">
+    <string>Right</string>
+   </property>
+  </action>
+  <action name="actSave">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/ccSave.png</normaloff>:/images/images/ccSave.png</iconset>
+   </property>
+   <property name="text">
+    <string>保存</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+S</string>
+   </property>
+  </action>
+  <action name="actCompass">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/指北针.png</normaloff>:/images/images/指北针.png</iconset>
+   </property>
+   <property name="text">
+    <string>指北针 </string>
+   </property>
+   <property name="iconText">
+    <string> 指北针</string>
+   </property>
+  </action>
+  <action name="actEditFront">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/前置.png</normaloff>:/images/images/前置.png</iconset>
+   </property>
+   <property name="text">
+    <string>前置</string>
+   </property>
+  </action>
+  <action name="acEditBack">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/18-后置 (1).png</normaloff>:/images/images/18-后置 (1).png</iconset>
+   </property>
+   <property name="text">
+    <string>后置</string>
+   </property>
+  </action>
+  <action name="actText">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/文字.png</normaloff>:/images/images/文字.png</iconset>
+   </property>
+   <property name="text">
+    <string>文字</string>
+   </property>
+  </action>
+  <action name="actPlotTab">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/医嘱模板.png</normaloff>:/images/images/医嘱模板.png</iconset>
+   </property>
+   <property name="text">
+    <string>制图信息</string>
+   </property>
+  </action>
+ </widget>
+ <layoutdefault spacing="6" margin="11"/>
+ <customwidgets>
+  <customwidget>
+   <class>MyGraphicsView</class>
+   <extends>QGraphicsView</extends>
+   <header>MyGraphicsView.h</header>
+  </customwidget>
+ </customwidgets>
+ <resources>
+  <include location="../resources/res.qrc"/>
+ </resources>
+ <connections>
+  <connection>
+   <sender>acQuit</sender>
+   <signal>triggered()</signal>
+   <receiver>MainWindowClass</receiver>
+   <slot>close()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>-1</x>
+     <y>-1</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>676</x>
+     <y>380</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>
