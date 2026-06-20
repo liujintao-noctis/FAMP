@@ -1,0 +1,70 @@
+cmake_minimum_required(VERSION 3.22)
+
+# ── Resolve project root (works regardless of which CMakeLists.txt is the
+#    entry point — root /CMakeLists.txt or /src/CMakeLists.txt) ──────────
+if(DEFINED FAMP_ROOT_DIR)
+    set(FAMP_PROJECT_ROOT "${FAMP_ROOT_DIR}")
+else()
+    set(FAMP_PROJECT_ROOT "${CMAKE_SOURCE_DIR}")
+endif()
+set(FAMP_SRC_DIR "${FAMP_PROJECT_ROOT}/src")
+
+# ── Google Test via FetchContent ──────────────────────────────────────────
+include(FetchContent)
+FetchContent_Declare(
+    googletest
+    GIT_REPOSITORY https://github.com/google/googletest.git
+    GIT_TAG        v1.15.2
+)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(googletest)
+
+# ── Cloud library (standalone, no GUI deps) ──────────────────────────────
+# Cloud.h has a residual #include <qdebug.h>; we pull Qt::Core for its
+# headers only, so no Widgets / GUI linkage is needed.
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
+find_package(PCL REQUIRED COMPONENTS common features)
+
+add_library(famp_cloud STATIC
+    "${FAMP_SRC_DIR}/Cloud.cpp"
+    "${FAMP_SRC_DIR}/Cloud.h"
+)
+
+target_include_directories(famp_cloud
+    PUBLIC
+        "${FAMP_SRC_DIR}"
+        ${PCL_INCLUDE_DIRS}
+)
+
+target_link_libraries(famp_cloud
+    PUBLIC
+        ${PCL_LIBRARIES}
+        Qt${QT_VERSION_MAJOR}::Core
+)
+
+target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
+
+# ── Test executable ───────────────────────────────────────────────────────
+add_executable(famp_tests
+    test_main.cpp
+    test_cloud.cpp
+    test_string_convert.cpp
+)
+
+target_link_libraries(famp_tests
+    PRIVATE
+        famp_cloud
+        GTest::gtest
+)
+
+target_include_directories(famp_tests
+    PRIVATE
+        "${FAMP_SRC_DIR}"
+)
+
+# gtest-discover-tests scans the binary at build time for registered tests.
+include(GoogleTest)
+enable_testing()
+gtest_discover_tests(famp_tests)

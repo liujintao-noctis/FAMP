@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            triplet: x64-linux-release
+            build-type: Release
+          - os: windows-latest
+            triplet: x64-windows
+            build-type: Release
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Linux: install system deps ────────────────────────────
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libgl1-mesa-dev libx11-dev libxext-dev libxtst-dev \
+            libxcb-util-dev libxcb-xinerama0-dev libxcb-icccm4-dev \
+            libxcb-image0-dev libxcb-keysyms1-dev libxcb-randr0-dev \
+            libxcb-render-util0-dev libxcb-shape0-dev libxcb-xkb-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev
+
+      # ── Setup vcpkg ───────────────────────────────────────────
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg
+          vcpkgJsonGlob: 'vcpkg.json'
+
+      # ── Configure ─────────────────────────────────────────────
+      - name: Configure CMake
+        run: |
+          cmake -S src -B build \
+            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
+            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
+            -DBUILD_TESTING=ON
+
+      # ── Build ─────────────────────────────────────────────────
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build-type }} --parallel
+
+      # ── Test ──────────────────────────────────────────────────
+      - name: Test
+        run: ctest --test-dir build -C ${{ matrix.build-type }} --output-on-failure

@@ -1,3 +1,11 @@
+/*****************************************************************
+ * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
+ * Name: 田野考古制图系统(FAMS)
+ * Author: liujintao
+ * Version: V1.0
+ * Description: 切割平面对话框
+ *****************************************************************/
+
 #pragma once
 
 #include <QDialog>
@@ -5,25 +13,24 @@
 
 class QDlgClip : public QDialog
 {
-	Q_OBJECT
+    Q_OBJECT
 
 public:
-	QDlgClip(QWidget *parent = Q_NULLPTR);
-	~QDlgClip();
+    QDlgClip(QWidget *parent = Q_NULLPTR);
+    ~QDlgClip();
 
 private:
-	Ui::QDlgClip ui;
+    Ui::QDlgClip ui;
 
 public:
-	void closeEvent(QCloseEvent * event);
-	void setClipButtonEnable(bool enable);		// 设置开始切割按钮是否能获得
-	void setSpinBoxRange(double min, double max);
-	void setSpinBoxValue(double value);
-	void getSpinBoxValue(double &value);
-
+    void closeEvent(QCloseEvent * event);
+    void setClipButtonEnable(bool enable);      // 设置开始切割按钮是否能获得
+    void setSpinBoxRange(double min, double max);
+    void setSpinBoxValue(double value);
+    void getSpinBoxValue(double &value);
 
 public slots:
-	void slotOn_pBnClipClicked();
-	void slotOn_actSave_triggered();
-	
+    void slotOn_pBnClipClicked();
+    void slotOn_actSave_triggered();
+
 };

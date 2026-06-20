@@ -1,113 +1,155 @@
 # FAMP
 
-FAMP 是一款基于 C++/Qt 的田野考古制图程序，用于基于点云的绘图工作流。当前代码已经从原始 Visual Studio 工程整理为可提交到 GitHub 的 CMake/vcpkg 源码结构。
+[![CI](https://github.com/liujintao-noctis/FAMP/actions/workflows/ci.yml/badge.svg)](https://github.com/liujintao-noctis/FAMP/actions/workflows/ci.yml)
 
-本仓库不提交本地构建产物、预编译 DLL、安装包输出或项目内 vcpkg 目录。第三方依赖通过项目外部的 vcpkg 安装树提供。
+FAMP 是一款基于 C++17、Qt、VTK 和 PCL 的田野考古制图程序，用于点云查看、投影、绘图和相关制图工作流。当前工程已经整理为 CMake/vcpkg 源码结构，构建产物固定放在项目根目录下的 `build/`。
+
+本仓库不提交本地构建产物、预编译 DLL、安装包输出或项目内 vcpkg 目录。第三方依赖通过仓库外部的 vcpkg 安装树提供，Linux 默认使用 `/opt/vcpkg`。
 
 ## 目录结构
 
-- `src/`：主程序源码和标准 CMake 入口。
-- `ui/`：Qt Designer `.ui` 文件。
+- `CMakeLists.txt`：根目录 CMake 入口，负责在 `project()` 前设置 vcpkg toolchain，然后进入 `src/`。
+- `src/`：主程序源码和主要 CMake 配置。
+- `ui/`：Qt Designer `.ui` 表单。
 - `resources/`：Qt `.qrc` 资源文件和图片资源。
-- `third_party/lastools/`：原始程序依赖的 LAStools/LASlib 源码，作为 `lastools_compat` 静态库编译。
-- `samples/`：用于本地冒烟测试的小型输入文件。
-- `triplets/`：Linux vcpkg 覆盖 triplet。
-- `scripts/`：环境准备脚本。
+- `tests/`：GoogleTest 单元测试。
+- `third_party/lastools/`：随源码编译的 LAStools/LASlib 兼容库。
+- `samples/`：本地冒烟测试用的小型输入文件。
+- `triplets/`：vcpkg 覆盖 triplet，Linux 使用 `x64-linux-release`。
+- `scripts/`：vcpkg 环境准备脚本。
 
 ## 依赖项
+
+基础工具：
 
 - CMake 3.22 或更新版本
 - C++17 编译器
 - Git
-- Linux 上 vcpkg 安装于 `/opt/vcpkg`
+- vcpkg，Linux 推荐路径为 `/opt/vcpkg`
 
-Qt/VTK 桌面渲染所需的 Linux 系统包：
+Linux 桌面渲染依赖：
 
 ```bash
-sudo apt-get install -y '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libegl1-mesa-dev libxt-dev
+sudo apt-get install -y '^libxcb.*-dev' libx11-xcb-dev libglu1-mesa-dev \
+  libxrender-dev libxi-dev libxkbcommon-dev libxkbcommon-x11-dev \
+  libegl1-mesa-dev libxt-dev
 ```
 
-`vcpkg.json` 会安装 Qt、VTK 和 PCL：
-
-- `qtbase`：启用 `gui`、`widgets`、`opengl`、`xcb`、`png`、`jpeg` 等 GUI 运行所需特性。
-- `vtk`：启用 `opengl` 和 `qt`。
-- `pcl`：启用 `visualization` 和 `qt`。
-
-Linux 首次准备 vcpkg：
+`vcpkg.json` 会安装 Qt、VTK 和 PCL。Linux 下首次准备 vcpkg：
 
 ```bash
-cd /data/专利/田野考古制图系统/FAMP
+cd /FAMP
 ./scripts/bootstrap-vcpkg.sh
 ```
 
-该脚本会检查 `/opt/vcpkg`，不存在时从 GitHub 拉取并执行 `/opt/vcpkg/bootstrap-vcpkg.sh`。项目不在当前目录保存 vcpkg 副本。
+该脚本会检查 `/opt/vcpkg`，不存在时从 GitHub 拉取并执行 `/opt/vcpkg/bootstrap-vcpkg.sh`。
 
 ## 配置与构建
 
-Linux 标准构建流程：
+所有本地构建都使用项目根目录下的 `build/`。推荐先创建并进入该目录，再从 `build/` 内配置和编译。不要在 `src/` 内建目录，也不要使用 `/tmp/famp-build` 作为常规构建目录。
+
+### Linux
 
 ```bash
-cd /data/专利/田野考古制图系统/FAMP
+cd /FAMP
+export VCPKG_ROOT=/opt/vcpkg
 mkdir -p build
 cd build
-cmake -S ../src -B .
-make -j8
+cmake .. -DCMAKE_BUILD_TYPE=Release
+cmake --build . -- -j$(nproc)
 ```
 
-Linux CMake 主入口为 `src/CMakeLists.txt`，默认使用：
+说明：
+
+- `mkdir -p build && cd build` 创建并进入项目根目录下的 `build/`。
+- `cmake ..` 从 `build/` 内配置仓库根目录工程。
+- 根目录 `CMakeLists.txt` 会在第一次 `project()` 前读取 `VCPKG_ROOT` 并设置 vcpkg toolchain。
+- Linux 默认使用 `triplets/x64-linux-release.cmake`，依赖安装在 `/opt/vcpkg/installed/x64-linux-release`。
+- 构建成功后，可执行文件位于 `build/bin/FAMP`。
+
+如需显式覆盖 vcpkg 路径：
 
 ```bash
-/opt/vcpkg/scripts/buildsystems/vcpkg.cmake
+cmake .. \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DVCPKG_ROOT=/opt/vcpkg
 ```
 
-依赖安装树在项目外部：
+### Windows
+
+PowerShell 示例：
+
+```powershell
+cd /FAMP
+.\scripts\bootstrap-vcpkg.ps1
+mkdir build
+cd build
+cmake .. `
+  -DCMAKE_BUILD_TYPE=Release `
+  -DVCPKG_ROOT=C:\vcpkg `
+  -DVCPKG_TARGET_TRIPLET=x64-windows `
+  -DVCPKG_HOST_TRIPLET=x64-windows
+cmake --build . --config Release
+```
+
+Windows 输出通常位于 `build\bin\Release\FAMP.exe`。MSVC 编译选项 `_CRT_SECURE_NO_WARNINGS`、`NOMINMAX` 和 `/utf-8` 由 CMake 自动设置。
+
+## 测试
+
+测试目标默认随工程配置。构建后运行：
 
 ```bash
-/opt/vcpkg/installed
+ctest --test-dir build/tests --output-on-failure
 ```
 
-Linux 构建使用覆盖 triplet `triplets/x64-linux-release.cmake`，使 vcpkg 跳过未使用的 debug 变体以节省构建时间。该 triplet 保持动态库链接，与 vcpkg 在 Linux 上处理大型 GUI/渲染依赖的常规行为一致。
-
-构建成功后，可执行文件生成在：
-
-```bash
-build/bin/FAMP
-```
-
-安装命令会安装到指定前缀下的 `bin` 目录：
-
-```bash
-cmake --install . --prefix ../install
-```
-
-安装后路径为：
-
-```bash
-../install/bin/FAMP
-```
-
-本项目当前推荐使用 `build/bin/FAMP` 进行本地开发和验证。
+当前测试使用 GoogleTest，首次配置可能会下载 GoogleTest。新增非 GUI 逻辑时，优先在 `tests/test_*.cpp` 中补充单元测试。
 
 ## 运行验证
 
 在图形桌面环境中运行：
 
 ```bash
-cd /data/专利/田野考古制图系统/FAMP
+cd /FAMP
 ./build/bin/FAMP
 ```
 
-也可以用 `timeout` 做启动冒烟测试：
+也可以做启动冒烟测试：
 
 ```bash
 timeout 6 ./build/bin/FAMP
 ```
 
-返回码 `124` 表示程序正常保持运行直到被 `timeout` 结束。若出现 Qt 平台插件错误，优先确认系统 XCB 开发包已安装，并确认 `/opt/vcpkg/installed/x64-linux-release/Qt6/plugins/platforms/libqxcb.so` 存在。
+返回码 `124` 表示程序正常保持运行直到被 `timeout` 结束。若出现 Qt platform plugin 或 `libqxcb.so` 错误，先确认 Linux XCB 相关系统包已安装，并检查：
+
+```bash
+/opt/vcpkg/installed/x64-linux-release/Qt6/plugins/platforms/libqxcb.so
+```
+
+## 安装
+
+本地开发推荐直接使用 `build/bin/FAMP`。如需安装到单独目录：
+
+```bash
+cmake --install build --prefix install
+```
+
+安装后可执行文件位于 `install/bin/FAMP`。
+
+## Qt 资源说明
+
+按钮图标和窗口图标必须使用 Qt 资源路径，不要在 `.ui` 文件中写运行目录相关的相对路径。
+
+正确示例：
+
+```xml
+<normaloff>:/images/images/ccOpen.png</normaloff>
+```
+
+`resources/res.qrc` 使用前缀 `/images`，文件条目形如 `images/ccOpen.png`，因此代码和 `.ui` 中的访问路径为 `:/images/images/ccOpen.png`。新增图片时，需要同时把图片放入 `resources/images/` 并加入 `resources/res.qrc`。
 
 ## vcpkg 缓存清理
 
-依赖成功编译后，可以删除 vcpkg 的临时构建目录和下载缓存，保留已安装依赖：
+依赖成功编译后，可以清理临时构建目录和下载缓存：
 
 ```bash
 rm -rf /opt/vcpkg/buildtrees /opt/vcpkg/packages /opt/vcpkg/downloads ~/.cache/vcpkg
@@ -121,82 +163,20 @@ rm -rf /opt/vcpkg/buildtrees /opt/vcpkg/packages /opt/vcpkg/downloads ~/.cache/v
 
 该目录保存当前项目编译和运行需要的 Qt、VTK、PCL 等库。
 
-## Qt 资源说明
-
-按钮图标和窗口图标必须使用 Qt 资源路径，不要在 `.ui` 文件中使用运行目录相关的相对路径。
-
-正确示例：
-
-```xml
-<normaloff>:/images/images/ccOpen.png</normaloff>
-```
-
-资源文件位置：
-
-```bash
-resources/res.qrc
-```
-
-`res.qrc` 使用前缀 `/images`，其中的文件条目形如 `images/ccOpen.png`，因此代码和 `.ui` 中的访问路径为 `:/images/images/ccOpen.png`。新增按钮图片时，需要同时把图片放入 `resources/images/` 并加入 `resources/res.qrc`。
-
-`src/CMakeLists.txt` 已启用 `CMAKE_AUTORCC`，资源会随程序一起编译。
-
-## Windows 构建说明
-
-Windows 可使用本地 vcpkg，例如 `C:\vcpkg`。由于 Linux 默认配置指向 `/opt/vcpkg`，Windows 配置时应显式覆盖 vcpkg 相关路径：
-
-```powershell
-$VcpkgRoot = "C:\vcpkg"
-$ManifestDir = (Get-Location).Path
-.\scripts\bootstrap-vcpkg.ps1
-cmake -S src -B build `
-  -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_TOOLCHAIN_FILE="$VcpkgRoot\scripts\buildsystems\vcpkg.cmake" `
-  -DVCPKG_INSTALLED_DIR="$VcpkgRoot\installed" `
-  -DVCPKG_MANIFEST_DIR="$ManifestDir" `
-  -DVCPKG_TARGET_TRIPLET=x64-windows `
-  -DVCPKG_HOST_TRIPLET=x64-windows
-cmake --build build --config Release
-```
-
-Windows 输出通常位于：
-
-```powershell
-build\bin\Release\FAMP.exe
-```
-
-Windows 命令为跨平台配置参考；当前仓库本轮已在 Linux `/opt/vcpkg` 环境下完成编译和启动验证。
-
-## 自定义 Linux 构建目录
-
-如需使用其他 Linux 构建目录，可手动配置，但需保持 `/opt/vcpkg` 工具链和安装树路径：
-
-```bash
-cmake -S src -B /tmp/famp-build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
-  -DVCPKG_INSTALLED_DIR=/opt/vcpkg/installed \
-  -DVCPKG_MANIFEST_DIR="$PWD" \
-  -DVCPKG_OVERLAY_TRIPLETS="$PWD/triplets" \
-  -DVCPKG_TARGET_TRIPLET=x64-linux-release \
-  -DVCPKG_HOST_TRIPLET=x64-linux-release
-cmake --build /tmp/famp-build -- -j8
-```
-
 ## 维护约定
 
 - 不提交 `build/`、`install/`、vcpkg 下载缓存或本地 IDE 产物。
-- Linux 标准流程使用 `cmake -S ../src -B .`，主 CMake 文件为 `src/CMakeLists.txt`。
-- `build/bin/FAMP` 是本地构建输出；`install(TARGETS FAMP RUNTIME DESTINATION bin)` 控制安装输出。
-- CMake 文件有意不使用项目本地的 vcpkg 目录。Linux 构建使用 `/opt/vcpkg` 工具链路径。
+- 标准配置命令是在项目根目录执行 `mkdir -p build && cd build`，然后运行 `cmake .. -DCMAKE_BUILD_TYPE=Release`。
+- 标准构建目录是项目根目录下的 `build/`。
+- `build/bin/FAMP` 是 Linux 本地开发和验证用输出。
+- `install(TARGETS FAMP RUNTIME DESTINATION bin)` 控制安装输出。
 - 程序仍会将中间 `.pcd` 文件写入工作目录，与原有行为保持一致。
-- 首次重构的重点是实现可复现的跨平台构建，而非算法或 UI 重新设计。
 
 ## 常见问题
 
 ### `libqxcb.so` 或 Qt platform plugin 报错
 
-安装 Linux XCB 相关系统包，并确认 vcpkg Qt 编译时启用了 `xcb`、`xcb-sm`、`xcb-xlib`、`xrender` 特性。
+安装 Linux XCB 相关系统包，并确认 vcpkg Qt 编译时启用了 `xcb`、`xcb-sm`、`xcb-xlib`、`xrender` 等特性。
 
 ### 按钮图标不显示
 
@@ -204,4 +184,4 @@ cmake --build /tmp/famp-build -- -j8
 
 ### VTK/OpenGL 启动崩溃
 
-当前程序在 `main.cpp` 中为 VTK 9 设置了 `QVTKOpenGLNativeWidget::defaultFormat()`，并在 `MyVTK.cpp` 中使用 `vtkGenericOpenGLRenderWindow`。如果后续升级 VTK/Qt，需要保持这套初始化方式。
+程序在 `main.cpp` 中为 VTK 9 设置了 `QVTKOpenGLNativeWidget::defaultFormat()`，并在 `MyVTK.cpp` 中使用 `vtkGenericOpenGLRenderWindow`。升级 Qt/VTK 时，需要保持这套初始化方式。

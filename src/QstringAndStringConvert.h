@@ -1,15 +1,21 @@
+/*****************************************************************
+ * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
+ * Name: 田野考古制图系统(FAMS)
+ * Author: liujintao
+ * Version: V1.0
+ * Description: QString 与 std::string UTF-8 转换工具
+ *****************************************************************/
+
 #pragma once
 
-#include<qstring.h>
-using namespace std;
+#include <QString>
 
-static QString str2qstr(const string str)		// string转QString 乱码问题
+static QString str2qstr(const std::string str)      // string转QString 乱码问题
 {
-	return QString::fromLocal8Bit(str.data());
+    return QString::fromUtf8(str.data());
 }
 
-static string qstr2str(const QString qstr)	//QString转string 乱码问题
+static std::string qstr2str(const QString qstr) //QString转string 乱码问题
 {
-	QByteArray cdata = qstr.toLocal8Bit();
-	return string(cdata);
+    return qstr.toUtf8().toStdString();
 }
