@@ -61,3 +61,85 @@ jobs:
       # ── Test ──────────────────────────────────────────────────
       - name: Test
         run: ctest --test-dir build -C ${{ matrix.build-type }} --output-on-failure
+
+      # ── Package runnable artifacts ────────────────────────────
+      - name: Package Linux artifact
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          package_root="package"
+          package_dir="${package_root}/FAMP-linux"
+          triplet_dir="build/vcpkg_installed/${{ matrix.triplet }}"
+
+          rm -rf "${package_root}"
+          mkdir -p "${package_dir}/bin" "${package_dir}/lib" "${package_dir}/Qt6"
+
+          cp build/bin/FAMP "${package_dir}/bin/"
+          cp -a "${triplet_dir}/lib/"*.so* "${package_dir}/lib/" || true
+
+          if [ -d "${triplet_dir}/Qt6/plugins" ]; then
+            cp -a "${triplet_dir}/Qt6/plugins" "${package_dir}/Qt6/"
+          fi
+
+          cat > "${package_dir}/run-famp.sh" <<'EOF'
+          #!/usr/bin/env bash
+          set -e
+          app_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          export LD_LIBRARY_PATH="${app_dir}/lib:${LD_LIBRARY_PATH:-}"
+          export QT_PLUGIN_PATH="${app_dir}/Qt6/plugins:${QT_PLUGIN_PATH:-}"
+          exec "${app_dir}/bin/FAMP" "$@"
+          EOF
+          chmod +x "${package_dir}/run-famp.sh"
+
+          tar -czf "${package_root}/FAMP-linux-${{ github.sha }}.tar.gz" -C "${package_root}" FAMP-linux
+
+      - name: Package Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageRoot = 'package'
+          $packageDir = Join-Path $packageRoot 'FAMP-windows'
+          $tripletDir = 'build/vcpkg_installed/${{ matrix.triplet }}'
+
+          Remove-Item -Recurse -Force $packageRoot -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $packageDir | Out-Null
+
+          $exeCandidates = @(
+            'build/bin/Release/FAMP.exe',
+            'build/bin/FAMP.exe'
+          )
+          $exe = $exeCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $exe) {
+            throw 'FAMP.exe was not found under build/bin'
+          }
+          Copy-Item $exe $packageDir
+
+          $vcpkgBin = Join-Path $tripletDir 'bin'
+          if (Test-Path $vcpkgBin) {
+            Copy-Item "$vcpkgBin/*.dll" $packageDir -Force
+            $env:PATH = "$vcpkgBin;$env:PATH"
+          }
+
+          $qtToolCandidates = @(
+            "$tripletDir/tools/Qt6/bin/windeployqt.exe",
+            "$tripletDir/tools/qt6/bin/windeployqt.exe"
+          )
+          $windeployqt = $qtToolCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if ($windeployqt) {
+            & $windeployqt --release --compiler-runtime --dir $packageDir (Join-Path $packageDir 'FAMP.exe')
+          } else {
+            Write-Warning 'windeployqt.exe was not found; copying vcpkg DLLs only.'
+          }
+
+          Compress-Archive -Path "$packageDir/*" -DestinationPath "$packageRoot/FAMP-windows-${{ github.sha }}.zip" -Force
+
+      - name: Upload packaged artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: FAMP-${{ runner.os }}-${{ github.sha }}
+          path: |
+            package/*.tar.gz
+            package/*.zip
+          if-no-files-found: error

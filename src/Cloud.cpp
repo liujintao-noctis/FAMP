@@ -6,7 +6,11 @@
  * Description: 点云工具类 — 质心计算、OBB包围盒、去中心化
  *****************************************************************/
 
+#define PCL_NO_PRECOMPILE
 #include "Cloud.h"
+
+#include <pcl/features/moment_of_inertia_estimation.h>
+#include <pcl/features/impl/moment_of_inertia_estimation.hpp>
 
 Cloud::Cloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud):
     cloud_origin (NULL)

@@ -14,7 +14,6 @@
 #include <pcl/io/pcd_io.h>
 #include <pcl/common/common.h>
 #include <pcl/common/transforms.h>
-#include <pcl/features/moment_of_inertia_estimation.h>
 
 #include <QDebug>
 
@@ -33,4 +32,3 @@ private:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud_origin;
     void computeCentriod(); //计算点云质心
 };
-

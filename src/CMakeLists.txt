@@ -107,6 +107,12 @@ add_library(lastools_compat STATIC
     "${LASTOOLS_DIR}/LASlib/src/laswritercompatible.cpp"
 )
 
+set_target_properties(lastools_compat PROPERTIES
+    CXX_STANDARD 14
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+)
+
 target_include_directories(lastools_compat
     PUBLIC
         "${LASTOOLS_DIR}/LASlib/inc"
