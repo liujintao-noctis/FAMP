@@ -1,0 +1,33 @@
+if(NOT DEFINED FAMP_ROOT_DIR)
+    get_filename_component(FAMP_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+endif()
+
+if(NOT CMAKE_TOOLCHAIN_FILE)
+    if(NOT DEFINED VCPKG_ROOT AND DEFINED ENV{VCPKG_ROOT})
+        set(VCPKG_ROOT "$ENV{VCPKG_ROOT}")
+    endif()
+
+    if(DEFINED VCPKG_ROOT)
+        set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "vcpkg toolchain")
+        set(VCPKG_INSTALLED_DIR "${VCPKG_ROOT}/installed" CACHE PATH "vcpkg installed tree")
+        message(STATUS "Using vcpkg toolchain: ${CMAKE_TOOLCHAIN_FILE}")
+    else()
+        message(STATUS "VCPKG_ROOT not set; using system packages")
+    endif()
+else()
+    message(STATUS "Using cached toolchain: ${CMAKE_TOOLCHAIN_FILE}")
+endif()
+
+set(VCPKG_MANIFEST_DIR "${FAMP_ROOT_DIR}" CACHE PATH "vcpkg manifest directory")
+set(VCPKG_OVERLAY_TRIPLETS "${FAMP_ROOT_DIR}/triplets" CACHE PATH "vcpkg overlay triplets")
+
+if(CMAKE_TOOLCHAIN_FILE)
+    if(CMAKE_HOST_WIN32)
+        set(FAMP_DEFAULT_TRIPLET "x64-windows")
+    else()
+        set(FAMP_DEFAULT_TRIPLET "x64-linux-release")
+    endif()
+
+    set(VCPKG_TARGET_TRIPLET "${FAMP_DEFAULT_TRIPLET}" CACHE STRING "vcpkg target triplet")
+    set(VCPKG_HOST_TRIPLET "${FAMP_DEFAULT_TRIPLET}" CACHE STRING "vcpkg host triplet")
+endif()

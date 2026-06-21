@@ -200,6 +200,7 @@ void MyVTK::beginClipPlane()
     m_pointCloudManager->computeCurrentCloudAABB(currentItemCloud);
     emit sendAABBBoxXYZMAX(m_pointCloudManager->XMaxMin(), m_pointCloudManager->YMaxMin(), m_pointCloudManager->ZMaxMin());
 
+    m_renderManager->render();
     this->update();
 }
 
@@ -238,6 +239,8 @@ void MyVTK::endCutRemoveActors()
 {
     m_projectionManager->endCutRemoveActors(m_renderManager->renderer(),
         verticalPlane, randomPlane, horizonalPlane);
+    m_renderManager->render();
+    this->update();
 }
 
 //保存点云文件
@@ -376,6 +379,7 @@ void MyVTK::projectToPlane(ProjectionPlane plane)
         emit sendStrFromVTK2Console(QString::asprintf("%s面投影完成！共有%d个点在%s面上", planeName, static_cast<int>(outProjectCloud->size()), planeName));
     }
 
+    m_renderManager->render();
     this->update();
 }
 
@@ -407,12 +411,16 @@ void MyVTK::slotActOverLookProj_triggered()
 void MyVTK::AABBOrignalPosAxis(pcl::PointCloud<pcl::PointXYZRGB>::Ptr incloud)
 {
     m_pointCloudManager->AABBOrignalPosAxis(incloud, m_renderManager->renderer());
+    m_renderManager->render();
+    this->update();
 }
 
 //显示AABB最小的坐标创建坐标轴
 void MyVTK::displayAABBOrignalPosAxis(bool enable)
 {
     m_pointCloudManager->displayAABBOrignalPosAxis(enable);
+    m_renderManager->render();
+    this->update();
 }
 
 void MyVTK::setFrontView()

@@ -10,4 +10,4 @@ if (-not (Test-Path (Join-Path $VcpkgDir ".git"))) {
 & (Join-Path $VcpkgDir "bootstrap-vcpkg.bat")
 
 Write-Host "vcpkg is ready at $VcpkgDir"
-Write-Host "Configure manually with -DCMAKE_TOOLCHAIN_FILE=$VcpkgDir\scripts\buildsystems\vcpkg.cmake"
+Write-Host "Configure with: mkdir build; cd build; cmake .. -DCMAKE_BUILD_TYPE=Release -DVCPKG_ROOT=$VcpkgDir"

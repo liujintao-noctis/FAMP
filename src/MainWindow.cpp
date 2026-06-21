@@ -16,6 +16,9 @@
 #include <QMessageBox>
 #include <QTime>
 
+#include <cstdint>
+#include <memory>
+
 Q_DECLARE_METATYPE(MyCloudList)
 
 static int iCount = 0;      //记录点云的ID号
@@ -137,20 +140,28 @@ void MainWindow::setScaleVisible(bool enable)
 }
 
 //将LAS格式转为PCD格式
-void MainWindow::las2PCD(std::string path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud)
+void MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud)
 {
     //-------------------------- 加载las点云 --------------------------
     LASreadOpener lasLoad;
     std::vector<char> pathBuf(path.begin(), path.end());
     pathBuf.push_back('\0');
     lasLoad.set_file_name(pathBuf.data());
-    LASreader* lasReader = lasLoad.open();
-    if (lasReader == NULL)
+    auto closeLasReader = [](LASreader* reader) {
+        if (reader)
+        {
+            reader->close();
+            delete reader;
+        }
+    };
+    std::unique_ptr<LASreader, decltype(closeLasReader)> lasReader(lasLoad.open(), closeLasReader);
+    if (!lasReader)
     {
         QMessageBox::warning(this, tr("Error"), tr("Failed to open LAS file: %1").arg(QString::fromStdString(path)));
         return;
     }
     uint32_t ptCount = lasReader->header.number_of_point_records;
+    outCloud->points.reserve(static_cast<std::size_t>(ptCount));
 
     //点云中心
     double center[3];
@@ -171,14 +182,17 @@ void MainWindow::las2PCD(std::string path, pcl::PointCloud<pcl::PointXYZRGB>::Pt
         point.x = x;
         point.y = y;
         point.z = z;
-        point.r = lasReader->point.get_R() * 255 / 65535;
-        point.g = lasReader->point.get_G() * 255 / 65535;
-        point.b = lasReader->point.get_B() * 255 / 65535;
+        point.r = static_cast<std::uint8_t>(lasReader->point.get_R() * 255 / 65535);
+        point.g = static_cast<std::uint8_t>(lasReader->point.get_G() * 255 / 65535);
+        point.b = static_cast<std::uint8_t>(lasReader->point.get_B() * 255 / 65535);
 
         //cout <<setprecision(16)<< x << "  " << y << " " << z << endl;
         //cout << point << endl;
         outCloud->points.push_back(point);
     }
+    outCloud->width = static_cast<std::uint32_t>(outCloud->points.size());
+    outCloud->height = 1;
+    outCloud->is_dense = false;
 
     // 调试用：保存转换结果，生产环境需移除
     // pcl::io::savePCDFileBinary("PCD2Las.pcd", *outCloud);
@@ -297,7 +311,7 @@ void MainWindow::slotOpenCloud()
     QString path = QFileDialog::getOpenFileName(this, "打开点云文件", QCoreApplication::applicationDirPath(), filter);    //文件路径
     QString dir = QFileInfo(path).fileName();    //文件名
     QFileInfo fileInfo = QFileInfo(path);
-    QString fileSuffix = fileInfo.suffix(); //文件后缀
+    QString fileSuffix = fileInfo.suffix().toLower(); //文件后缀
     //qDebug() << "fileSuffix:" << fileSuffix;
 
     if (path.isEmpty())     return;
@@ -927,4 +941,3 @@ void MainWindow::sendCurrentScaleToGraphicView()
 {
     ui.graphicsView->currentScaleIndex = this->scaleCombox->currentIndex();
 }
-

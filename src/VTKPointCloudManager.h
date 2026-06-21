@@ -24,17 +24,10 @@
 #include <vtkPoints.h>
 #include <vtkLineSource.h>
 #include <vtkOutlineFilter.h>
-#include <vtkFloatArray.h>
-#include <vtkPolyVertex.h>
-#include <vtkUnstructuredGrid.h>
-#include <vtkDataSetMapper.h>
-#include <vtkLookupTable.h>
-#include <vtkVertexGlyphFilter.h>
-#include <vtkIdFilter.h>
-#include <vtkDataSetSurfaceFilter.h>
 #include <vtkProperty.h>
 #include <vtkPointData.h>
 #include <vtkRenderer.h>
+#include <vtkUnsignedCharArray.h>
 
 #include <vector>
 

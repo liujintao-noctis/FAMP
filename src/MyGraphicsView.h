@@ -158,7 +158,7 @@ private:
     void setDlgPlotTab();           //设置弹出出图模板对话框
 
     //----------DP算法------------
-    double point2LineDist(DPPoint p1, DPPoint p2, DPPoint p3);      //计算点到线的距离
+    double point2LineDist(const DPPoint& p1, const DPPoint& p2, const DPPoint& p3);      //计算点到线的距离
     std::pair<double, int> getMaxDistAndIndex(std::vector<DPPoint> &Points, int begin, int end);  //计算点集中的最大值及其索引
     void computeDP(std::vector<DPPoint> &Points, int begin, int end, double threshold); //DP算法简化线条点
 

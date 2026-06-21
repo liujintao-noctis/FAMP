@@ -36,21 +36,12 @@ VTKPointCloudManager::~VTKPointCloudManager()
 float VTKPointCloudManager::getAABBCoordinateMax(pcl::PointCloud<pcl::PointXYZRGB>::Ptr inCloud)
 {
     pcl::PointXYZRGB AABB_Max, AABB_min;
-    if (inCloud->size() == 0) return 1.0;
+    if (!inCloud || inCloud->empty()) return 1.0;
     pcl::getMinMax3D(*inCloud, AABB_min, AABB_Max);
 
-    std::vector<float> vec;
-    vec.reserve(inCloud->size());
-    vec.push_back(AABB_Max.x);
-    vec.push_back(AABB_Max.y);
-    vec.push_back(AABB_Max.z);
-    vec.push_back(AABB_min.x);
-    vec.push_back(AABB_min.y);
-    vec.push_back(AABB_min.z);
-
-    std::sort(vec.begin(), vec.end(), [](float p1, float p2) {return p1 < p2; });
-
-    float coordinateM = (vec.at(5) - vec.at(0)) * 0.75;
+    const float minCoordinate = std::min({ AABB_min.x, AABB_min.y, AABB_min.z });
+    const float maxCoordinate = std::max({ AABB_Max.x, AABB_Max.y, AABB_Max.z });
+    float coordinateM = (maxCoordinate - minCoordinate) * 0.75f;
     return static_cast<float>(std::fabs(coordinateM));
 }
 
@@ -59,29 +50,37 @@ vtkActor * VTKPointCloudManager::appendCloudActor(vtkRenderer * renderer,
     vtkPolyData ** outPolyData)
 {
     vtkNew<vtkPoints> points;
-    vtkNew<vtkCellArray> cell;
-    vtkNew<vtkLookupTable> lookup;
+    vtkNew<vtkCellArray> vertices;
     vtkNew<vtkPolyData> polyData;
-    vtkNew<vtkFloatArray> myscalar;
-    vtkNew<vtkPolyVertex> polyVertex;
-    vtkNew<vtkFloatArray> pointsScalars;
+    vtkNew<vtkUnsignedCharArray> colors;
+    vtkNew<vtkPolyDataMapper> cloudMapper;
     vtkNew<vtkActor> cloudActor;
 
-    lookup->SetNumberOfTableValues(orignalCloud->size());
-    lookup->Build();
+    colors->SetName("RGB");
+    colors->SetNumberOfComponents(3);
 
-    vtkIdType idtype;
-    for (size_t i = 0; i < orignalCloud->points.size(); i++)
+    if (orignalCloud)
     {
-        idtype = points->InsertNextPoint(orignalCloud->points[i].x, orignalCloud->points[i].y, orignalCloud->points[i].z);
-        myscalar->InsertNextTuple1(1);
-        lookup->SetTableValue(i, (double)orignalCloud->points[i].r / 255.0, (double)orignalCloud->points[i].g / 255.0, (double)orignalCloud->points[i].b / 255.0, 1);
-        cell->InsertNextCell(1, &idtype);
+        points->SetNumberOfPoints(static_cast<vtkIdType>(orignalCloud->size()));
+        vertices->AllocateEstimate(static_cast<vtkIdType>(orignalCloud->size()), 1);
+        colors->SetNumberOfTuples(static_cast<vtkIdType>(orignalCloud->size()));
+
+        vtkIdType idtype;
+        for (size_t i = 0; i < orignalCloud->points.size(); i++)
+        {
+            const auto& point = orignalCloud->points[i];
+            idtype = static_cast<vtkIdType>(i);
+            points->SetPoint(idtype, point.x, point.y, point.z);
+            vertices->InsertNextCell(1, &idtype);
+
+            const unsigned char rgb[3] = { point.r, point.g, point.b };
+            colors->SetTypedTuple(idtype, rgb);
+        }
     }
 
     polyData->SetPoints(points);
-    polyData->SetVerts(cell);
-    polyData->GetPointData()->SetScalars(myscalar);
+    polyData->SetVerts(vertices);
+    polyData->GetPointData()->SetScalars(colors);
 
     if (outPolyData)
     {
@@ -89,42 +88,16 @@ vtkActor * VTKPointCloudManager::appendCloudActor(vtkRenderer * renderer,
         (*outPolyData)->Register(nullptr);  // 防止 vtkNew 析构时释放对象
     }
 
-    polyVertex->GetPointIds()->SetNumberOfIds(orignalCloud->size());
-    pointsScalars->SetNumberOfTuples(orignalCloud->size());
-    for (size_t i = 0; i < orignalCloud->size(); i++)
-    {
-        polyVertex->GetPointIds()->SetId(i, i);
-        pointsScalars->InsertValue(i, i);
-    }
-
-    vtkNew<vtkUnstructuredGrid> cloudGrid;
-    cloudGrid->Allocate(1, 1);
-    cloudGrid->SetPoints(points);
-    cloudGrid->GetPointData()->SetScalars(pointsScalars);
-    cloudGrid->InsertNextCell(polyVertex->GetCellType(), polyVertex->GetPointIds());
-
-    vtkNew<vtkDataSetMapper> cloudMapper;
-    cloudMapper->SetInputData(cloudGrid);
+    cloudMapper->SetInputData(polyData);
     cloudMapper->ScalarVisibilityOn();
-    cloudMapper->SetScalarRange(0, static_cast<double>(orignalCloud->size() - 1));
-    cloudMapper->SetLookupTable(lookup);
-
-    vtkNew<vtkIdFilter> idFilter;
-    idFilter->SetInputData(polyData);
-#if VTK_MAJOR_VERSION >= 9
-    idFilter->SetPointIdsArrayName("OriginalIds");
-    idFilter->SetCellIdsArrayName("OriginalIds");
-#else
-    idFilter->SetIdsArrayName("OriginalIds");
-#endif
-    vtkNew<vtkDataSetSurfaceFilter> sufaceFilter;
-    sufaceFilter->SetInputConnection(idFilter->GetOutputPort());
-    sufaceFilter->Update();
 
     cloudActor->SetMapper(cloudMapper);
     cloudActor->GetProperty()->SetPointSize(2);
     cloudActor->GetProperty()->SetRepresentationToPoints();
-    renderer->AddActor(cloudActor);
+    if (renderer)
+    {
+        renderer->AddActor(cloudActor);
+    }
 
     // vtkNew 析构时会 Delete，调用 Register 防止返回的裸指针悬空
     cloudActor->Register(nullptr);
@@ -133,10 +106,17 @@ vtkActor * VTKPointCloudManager::appendCloudActor(vtkRenderer * renderer,
 
 vtkActor * VTKPointCloudManager::appendAABBActor(vtkPolyData * AABB_Polydata)
 {
-    double bound[6];
-    if (AABB_Polydata) {
-        AABB_Polydata->GetBounds(bound);
+    vtkNew<vtkActor> AABBActor;
+    AABBActor->GetProperty()->SetColor(1, 0, 0);
+
+    if (!AABB_Polydata)
+    {
+        AABBActor->Register(nullptr);
+        return AABBActor;
     }
+
+    double bound[6];
+    AABB_Polydata->GetBounds(bound);
     qDebug() << "OBB Size:\t"
         << bound[1] - bound[0] << ", " << bound[3] - bound[2] << ", " << bound[5] - bound[4];
 
@@ -147,9 +127,7 @@ vtkActor * VTKPointCloudManager::appendAABBActor(vtkPolyData * AABB_Polydata)
     vtkNew<vtkPolyDataMapper> mapOutline;
     mapOutline->SetInputConnection(AABBOutlineData->GetOutputPort());
 
-    vtkNew<vtkActor> AABBActor;
     AABBActor->SetMapper(mapOutline);
-    AABBActor->GetProperty()->SetColor(1, 0, 0);
 
     AABBActor->Register(nullptr);  // 防止 vtkNew 析构时释放对象
     return AABBActor;

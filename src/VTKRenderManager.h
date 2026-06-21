@@ -63,6 +63,7 @@ public:
     void removeCloudDisplay(vtkActor *actor);
     void removeAABBDisplay(vtkActor *actor);
     void getActorFromGraphicView(vtkActor *actor);
+    void render();
 
     // Getters for shared VTK objects
     vtkRenderer * renderer() const { return m_renderer; }

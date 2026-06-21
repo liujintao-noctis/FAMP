@@ -14,6 +14,9 @@
 #include <QMessageBox>
 #include <QCoreApplication>
 
+#include <cmath>
+#include <cstdint>
+
 VTKProjectionManager::VTKProjectionManager()
 {
     // 切割的点显示的 VTK 数据初始化
@@ -57,27 +60,33 @@ void VTKProjectionManager::beginClipPlane(pcl::PointCloud<pcl::PointXYZRGB>::Ptr
     double *normal = clipPlane->GetNormal();
 
     outCloudCutPlane.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    outCloudCutPlane->clear();
+    outCloudCutPlane->points.reserve(currentItemCloud ? currentItemCloud->size() : 0);
     m_selectedPoints->Reset();
+    m_cellSelected->Reset();
+    m_selectedPolyData->Initialize();
 
-    for (size_t i = 0; i < currentItemCloud->size(); i++)
+    for (size_t i = 0; currentItemCloud && i < currentItemCloud->size(); i++)
     {
+        const auto& sourcePoint = currentItemCloud->points[i];
         double Point[3];
-        Point[0] = currentItemCloud->points[i].x;
-        Point[1] = currentItemCloud->points[i].y;
-        Point[2] = currentItemCloud->points[i].z;
+        Point[0] = sourcePoint.x;
+        Point[1] = sourcePoint.y;
+        Point[2] = sourcePoint.z;
 
         double distance = vtkPlane::DistanceToPlane(Point, normal, origin);
 
-        pcl::PointXYZRGB pointSelected;
-        if (distance < threshold)
+        if (std::fabs(distance) <= threshold)
         {
+            pcl::PointXYZRGB pointSelected = sourcePoint;
             pointSelected.x = Point[0];
             pointSelected.y = Point[1];
             pointSelected.z = Point[2];
             outCloudCutPlane->push_back(pointSelected);
         }
     }
+    outCloudCutPlane->width = static_cast<std::uint32_t>(outCloudCutPlane->size());
+    outCloudCutPlane->height = 1;
+    outCloudCutPlane->is_dense = false;
 
     // 将切割生成的点云副本保存用于投影
     outCloudCutProjection = outCloudCutPlane;

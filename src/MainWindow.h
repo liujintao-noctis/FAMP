@@ -72,7 +72,7 @@ private:
     QComboBox * scaleCombox;
     QLabel * scaleLabel;
     void setScaleVisible(bool enable);          //设置比例尺的可见性
-    void las2PCD(std::string path,pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
+    void las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
     void showPlaneWidget(vtkPlaneWidget* (MyVTK::*displayFunc)(), const char* consoleMsg); //统一的平面部件显示方法
 
 private slots:

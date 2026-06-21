@@ -99,7 +99,7 @@ Windows 输出通常位于 `build\bin\Release\FAMP.exe`。MSVC 编译选项 `_CR
 测试目标默认随工程配置。构建后运行：
 
 ```bash
-ctest --test-dir build/tests --output-on-failure
+ctest --test-dir build --output-on-failure
 ```
 
 当前测试使用 GoogleTest，首次配置可能会下载 GoogleTest。新增非 GUI 逻辑时，优先在 `tests/test_*.cpp` 中补充单元测试。

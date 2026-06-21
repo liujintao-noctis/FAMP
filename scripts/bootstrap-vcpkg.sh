@@ -18,4 +18,4 @@ fi
 "${vcpkg_dir}/bootstrap-vcpkg.sh"
 
 echo "vcpkg is ready at ${vcpkg_dir}"
-echo "Configure with: mkdir -p build && cd build && cmake -S ../src -B . && make -j8"
+echo "Configure with: mkdir -p build && cd build && cmake .. -DCMAKE_BUILD_TYPE=Release && cmake --build . -- -j8"

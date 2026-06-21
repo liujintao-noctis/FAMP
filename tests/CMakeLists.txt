@@ -66,5 +66,4 @@ target_include_directories(famp_tests
 
 # gtest-discover-tests scans the binary at build time for registered tests.
 include(GoogleTest)
-enable_testing()
 gtest_discover_tests(famp_tests)

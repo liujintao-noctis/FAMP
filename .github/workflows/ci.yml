@@ -47,12 +47,7 @@ jobs:
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake
-        run: |
-          cmake -S src -B build \
-            -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" \
-            -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} \
-            -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} \
-            -DBUILD_TESTING=ON
+        run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DBUILD_TESTING=ON
 
       # ── Build ─────────────────────────────────────────────────
       - name: Build

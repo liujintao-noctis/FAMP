@@ -4,6 +4,10 @@ build-*/
 out/
 cmake-build-*/
 CMakeUserPresets.json
+bin/
+
+# Auto-generated
+AGENTS.md
 
 # Local dependency checkout
 .deps/

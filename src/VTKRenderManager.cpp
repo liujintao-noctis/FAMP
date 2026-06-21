@@ -170,3 +170,11 @@ void VTKRenderManager::getActorFromGraphicView(vtkActor *actor)
     m_renderer->AddActor(actor);
     m_renderWindow->Render();
 }
+
+void VTKRenderManager::render()
+{
+    if (m_renderWindow)
+    {
+        m_renderWindow->Render();
+    }
+}

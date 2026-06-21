@@ -1,35 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
 set(FAMP_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+include("${FAMP_ROOT_DIR}/cmake/FampVcpkg.cmake")
 
-# ── vcpkg toolchain (first configure only — cached on re-runs) ──────────
-if(NOT CMAKE_TOOLCHAIN_FILE)
-    if(NOT DEFINED VCPKG_ROOT AND DEFINED ENV{VCPKG_ROOT})
-        set(VCPKG_ROOT "$ENV{VCPKG_ROOT}")
-    endif()
-    if(DEFINED VCPKG_ROOT)
-        set(CMAKE_TOOLCHAIN_FILE "${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake" CACHE FILEPATH "vcpkg toolchain")
-        set(VCPKG_INSTALLED_DIR "${VCPKG_ROOT}/installed" CACHE PATH "vcpkg installed tree")
-        message(STATUS "Using vcpkg toolchain: ${CMAKE_TOOLCHAIN_FILE}")
-    else()
-        message(STATUS "VCPKG_ROOT not set — using system packages")
-    endif()
-else()
-    message(STATUS "Using cached toolchain: ${CMAKE_TOOLCHAIN_FILE}")
-endif()
-
-set(VCPKG_MANIFEST_DIR "${FAMP_ROOT_DIR}" CACHE PATH "vcpkg manifest directory")
-set(VCPKG_OVERLAY_TRIPLETS "${FAMP_ROOT_DIR}/triplets" CACHE PATH "vcpkg overlay triplets")
-
-# Default triplet — can be overridden via -DVCPKG_TARGET_TRIPLET=...
-if(DEFINED CMAKE_TOOLCHAIN_FILE)
-    if(WIN32)
-        set(DEFAULT_TRIPLET "x64-windows")
-    else()
-        set(DEFAULT_TRIPLET "x64-linux-release")
-    endif()
-    set(VCPKG_TARGET_TRIPLET "${DEFAULT_TRIPLET}" CACHE STRING "vcpkg target triplet")
-endif()
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Build type" FORCE)
 endif()
@@ -39,6 +12,10 @@ project(FAMP
     DESCRIPTION "Field Archaeology Mapping Program"
     LANGUAGES CXX
 )
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    include(CTest)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -216,8 +193,6 @@ endif()
 
 install(TARGETS FAMP RUNTIME DESTINATION bin)
 
-# ── Tests ─────────────────────────────────────────────────────────────────
-option(BUILD_TESTING "Build the test suite" ON)
 if(BUILD_TESTING)
     add_subdirectory("${FAMP_ROOT_DIR}/tests" "${CMAKE_BINARY_DIR}/tests")
 endif()

@@ -709,6 +709,11 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
 {
     //根据传入的点云和投影类型转为QT点
     //比例尺 默认 1:50
+    if (!incloud)
+    {
+        return;
+    }
+    points.reserve(points.size() + static_cast<int>(incloud->size()));
 
     switch (protype)
     {
@@ -870,7 +875,7 @@ void MyGraphicsView::setDlgPlotTabNull()
 }
 
 //计算点到线的距离
-double MyGraphicsView::point2LineDist(DPPoint p1, DPPoint p2, DPPoint p3)
+double MyGraphicsView::point2LineDist(const DPPoint& p1, const DPPoint& p2, const DPPoint& p3)
 {
     double dist;
     Eigen::Vector4f line_dir = { p1.x - p2.x,p1.y - p2.y,p1.z - p2.z ,0.0 };
@@ -884,16 +889,18 @@ double MyGraphicsView::point2LineDist(DPPoint p1, DPPoint p2, DPPoint p3)
 //计算点集中的最大值及其索引
 std::pair<double, int> MyGraphicsView::getMaxDistAndIndex(std::vector<DPPoint>& Points, int begin, int end)
 {
-    std::vector<double> dists;
-    dists.reserve(end - begin + 1);
+    double maxDistance = 0.0;
+    int maxIndex = begin;
     for (int i = begin; i <= end; i++)
     {
         double dis = point2LineDist(Points[begin], Points[end], Points[i]);
-        dists.push_back(dis);
+        if (dis > maxDistance)
+        {
+            maxDistance = dis;
+            maxIndex = i;
+        }
     }
-    auto max = std::max_element(dists.begin(), dists.end());
-    int idx = Points[begin].ID + std::distance(dists.begin(), max);
-    return std::make_pair(*max, idx);
+    return std::make_pair(maxDistance, maxIndex);
 }
 
 /*//DP算法简化线条点
