@@ -2,6 +2,7 @@
   "name": "famp",
   "version-string": "0.1.0",
   "description": "Field Archaeology Mapping Program",
+  "builtin-baseline": "a0b1c8d3a477c1cb4813d8e127a56961707ca42b",
   "dependencies": [
     {
       "name": "qtbase",
@@ -10,15 +11,22 @@
         "gui",
         "widgets",
         "opengl",
-        "fontconfig",
         "png",
         "jpeg",
-        "thread",
+        "thread"
+      ]
+    },
+    {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "fontconfig",
         "xcb",
         "xcb-sm",
         "xcb-xlib",
         "xrender"
-      ]
+      ],
+      "platform": "linux"
     },
     {
       "name": "vtk",
