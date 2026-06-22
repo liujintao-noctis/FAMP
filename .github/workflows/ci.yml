@@ -146,6 +146,33 @@ jobs:
             throw 'windeployqt.exe was not found; Windows package would be missing Qt plugins and runtime files.'
           }
 
+          $vswhereCandidates = @(
+            (Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'),
+            (Join-Path $env:ProgramFiles 'Microsoft Visual Studio\Installer\vswhere.exe')
+          )
+          $vswhere = $vswhereCandidates | Where-Object { $_ -and (Test-Path $_) } | Select-Object -First 1
+          if ($vswhere) {
+            $vsInstall = & $vswhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Redist.14.Latest -property installationPath
+            if ($vsInstall) {
+              $redistRoot = Join-Path $vsInstall 'VC\Redist\MSVC'
+              if (Test-Path $redistRoot) {
+                $crtDirs = Get-ChildItem $redistRoot -Directory |
+                  Sort-Object Name -Descending |
+                  ForEach-Object {
+                    Join-Path $_.FullName 'x64\Microsoft.VC143.CRT'
+                    Join-Path $_.FullName 'x64\Microsoft.VC142.CRT'
+                  } |
+                  Where-Object { Test-Path $_ }
+
+                foreach ($crtDir in $crtDirs) {
+                  Copy-Item (Join-Path $crtDir 'VCRUNTIME*.dll') $packageDir -Force -ErrorAction SilentlyContinue
+                  Copy-Item (Join-Path $crtDir 'MSVCP*.dll') $packageDir -Force -ErrorAction SilentlyContinue
+                  Copy-Item (Join-Path $crtDir 'CONCRT*.dll') $packageDir -Force -ErrorAction SilentlyContinue
+                }
+              }
+            }
+          }
+
           $requiredFiles = @(
             (Join-Path $packageDir 'FAMP.exe'),
             (Join-Path $packageDir 'platforms/qwindows.dll')
