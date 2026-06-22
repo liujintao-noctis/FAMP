@@ -16,9 +16,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-22.04, windows-latest]
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             triplet: x64-linux-release
             build-type: Release
           - os: windows-latest
@@ -57,9 +57,9 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-${{ runner.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake') }}
+          key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake') }}
           restore-keys: |
-            vcpkg-${{ runner.os }}-${{ matrix.triplet }}-
+            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake
