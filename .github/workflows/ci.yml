@@ -135,13 +135,32 @@ jobs:
 
           $qtToolCandidates = @(
             "$tripletDir/tools/Qt6/bin/windeployqt.exe",
-            "$tripletDir/tools/qt6/bin/windeployqt.exe"
+            "$tripletDir/tools/Qt6/bin/windeployqt6.exe",
+            "$tripletDir/tools/qt6/bin/windeployqt.exe",
+            "$tripletDir/tools/qt6/bin/windeployqt6.exe"
           )
           $windeployqt = $qtToolCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if ($windeployqt) {
             & $windeployqt --release --compiler-runtime --dir $packageDir (Join-Path $packageDir 'FAMP.exe')
           } else {
-            Write-Warning 'windeployqt.exe was not found; copying vcpkg DLLs only.'
+            throw 'windeployqt.exe was not found; Windows package would be missing Qt plugins and runtime files.'
+          }
+
+          $requiredFiles = @(
+            (Join-Path $packageDir 'FAMP.exe'),
+            (Join-Path $packageDir 'platforms/qwindows.dll')
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            if (-not (Test-Path $requiredFile)) {
+              throw "Required Windows package file is missing: $requiredFile"
+            }
+          }
+
+          if (-not (Get-ChildItem $packageDir -Filter 'VCRUNTIME*.dll' -ErrorAction SilentlyContinue)) {
+            throw 'MSVC runtime DLL VCRUNTIME*.dll was not packaged.'
+          }
+          if (-not (Get-ChildItem $packageDir -Filter 'MSVCP*.dll' -ErrorAction SilentlyContinue)) {
+            throw 'MSVC runtime DLL MSVCP*.dll was not packaged.'
           }
 
           Compress-Archive -Path "$packageDir/*" -DestinationPath "$packageRoot/FAMP-windows-${{ github.sha }}.zip" -Force

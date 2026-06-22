@@ -29,6 +29,14 @@
       "platform": "linux"
     },
     {
+      "name": "qtbase",
+      "default-features": false,
+      "features": [
+        "windeployqt"
+      ],
+      "platform": "windows"
+    },
+    {
       "name": "vtk",
       "default-features": false,
       "features": [
