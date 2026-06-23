@@ -123,7 +123,13 @@ if(MSVC)
     target_compile_definitions(lastools_compat PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
 
-add_executable(FAMP
+if(WIN32)
+    set(FAMP_EXECUTABLE_TYPE WIN32)
+else()
+    set(FAMP_EXECUTABLE_TYPE)
+endif()
+
+add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
     CompassItem.cpp
     FAMPController.cpp
@@ -188,6 +194,14 @@ target_link_libraries(FAMP
 
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     target_link_libraries(FAMP PRIVATE Qt6::OpenGLWidgets)
+endif()
+
+if(WIN32)
+    if(TARGET Qt${QT_VERSION_MAJOR}::EntryPoint)
+        target_link_libraries(FAMP PRIVATE Qt${QT_VERSION_MAJOR}::EntryPoint)
+    elseif(TARGET Qt${QT_VERSION_MAJOR}::WinMain)
+        target_link_libraries(FAMP PRIVATE Qt${QT_VERSION_MAJOR}::WinMain)
+    endif()
 endif()
 
 if(TARGET VTK::CommonCore)

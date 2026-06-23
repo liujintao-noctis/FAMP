@@ -190,6 +190,24 @@ jobs:
             throw 'MSVC runtime DLL MSVCP*.dll was not packaged.'
           }
 
+          @'
+          @echo off
+          setlocal
+          pushd "%~dp0"
+          set QT_DEBUG_PLUGINS=1
+          echo Working directory: %CD% > famp-run.log
+          echo Started: %DATE% %TIME% >> famp-run.log
+          echo. >> famp-run.log
+          FAMP.exe >> famp-run.log 2>&1
+          echo. >> famp-run.log
+          echo Exit code: %ERRORLEVEL% >> famp-run.log
+          echo Finished: %DATE% %TIME% >> famp-run.log
+          type famp-run.log
+          echo.
+          pause
+          popd
+          '@ | Set-Content -Path (Join-Path $packageDir 'run-famp-debug.bat') -Encoding ascii
+
           Compress-Archive -Path "$packageDir/*" -DestinationPath "$packageRoot/FAMP-windows-${{ github.sha }}.zip" -Force
 
       - name: Upload packaged artifact
