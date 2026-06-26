@@ -156,15 +156,20 @@ jobs:
             if ($vsInstall) {
               $redistRoot = Join-Path $vsInstall 'VC\Redist\MSVC'
               if (Test-Path $redistRoot) {
-                $crtDirs = Get-ChildItem $redistRoot -Directory |
+                $crtDir = Get-ChildItem $redistRoot -Directory |
                   Sort-Object Name -Descending |
                   ForEach-Object {
                     Join-Path $_.FullName 'x64\Microsoft.VC143.CRT'
                     Join-Path $_.FullName 'x64\Microsoft.VC142.CRT'
                   } |
-                  Where-Object { Test-Path $_ }
+                  Where-Object { Test-Path $_ } |
+                  Select-Object -First 1
 
-                foreach ($crtDir in $crtDirs) {
+                if ($crtDir) {
+                  Remove-Item (Join-Path $packageDir 'VCRUNTIME*.dll') -Force -ErrorAction SilentlyContinue
+                  Remove-Item (Join-Path $packageDir 'MSVCP*.dll') -Force -ErrorAction SilentlyContinue
+                  Remove-Item (Join-Path $packageDir 'CONCRT*.dll') -Force -ErrorAction SilentlyContinue
+                  Write-Host "Copying MSVC runtime from $crtDir"
                   Copy-Item (Join-Path $crtDir 'VCRUNTIME*.dll') $packageDir -Force -ErrorAction SilentlyContinue
                   Copy-Item (Join-Path $crtDir 'MSVCP*.dll') $packageDir -Force -ErrorAction SilentlyContinue
                   Copy-Item (Join-Path $crtDir 'CONCRT*.dll') $packageDir -Force -ErrorAction SilentlyContinue
