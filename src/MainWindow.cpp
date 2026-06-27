@@ -15,6 +15,7 @@
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QTime>
+#include <QVBoxLayout>
 
 #include <cstdint>
 #include <memory>
@@ -64,13 +65,14 @@ MainWindow::MainWindow(QWidget *parent)
     this->resizeDocks({ ui.dockWidget3 }, {200}, Qt::Vertical);
     addDockWidget(Qt::BottomDockWidgetArea, ui.dockWidget3);
 
-    //CenterView VTK
-    centerDock = new QDockWidget(this);
-    myVTK = new MyVTK(this);
-    centerDock->setAllowedAreas(Qt::NoDockWidgetArea);
-    centerDock->setFeatures(QDockWidget::DockWidgetClosable);
-    centerDock->setWidget(myVTK);
-    //centerDock->setWindowTitle("VTK");
+    // CenterView VTK. Keep the OpenGL widget in a normal central widget; using
+    // a QDockWidget as the central widget can overpaint sibling UI on Windows.
+    centerDock = new QWidget(this);
+    QVBoxLayout* centerLayout = new QVBoxLayout(centerDock);
+    centerLayout->setContentsMargins(0, 0, 0, 0);
+    centerLayout->setSpacing(0);
+    myVTK = new MyVTK(centerDock);
+    centerLayout->addWidget(myVTK);
     this->setCentralWidget(centerDock);
 
     //this->setCursor(Qt::WaitCursor);

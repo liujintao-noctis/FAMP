@@ -13,6 +13,7 @@
 class MainWindow;
 class MyVTK;
 class MyGraphicsView;
+class QWidget;
 class QStandardItemModel;
 class QDockWidget;
 class QComboBox;
@@ -27,7 +28,7 @@ class FAMPController : public QObject
 
 public:
     FAMPController(MainWindow* mainWindow, MyVTK* myVTK, MyGraphicsView* graphicsView, QObject* parent = nullptr);
-    void initializeConnections(const Ui::MainWindowClass& ui, QStandardItemModel* model, QDockWidget* centerDock, QComboBox* scaleCombox);
+    void initializeConnections(const Ui::MainWindowClass& ui, QStandardItemModel* model, QWidget* centerDock, QComboBox* scaleCombox);
 
 private:
     MainWindow* m_mainWindow;

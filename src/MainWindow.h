@@ -17,6 +17,7 @@
 
 #include <QtWidgets/QMainWindow>
 #include <QDockWidget>
+#include <QWidget>
 #include <QLabel>
 #include <QIcon>
 #include <QStandardItemModel>
@@ -50,7 +51,7 @@ private:
 private:
     MyVTK * myVTK;
     //MyGraphicsView * myGview;
-    QDockWidget *centerDock;
+    QWidget *centerDock;
     Cloud * myCloud;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr inCloud;     //读取的点云
     QStandardItemModel * model;     //标准模式

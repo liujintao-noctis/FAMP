@@ -24,8 +24,10 @@ FAMPController::FAMPController(MainWindow* mainWindow, MyVTK* myVTK, MyGraphicsV
 {
 }
 
-void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStandardItemModel* model, QDockWidget* centerDock, QComboBox* scaleCombox)
+void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStandardItemModel* model, QWidget* centerDock, QComboBox* scaleCombox)
 {
+    (void)centerDock;
+
     // ── Dock widget visibility & floating ─────────────────────────────
 
     // DBTree 窗口可见
@@ -44,7 +46,6 @@ void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStand
 
     // VTK 窗口可见
     connect(ui.actVTKVisible, SIGNAL(triggered(bool)), m_mainWindow, SLOT(slotOn_actVTKVisible_triggered(bool)));
-    connect(centerDock, SIGNAL(visibilityChanged(bool)), m_mainWindow, SLOT(slotOn_actVTKViewVisible_visibilityChanged(bool)));
 
     // Console 窗口可见
     connect(ui.actConsoleVisible, SIGNAL(triggered(bool)), m_mainWindow, SLOT(slotOn_actConsoleVisible_triggered(bool)));
