@@ -65,15 +65,18 @@ MainWindow::MainWindow(QWidget *parent)
     this->resizeDocks({ ui.dockWidget3 }, {200}, Qt::Vertical);
     addDockWidget(Qt::BottomDockWidgetArea, ui.dockWidget3);
 
-    // CenterView VTK. Keep the OpenGL widget in a normal central widget; using
-    // a QDockWidget as the central widget can overpaint sibling UI on Windows.
-    centerDock = new QWidget(this);
+    // CenterView VTK. Reuse the central widget created by Qt Designer so the
+    // QMainWindow keeps its menu bars, toolbars, and dock layout intact on
+    // Windows. Replacing the central widget after setupUi() lets the QVTK
+    // OpenGL surface cover sibling UI in some drivers.
+    centerDock = ui.centralWidget;
+    delete ui.openGLWidget;
+    ui.openGLWidget = nullptr;
     QVBoxLayout* centerLayout = new QVBoxLayout(centerDock);
     centerLayout->setContentsMargins(0, 0, 0, 0);
     centerLayout->setSpacing(0);
     myVTK = new MyVTK(centerDock);
     centerLayout->addWidget(myVTK);
-    this->setCentralWidget(centerDock);
 
     //this->setCursor(Qt::WaitCursor);
 
