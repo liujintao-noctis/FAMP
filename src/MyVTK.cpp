@@ -12,6 +12,7 @@
 #include "VTKProjectionManager.h"
 
 #include <QDebug>
+#include <QTimer>
 
 MyVTK::MyVTK(QWidget *parent)
     : FAMP_QVTK_WIDGET(parent)
@@ -41,7 +42,12 @@ MyVTK::MyVTK(QWidget *parent)
     isClipSucessed = false;
     isProjectionSuccess = false;
 
-    initCamera();       //相机初始化
+    // Defer the first Render() until Qt has shown the widget and created the
+    // native OpenGL surface. Rendering from the constructor can crash on
+    // Windows with QVTKOpenGLNativeWidget.
+    QTimer::singleShot(0, this, [this]() {
+        initCamera();       //相机初始化
+    });
 
     //切割平面初始化
     randomPlane = vtkPlaneWidget::New();
