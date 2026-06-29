@@ -15,6 +15,15 @@
 int main(int argc, char *argv[])
 {
     vtkOutputWindow::SetGlobalWarningDisplay(0);
+#ifdef _WIN32
+    // The packaged Windows build includes Mesa3D as an OpenGL fallback for
+    // non-accelerated VMs. Prefer llvmpipe unless the user explicitly chooses
+    // another Gallium driver in their environment.
+    if (qgetenv("GALLIUM_DRIVER").isEmpty())
+    {
+        qputenv("GALLIUM_DRIVER", "llvmpipe");
+    }
+#endif
 #if VTK_MAJOR_VERSION >= 9
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 #endif

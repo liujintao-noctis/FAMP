@@ -195,10 +195,52 @@ jobs:
             throw 'MSVC runtime DLL MSVCP*.dll was not packaged.'
           }
 
+          $mesaVersion = '26.1.3'
+          $mesaArchiveName = "mesa3d-$mesaVersion-release-msvc.7z"
+          $mesaUrl = "https://github.com/pal1000/mesa-dist-win/releases/download/$mesaVersion/$mesaArchiveName"
+          $mesaArchive = Join-Path $env:RUNNER_TEMP $mesaArchiveName
+          $mesaExtractDir = Join-Path $env:RUNNER_TEMP "mesa3d-$mesaVersion"
+          $mesaSha256 = '6dd431f4620cea73970b13e3ffa94f721f2a3924306b8a4283c97648cdb6eb9c'
+
+          Write-Host "Downloading Mesa3D OpenGL fallback from $mesaUrl"
+          Invoke-WebRequest -Uri $mesaUrl -OutFile $mesaArchive
+          $actualMesaSha256 = (Get-FileHash $mesaArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actualMesaSha256 -ne $mesaSha256) {
+            throw "Mesa3D archive SHA256 mismatch: expected $mesaSha256, got $actualMesaSha256"
+          }
+
+          $sevenZipCandidates = @(
+            (Join-Path $env:ProgramFiles '7-Zip\7z.exe'),
+            '7z'
+          )
+          $sevenZip = $sevenZipCandidates | Where-Object {
+            if ($_ -eq '7z') {
+              Get-Command $_ -ErrorAction SilentlyContinue
+            } else {
+              Test-Path $_
+            }
+          } | Select-Object -First 1
+          if (-not $sevenZip) {
+            throw '7z was not found; cannot extract Mesa3D fallback DLLs.'
+          }
+
+          Remove-Item -Recurse -Force $mesaExtractDir -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force $mesaExtractDir | Out-Null
+          & $sevenZip x $mesaArchive "-o$mesaExtractDir" 'x64/opengl32.dll' 'x64/libgallium_wgl.dll' -y | Write-Host
+
+          foreach ($mesaDll in @('opengl32.dll', 'libgallium_wgl.dll')) {
+            $mesaDllPath = Join-Path $mesaExtractDir "x64/$mesaDll"
+            if (-not (Test-Path $mesaDllPath)) {
+              throw "Mesa3D fallback DLL was not extracted: $mesaDll"
+            }
+            Copy-Item $mesaDllPath $packageDir -Force
+          }
+
           @'
           @echo off
           setlocal
           pushd "%~dp0"
+          set GALLIUM_DRIVER=llvmpipe
           set QT_DEBUG_PLUGINS=1
           echo Working directory: %CD% > famp-run.log
           echo Started: %DATE% %TIME% >> famp-run.log
