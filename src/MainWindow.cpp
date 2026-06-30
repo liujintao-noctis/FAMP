@@ -8,6 +8,7 @@
 
 #include "MainWindow.h"
 #include "FAMPController.h"
+#include "PcdLoader.h"
 
 #include <QFileDialog>
 #include <QPixmap>
@@ -327,9 +328,10 @@ void MainWindow::slotOpenCloud()
     //读取点云
     if (fileSuffix == "pcd")
     {
-        if (pcl::io::loadPCDFile(pathPCD, *inCloud) == -1)
+        QString loadError;
+        if (!loadPcdAsRgb(path, inCloud, &loadError))
         {
-            QMessageBox::warning(this, tr("Error"), tr("Failed to load PCD file: %1").arg(QString::fromStdString(pathPCD)));
+            QMessageBox::warning(this, tr("Error"), loadError);
             return;
         }
         delete myCloud;

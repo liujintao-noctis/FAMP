@@ -25,11 +25,13 @@ FetchContent_MakeAvailable(googletest)
 # headers only, so no Widgets / GUI linkage is needed.
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
-find_package(PCL REQUIRED COMPONENTS common features)
+find_package(PCL REQUIRED COMPONENTS common features io)
 
 add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/Cloud.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
+    "${FAMP_SRC_DIR}/PcdLoader.cpp"
+    "${FAMP_SRC_DIR}/PcdLoader.h"
 )
 
 target_include_directories(famp_cloud
@@ -50,6 +52,7 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 add_executable(famp_tests
     test_main.cpp
     test_cloud.cpp
+    test_pcd_loader.cpp
     test_string_convert.cpp
 )
 
