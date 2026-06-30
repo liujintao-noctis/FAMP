@@ -24,6 +24,7 @@ namespace
 constexpr std::uint8_t kDefaultRed = 255;
 constexpr std::uint8_t kDefaultGreen = 255;
 constexpr std::uint8_t kDefaultBlue = 255;
+constexpr qint64 kCopyBufferSize = 1024 * 1024;
 
 bool pcdHeaderHasColorField(const std::string& path)
 {
@@ -116,6 +117,68 @@ bool loadPcdFromStdPath(const std::string& path,
 
     return loadXyzPcdAsRgb(path, outCloud);
 }
+
+bool copyFileWithQt(const QString& sourcePath, const QString& targetPath, QString* errorMessage)
+{
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly))
+    {
+        if (errorMessage)
+        {
+            *errorMessage = QStringLiteral("Failed to open source PCD file: %1 (%2)")
+                                .arg(sourcePath, source.errorString());
+        }
+        return false;
+    }
+
+    QFile target(targetPath);
+    if (!target.open(QIODevice::WriteOnly | QIODevice::Truncate))
+    {
+        if (errorMessage)
+        {
+            *errorMessage = QStringLiteral("Failed to create temporary PCD file: %1 (%2)")
+                                .arg(targetPath, target.errorString());
+        }
+        return false;
+    }
+
+    while (!source.atEnd())
+    {
+        const QByteArray chunk = source.read(kCopyBufferSize);
+        if (chunk.isEmpty() && source.error() != QFile::NoError)
+        {
+            if (errorMessage)
+            {
+                *errorMessage = QStringLiteral("Failed to read source PCD file: %1 (%2)")
+                                    .arg(sourcePath, source.errorString());
+            }
+            return false;
+        }
+
+        if (target.write(chunk) != chunk.size())
+        {
+            if (errorMessage)
+            {
+                *errorMessage = QStringLiteral("Failed to write temporary PCD file: %1 (%2)")
+                                    .arg(targetPath, target.errorString());
+            }
+            return false;
+        }
+    }
+
+    target.close();
+    if (target.error() != QFile::NoError)
+    {
+        if (errorMessage)
+        {
+            *errorMessage = QStringLiteral("Failed to finalize temporary PCD file: %1 (%2)")
+                                .arg(targetPath, target.errorString());
+        }
+        return false;
+    }
+
+    return true;
+}
 }
 
 bool loadPcdAsRgb(const std::string& path,
@@ -154,7 +217,8 @@ bool loadPcdAsRgb(const QString& path,
         tempFile.close();
         QFile::remove(tempPath);
 
-        if (QFile::copy(path, tempPath))
+        QString copyError;
+        if (copyFileWithQt(path, tempPath, &copyError))
         {
             const bool loaded = loadPcdFromStdPath(qstr2str(tempPath), outCloud);
             QFile::remove(tempPath);
@@ -163,9 +227,13 @@ bool loadPcdAsRgb(const QString& path,
                 return true;
             }
         }
+        else if (errorMessage)
+        {
+            *errorMessage = copyError;
+        }
     }
 
-    if (errorMessage)
+    if (errorMessage && errorMessage->isEmpty())
     {
         *errorMessage = QStringLiteral("Failed to load PCD file: %1").arg(path);
     }
