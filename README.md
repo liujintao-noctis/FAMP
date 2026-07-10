@@ -87,12 +87,12 @@ cd build
 cmake .. `
   -DCMAKE_BUILD_TYPE=Release `
   -DVCPKG_ROOT=C:\vcpkg `
-  -DVCPKG_TARGET_TRIPLET=x64-windows-release `
-  -DVCPKG_HOST_TRIPLET=x64-windows-release
+  -DVCPKG_TARGET_TRIPLET=x64-win-rel `
+  -DVCPKG_HOST_TRIPLET=x64-win-rel
 cmake --build . --config Release
 ```
 
-`x64-windows-release` 是仓库内置的 Release-only triplet，只构建和安装 Release 依赖，不生成 vcpkg Debug 库。Windows 输出通常位于 `build\bin\Release\FAMP.exe`。MSVC 编译选项 `_CRT_SECURE_NO_WARNINGS`、`NOMINMAX` 和 `/utf-8` 由 CMake 自动设置。
+`x64-win-rel` 是仓库内置的 Release-only triplet，只构建和安装 Release 依赖，不生成 vcpkg Debug 库。该短名称还能避免 Qt 生成的对象文件路径触及 Windows `MAX_PATH` 限制。Windows 输出通常位于 `build\bin\Release\FAMP.exe`。MSVC 编译选项 `_CRT_SECURE_NO_WARNINGS`、`NOMINMAX` 和 `/utf-8` 由 CMake 自动设置。
 
 GitHub Actions 生成的 Windows zip 已包含 Qt 插件、MSVC 运行库和 Mesa3D 软件 OpenGL 回退。下载后先解压完整 zip，再双击 `run-famp.bat`；CI 会在上传前重新解压该 zip 并执行启动冒烟测试。
 
