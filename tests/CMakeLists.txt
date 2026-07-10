@@ -52,6 +52,7 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 add_executable(famp_tests
     test_main.cpp
     test_cloud.cpp
+    test_metric_scale.cpp
     test_pcd_loader.cpp
     test_string_convert.cpp
 )

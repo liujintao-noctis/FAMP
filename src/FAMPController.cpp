@@ -171,6 +171,9 @@ void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStand
     connect(m_graphicsView, SIGNAL(sendReDraw(ScaleType)), m_graphicsView, SLOT(getReDraw(ScaleType)));
     connect(m_graphicsView, SIGNAL(sendScaleOffset(QPointF)), m_graphicsView, SLOT(getScaleOffset(QPointF)));
 
+    // 信号连接完成后同步下拉框初始值，避免界面与内部比例尺状态不一致。
+    m_graphicsView->getScaleComBoxCurrentIndexChanged(scaleCombox->currentIndex());
+
     // ── 出图模板 ─────────────────────────────────────────────────────
 
     connect(ui.actPlotTab, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actPlotTab_triggered()));

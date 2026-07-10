@@ -15,6 +15,10 @@
 int main(int argc, char *argv[])
 {
     vtkOutputWindow::SetGlobalWarningDisplay(0);
+#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
+#endif
 #ifdef _WIN32
     // The packaged Windows build includes Mesa3D as an OpenGL fallback for
     // non-accelerated VMs. Prefer llvmpipe unless the user explicitly chooses

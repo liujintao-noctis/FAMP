@@ -32,6 +32,7 @@
 #include <QPen>
 #include <QFileDialog>
 #include <QItemSelectionModel>
+#include <QPointer>
 #include <QStandardItemModel>
 #include <QVector3D>
 #include <QFontDialog>
@@ -53,6 +54,10 @@
 
 #include <queue>
 #include <vector>
+
+class QPainter;
+class QScreen;
+class QShowEvent;
 
 //比例尺类型枚举
 typedef enum _ScaleType
@@ -152,6 +157,15 @@ private:
     static const int ItemCloud = 2;     //自定义储存点云
     ScaleType scaleType;    //当前比例尺
     QPointF deltaOffset;        //比例尺变换后x,y的偏移量
+    bool metricGridVisible = false;     //是否显示物理毫米网格
+    QPointF metricPixelsPerMillimeter;  //当前屏幕每毫米对应的Qt逻辑像素
+    QPointer<QScreen> metricScreen;      //当前绘图窗口所在屏幕
+
+    static int scaleDenominator(ScaleType scale);
+    QPointF pixelsPerMillimeterForScreen(QScreen *screen) const;
+    QPointF scaleOffsetFor(ScaleType scale) const;
+    void setMetricScreen(QScreen *screen);
+    void refreshMetricLayout();
     void ReDraw(QPointF offset);    //比例尺改变后重新绘制
 
     QDlgPlotTab  *dlgPlotTab;
@@ -163,6 +177,9 @@ private:
     void computeDP(std::vector<DPPoint> &Points, int begin, int end, double threshold); //DP算法简化线条点
 
 protected:
+    void drawBackground(QPainter *painter, const QRectF &rect) override;
+    void showEvent(QShowEvent *event) override;
+
     //鼠标键盘重写事件
     void keyPressEvent(QKeyEvent *e) override;
     void mousePressEvent(QMouseEvent *e) override;

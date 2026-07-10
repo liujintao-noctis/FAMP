@@ -8,11 +8,34 @@
 
 #include "MyGraphicsView.h"
 #include "MainWindow.h"
+#include "MetricScale.h"
+
 #include <QFileInfo>
+#include <QGuiApplication>
+#include <QPainter>
+#include <QPainterPath>
+#include <QScreen>
+#include <QShowEvent>
+#include <QWindow>
+
 #include <chrono>
 #include <cmath>
 #include <stack>
 Q_DECLARE_METATYPE(MyOrderCloudType)
+
+namespace
+{
+bool fuzzyPointCompare(const QPointF &left, const QPointF &right)
+{
+    return qFuzzyCompare(left.x() + 1.0, right.x() + 1.0)
+        && qFuzzyCompare(left.y() + 1.0, right.y() + 1.0);
+}
+
+int gridLinePosition(qint64 index)
+{
+    return static_cast<int>((index % 10 + 10) % 10);
+}
+}
 
 MyGraphicsView::MyGraphicsView(QWidget *parent)
     : QGraphicsView(parent)
@@ -34,10 +57,17 @@ MyGraphicsView::MyGraphicsView(QWidget *parent)
     this->setDragMode(QGraphicsView::RubberBandDrag);   //选中鼠标框选内容
 
     scaleType = OneToFifty;         //比例尺默认1:50
-    deltaOffset = QPointF(86.0, 86.0);
+    metricPixelsPerMillimeter = QPointF(
+        famp::metric::deviceIndependentPixelsPerMillimeter(
+            famp::metric::DefaultDotsPerInch),
+        famp::metric::deviceIndependentPixelsPerMillimeter(
+            famp::metric::DefaultDotsPerInch));
+    deltaOffset = scaleOffsetFor(scaleType);
 
     scene = new QGraphicsScene(-1500, -1500, 3000, 3000);
     this->setScene(scene);
+
+    setMetricScreen(QGuiApplication::primaryScreen());
 
 }
 
@@ -722,8 +752,6 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
         for (size_t i = 0; i < incloud->size(); i++)
         {
             QPointF point;
-            //point.setX(incloud->at(i).y*86.0);
-            //point.setY(incloud->at(i).x*86.0);
             point.setX(incloud->at(i).y*offset.x());
             point.setY(incloud->at(i).x*offset.y());
             points.push_back(point);
@@ -736,8 +764,6 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
         for (size_t i = 0; i < incloud->size(); i++)
         {
             QPointF point;
-            /*point.setX(incloud->at(i).z*86.0 + YMaxMin * 86.0);
-            point.setY(incloud->at(i).x*86.0);*/
             point.setX(incloud->at(i).z*offset.x() + YMaxMin * offset.x());
             point.setY(incloud->at(i).x*offset.y());
             points.push_back(point);
@@ -750,8 +776,6 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
         for (size_t i = 0; i < incloud->size(); i++)
         {
             QPointF point;
-            //point.setX(incloud->at(i).y*86.0);
-            //point.setY(-incloud->at(i).z*86.0 - XMaxMin * 86.0/1.2);
             point.setX(incloud->at(i).y*offset.x());
             point.setY(-incloud->at(i).z*offset.y() - XMaxMin * offset.y() / 1.2);
             points.push_back(point);
@@ -1338,54 +1362,100 @@ void MyGraphicsView::getScaleComBoxCurrentIndexChanged(int index)
     }
 }
 
+int MyGraphicsView::scaleDenominator(ScaleType scale)
+{
+    switch (scale)
+    {
+    case OneToTen:     return 10;
+    case OneToTwenty:  return 20;
+    case OneToFifty:   return 50;
+    case OneToHundred: return 100;
+    }
+    return 50;
+}
+
+QPointF MyGraphicsView::pixelsPerMillimeterForScreen(QScreen *screen) const
+{
+    if (!screen)
+    {
+        const qreal fallback =
+            famp::metric::deviceIndependentPixelsPerMillimeter(
+                famp::metric::DefaultDotsPerInch);
+        return QPointF(fallback, fallback);
+    }
+
+    const qreal dpiX = famp::metric::bestAvailableDotsPerInch(
+        screen->physicalDotsPerInchX(), screen->logicalDotsPerInchX());
+    const qreal dpiY = famp::metric::bestAvailableDotsPerInch(
+        screen->physicalDotsPerInchY(), screen->logicalDotsPerInchY());
+    return QPointF(
+        famp::metric::deviceIndependentPixelsPerMillimeter(dpiX),
+        famp::metric::deviceIndependentPixelsPerMillimeter(dpiY));
+}
+
+QPointF MyGraphicsView::scaleOffsetFor(ScaleType scale) const
+{
+    const int denominator = scaleDenominator(scale);
+    return QPointF(
+        famp::metric::pixelsPerMeterAtScale(metricPixelsPerMillimeter.x(), denominator),
+        famp::metric::pixelsPerMeterAtScale(metricPixelsPerMillimeter.y(), denominator));
+}
+
+void MyGraphicsView::setMetricScreen(QScreen *screen)
+{
+    if (metricScreen == screen)
+    {
+        refreshMetricLayout();
+        return;
+    }
+
+    if (metricScreen)
+        disconnect(metricScreen.data(), nullptr, this, nullptr);
+
+    metricScreen = screen;
+    if (metricScreen)
+    {
+        connect(metricScreen.data(), &QScreen::physicalDotsPerInchChanged,
+                this, &MyGraphicsView::refreshMetricLayout);
+        connect(metricScreen.data(), &QScreen::logicalDotsPerInchChanged,
+                this, &MyGraphicsView::refreshMetricLayout);
+        connect(metricScreen.data(), &QScreen::physicalSizeChanged,
+                this, &MyGraphicsView::refreshMetricLayout);
+    }
+
+    refreshMetricLayout();
+}
+
+void MyGraphicsView::refreshMetricLayout()
+{
+    const QPointF newPixelsPerMillimeter =
+        pixelsPerMillimeterForScreen(metricScreen.data());
+    if (fuzzyPointCompare(metricPixelsPerMillimeter,
+                          newPixelsPerMillimeter))
+    {
+        viewport()->update();
+        return;
+    }
+
+    metricPixelsPerMillimeter = newPixelsPerMillimeter;
+    deltaOffset = scaleOffsetFor(scaleType);
+    emit sendScaleOffset(deltaOffset);
+
+    if (scene && !scene->items().isEmpty())
+        ReDraw(deltaOffset);
+
+    viewport()->update();
+}
+
 //接受改变比例尺时重新画图
 void MyGraphicsView::getReDraw(ScaleType scale)
 {
-    //2K
-    //1cm = 43pix
-
-    switch (scale)
-    {
-    case(OneToTen):
-    {
-        qDebug() << "重新作图1:10";
-        deltaOffset = QPointF(430.0, 430.0);
-        emit sendScaleOffset(deltaOffset);
-        ReDraw(deltaOffset);
-    }
-    break;
-
-    case(OneToTwenty):
-    {
-        qDebug() << "重新作图1:20";
-        deltaOffset = QPointF(215.0, 215.0);
-        emit sendScaleOffset(deltaOffset);
-        ReDraw(deltaOffset);
-    }
-    break;
-
-    case(OneToFifty):
-    {
-        qDebug() << "重新作图1:50";
-        deltaOffset = QPointF(86.0, 86.0);
-        emit sendScaleOffset(deltaOffset);
-        ReDraw(deltaOffset);
-    }
-    break;
-
-    case(OneToHundred):
-    {
-        qDebug() << "重新作图1:100";
-        deltaOffset = QPointF(43.0, 43.0);
-        emit sendScaleOffset(deltaOffset);
-        ReDraw(deltaOffset);
-    }
-    break;
-
-    default:
-        break;
-    }
-
+    scaleType = scale;
+    deltaOffset = scaleOffsetFor(scaleType);
+    qDebug() << "重新作图1:" << scaleDenominator(scaleType)
+             << "每毫米逻辑像素:" << metricPixelsPerMillimeter;
+    emit sendScaleOffset(deltaOffset);
+    ReDraw(deltaOffset);
 }
 
 //得到比例尺变化后坐标的偏移量
@@ -1404,49 +1474,97 @@ void MyGraphicsView::slotOn_actPlotTab_triggered()
     dlgPlotTab->getCurrentScaleIndex(currentScaleIndex);    //将当前比例尺发送给出图模板对话框
 }
 
-//显示米格纸按钮（1cm = 43pix，2K）
+//显示按当前显示器物理DPI绘制的毫米米格纸
 void MyGraphicsView::slotOn_actMiGe_triggered(bool checked)
 {
-    //方格纸起始坐标
-    int startX = 0;
-    int startY = 0;
+    metricGridVisible = checked;
+    viewport()->update();
+}
 
-    int WangGeCount = 100;
+void MyGraphicsView::drawBackground(QPainter *painter, const QRectF &rect)
+{
+    painter->save();
+    painter->fillRect(rect, Qt::white);
 
-    QPixmap pix(43,43);
-    QPainter painter(&pix);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-
-    QPen pen(Qt::red);
-    pix.fill(Qt::white);
-
-    for (size_t i = 0; i <11; i++)
+    if (!metricGridVisible
+        || metricPixelsPerMillimeter.x() <= 0.0
+        || metricPixelsPerMillimeter.y() <= 0.0)
     {
-        if (i == 0 || i==10)
-        {
-            pen.setWidthF(2.0f);
-        }
-        else if(i == 5)
-        {
-            pen.setWidthF(1.0f);
-        }
-        else
-        {
-            pen.setWidthF(0.5f);
-        }
-            painter.setPen(pen);
-            if (checked)
-            {
-                painter.drawLine(QPointF(startX, startY + 4.3 * i), QPointF(startX + 4.3 * 10, startY + 4.3 * i));
-                painter.drawLine(QPointF(startX + 4.3 * i, startY), QPointF(startX + 4.3 * i, startY + 4.3 * 10));
-            }
-            else if (!checked)
-            {
-
-            }
+        painter->restore();
+        return;
     }
 
-    this->setBackgroundBrush(pix);
+    painter->setRenderHint(QPainter::Antialiasing, true);
+
+    QPainterPath minorLines;
+    QPainterPath halfCentimeterLines;
+    QPainterPath centimeterLines;
+
+    const qreal stepX = metricPixelsPerMillimeter.x();
+    const qreal stepY = metricPixelsPerMillimeter.y();
+    const qint64 firstX = static_cast<qint64>(std::floor(rect.left() / stepX));
+    const qint64 lastX = static_cast<qint64>(std::ceil(rect.right() / stepX));
+    const qint64 firstY = static_cast<qint64>(std::floor(rect.top() / stepY));
+    const qint64 lastY = static_cast<qint64>(std::ceil(rect.bottom() / stepY));
+
+    for (qint64 index = firstX; index <= lastX; ++index)
+    {
+        QPainterPath *path = &minorLines;
+        const int position = gridLinePosition(index);
+        if (position == 0)
+            path = &centimeterLines;
+        else if (position == 5)
+            path = &halfCentimeterLines;
+
+        const qreal x = index * stepX;
+        path->moveTo(x, rect.top());
+        path->lineTo(x, rect.bottom());
+    }
+
+    for (qint64 index = firstY; index <= lastY; ++index)
+    {
+        QPainterPath *path = &minorLines;
+        const int position = gridLinePosition(index);
+        if (position == 0)
+            path = &centimeterLines;
+        else if (position == 5)
+            path = &halfCentimeterLines;
+
+        const qreal y = index * stepY;
+        path->moveTo(rect.left(), y);
+        path->lineTo(rect.right(), y);
+    }
+
+    QPen pen(Qt::red);
+    pen.setCosmetic(true);
+    pen.setCapStyle(Qt::FlatCap);
+
+    pen.setWidthF(0.5);
+    painter->setPen(pen);
+    painter->drawPath(minorLines);
+
+    pen.setWidthF(1.0);
+    painter->setPen(pen);
+    painter->drawPath(halfCentimeterLines);
+
+    pen.setWidthF(2.0);
+    painter->setPen(pen);
+    painter->drawPath(centimeterLines);
+    painter->restore();
+}
+
+void MyGraphicsView::showEvent(QShowEvent *event)
+{
+    QGraphicsView::showEvent(event);
+
+    QWindow *windowHandle = window()->windowHandle();
+    if (!windowHandle)
+        return;
+
+    connect(windowHandle, &QWindow::screenChanged,
+            this, &MyGraphicsView::setMetricScreen,
+            Qt::UniqueConnection);
+    setMetricScreen(windowHandle->screen());
 }
 
 void MyGraphicsView::keyPressEvent(QKeyEvent *e)

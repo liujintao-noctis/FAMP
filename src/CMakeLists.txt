@@ -150,6 +150,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     FAMPController.h
     FormTabulationItem.h
     MainWindow.h
+    MetricScale.h
     MyGraphicsView.h
     MyItem.h
     MyVTK.h
