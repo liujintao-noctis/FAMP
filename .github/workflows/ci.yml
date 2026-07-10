@@ -52,7 +52,9 @@ jobs:
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgDirectory: ${{ github.workspace }}/vcpkg
+          # Keep the vcpkg root outside the longer repository checkout path so
+          # Qt-generated object files stay comfortably below Windows MAX_PATH.
+          vcpkgDirectory: ${{ runner.temp }}/vcpkg
           vcpkgJsonGlob: 'vcpkg.json'
 
       - name: Detect runner image version
@@ -78,7 +80,7 @@ jobs:
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake
-        run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DBUILD_TESTING=ON
+        run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DBUILD_TESTING=ON
 
       - name: Verify release-only Windows dependencies
         if: runner.os == 'Windows'
