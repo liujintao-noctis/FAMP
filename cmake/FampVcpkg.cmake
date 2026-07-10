@@ -23,7 +23,7 @@ set(VCPKG_OVERLAY_TRIPLETS "${FAMP_ROOT_DIR}/triplets" CACHE PATH "vcpkg overlay
 
 if(CMAKE_TOOLCHAIN_FILE)
     if(CMAKE_HOST_WIN32)
-        set(FAMP_DEFAULT_TRIPLET "x64-windows")
+        set(FAMP_DEFAULT_TRIPLET "x64-windows-release")
     else()
         set(FAMP_DEFAULT_TRIPLET "x64-linux-release")
     endif()

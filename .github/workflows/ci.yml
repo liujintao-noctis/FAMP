@@ -22,7 +22,7 @@ jobs:
             triplet: x64-linux-release
             build-type: Release
           - os: windows-latest
-            triplet: x64-windows
+            triplet: x64-windows-release
             build-type: Release
 
     steps:
@@ -53,17 +53,43 @@ jobs:
           vcpkgDirectory: ${{ github.workspace }}/vcpkg
           vcpkgJsonGlob: 'vcpkg.json'
 
+      - name: Detect runner image version
+        id: runner-image
+        shell: bash
+        run: |
+          if [ -z "${ImageVersion:-}" ]; then
+            echo "ImageVersion is not set on this runner" >&2
+            exit 1
+          fi
+          echo "version=${ImageVersion}" >> "${GITHUB_OUTPUT}"
+          echo "Runner image version: ${ImageVersion}"
+
       - name: Restore vcpkg binary cache
         uses: actions/cache@v4
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake') }}
+          key: vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake') }}
           restore-keys: |
-            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-
+            vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
+            vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake
         run: cmake -S . -B build -DCMAKE_TOOLCHAIN_FILE="${{ github.workspace }}/vcpkg/scripts/buildsystems/vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }} -DVCPKG_HOST_TRIPLET=${{ matrix.triplet }} -DCMAKE_BUILD_TYPE=${{ matrix.build-type }} -DBUILD_TESTING=ON
+
+      - name: Verify release-only Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $tripletDir = 'build/vcpkg_installed/${{ matrix.triplet }}'
+          if (-not (Test-Path $tripletDir)) {
+            throw "vcpkg triplet directory was not created: $tripletDir"
+          }
+          $debugDir = Join-Path $tripletDir 'debug'
+          if (Test-Path $debugDir) {
+            throw "Release-only triplet unexpectedly installed debug dependencies: $debugDir"
+          }
+          Write-Host "Verified release-only vcpkg installation at $tripletDir"
 
       # ── Build ─────────────────────────────────────────────────
       - name: Build
@@ -241,6 +267,15 @@ jobs:
           setlocal
           pushd "%~dp0"
           set GALLIUM_DRIVER=llvmpipe
+          start "" "%~dp0FAMP.exe"
+          popd
+          '@ | Set-Content -Path (Join-Path $packageDir 'run-famp.bat') -Encoding ascii
+
+          @'
+          @echo off
+          setlocal
+          pushd "%~dp0"
+          set GALLIUM_DRIVER=llvmpipe
           set QT_DEBUG_PLUGINS=1
           echo Working directory: %CD% > famp-run.log
           echo Started: %DATE% %TIME% >> famp-run.log
@@ -256,6 +291,71 @@ jobs:
           '@ | Set-Content -Path (Join-Path $packageDir 'run-famp-debug.bat') -Encoding ascii
 
           Compress-Archive -Path "$packageDir/*" -DestinationPath "$packageRoot/FAMP-windows-${{ github.sha }}.zip" -Force
+
+      - name: Smoke test packaged Windows artifact
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Get-ChildItem 'package' -Filter 'FAMP-windows-*.zip' -File |
+            Select-Object -First 1
+          if (-not $archive) {
+            throw 'Packaged Windows zip was not found.'
+          }
+
+          $smokeRoot = Join-Path $env:RUNNER_TEMP 'famp-windows-smoke'
+          Remove-Item -Recurse -Force $smokeRoot -ErrorAction SilentlyContinue
+          Expand-Archive -Path $archive.FullName -DestinationPath $smokeRoot -Force
+
+          $requiredFiles = @(
+            'FAMP.exe',
+            'platforms/qwindows.dll',
+            'opengl32.dll',
+            'libgallium_wgl.dll',
+            'run-famp.bat'
+          )
+          foreach ($requiredFile in $requiredFiles) {
+            $requiredPath = Join-Path $smokeRoot $requiredFile
+            if (-not (Test-Path $requiredPath)) {
+              throw "Required file is missing from the Windows zip: $requiredFile"
+            }
+          }
+
+          $stdoutLog = Join-Path $env:RUNNER_TEMP 'famp-smoke.stdout.log'
+          $stderrLog = Join-Path $env:RUNNER_TEMP 'famp-smoke.stderr.log'
+          Remove-Item $stdoutLog, $stderrLog -Force -ErrorAction SilentlyContinue
+          $env:GALLIUM_DRIVER = 'llvmpipe'
+          $process = $null
+
+          try {
+            $process = Start-Process `
+              -FilePath (Join-Path $smokeRoot 'FAMP.exe') `
+              -WorkingDirectory $smokeRoot `
+              -RedirectStandardOutput $stdoutLog `
+              -RedirectStandardError $stderrLog `
+              -PassThru
+
+            Start-Sleep -Seconds 15
+            $process.Refresh()
+            if ($process.HasExited) {
+              if (Test-Path $stdoutLog) {
+                Write-Host '--- FAMP stdout ---'
+                Get-Content $stdoutLog | Write-Host
+              }
+              if (Test-Path $stderrLog) {
+                Write-Host '--- FAMP stderr ---'
+                Get-Content $stderrLog | Write-Host
+              }
+              throw "Packaged FAMP exited during startup with code $($process.ExitCode)."
+            }
+
+            Write-Host "Packaged FAMP remained running for 15 seconds (PID $($process.Id))."
+          } finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+              $process.WaitForExit()
+            }
+          }
 
       - name: Upload packaged artifact
         uses: actions/upload-artifact@v4
