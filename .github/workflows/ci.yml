@@ -72,6 +72,7 @@ jobs:
           restore-keys: |
             vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
             vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-
+            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake
