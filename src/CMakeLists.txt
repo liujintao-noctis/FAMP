@@ -168,6 +168,12 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     "${FAMP_ROOT_DIR}/resources/res.qrc"
 )
 
+if(WIN32)
+    target_sources(FAMP PRIVATE
+        "${FAMP_ROOT_DIR}/resources/images/icon/famp_icon.rc"
+    )
+endif()
+
 set_target_properties(FAMP PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )

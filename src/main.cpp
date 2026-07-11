@@ -9,6 +9,7 @@
 #include "MainWindow.h"
 #include "MyVTK.h"
 
+#include <QIcon>
 #include <QtWidgets/QApplication>
 
 #include <vtkOutputWindow.h>
@@ -32,6 +33,7 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 #endif
     QApplication a(argc, argv);
+    a.setWindowIcon(QIcon(":/images/images/bfc51b65a37504fd80673364f912057.png"));
     MainWindow w;
     w.show();
     return a.exec();
