@@ -2,14 +2,16 @@
  * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
  * Name: 田野考古制图系统(FAMS)
  * Author: liujintao
- * Version: V1.0
+ * Version: defined in cmake/FampVersion.cmake
  * Description: 程序入口 — VTK/OpenGL 初始化
  *****************************************************************/
 
 #include "MainWindow.h"
 #include "MyVTK.h"
+#include "Version.h"
 
 #include <QIcon>
+#include <QString>
 #include <QtWidgets/QApplication>
 
 #include <vtkOutputWindow.h>
@@ -33,11 +35,15 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 #endif
     QApplication a(argc, argv);
+    a.setApplicationName(QStringLiteral("FAMP"));
+    a.setApplicationDisplayName(QStringLiteral("FAMP"));
+    a.setApplicationVersion(QString::fromLatin1(famp::Version));
     a.setWindowIcon(QIcon(":/images/images/icon/famp_icon_256.png"));
 #ifdef Q_OS_LINUX
     QApplication::setDesktopFileName("famp");
 #endif
     MainWindow w;
+    w.setWindowTitle(QStringLiteral("FAMP %1").arg(a.applicationVersion()));
     w.show();
     return a.exec();
 }

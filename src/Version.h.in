@@ -1,0 +1,9 @@
+#pragma once
+
+namespace famp
+{
+inline constexpr char Version[] = "@PROJECT_VERSION@";
+inline constexpr int VersionMajor = @PROJECT_VERSION_MAJOR@;
+inline constexpr int VersionMinor = @PROJECT_VERSION_MINOR@;
+inline constexpr int VersionPatch = @PROJECT_VERSION_PATCH@;
+}
