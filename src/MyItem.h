@@ -2,7 +2,7 @@
  * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
  * Name: 田野考古制图系统(FAMS)
  * Author: liujintao
- * Version: V1.0
+ * Version: defined in cmake/FampVersion.cmake
  * Description: 曲线绘制 QGraphicsItem 子类 — B 样条曲线渲染
  *****************************************************************/
 

@@ -2,7 +2,7 @@
  * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
  * Name: 田野考古制图系统(FAMS)
  * Author: liujintao
- * Version: V1.0
+ * Version: defined in cmake/FampVersion.cmake
  * Description: VTK 3D 视图门面 — 平面切割、投影
  *****************************************************************/
 

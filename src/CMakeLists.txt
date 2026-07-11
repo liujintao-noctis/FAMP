@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.22)
 
 set(FAMP_ROOT_DIR "${CMAKE_CURRENT_LIST_DIR}/..")
+include("${FAMP_ROOT_DIR}/cmake/FampVersion.cmake")
 include("${FAMP_ROOT_DIR}/cmake/FampVcpkg.cmake")
 
 if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
@@ -8,9 +9,17 @@ if(NOT CMAKE_CONFIGURATION_TYPES AND NOT CMAKE_BUILD_TYPE)
 endif()
 
 project(FAMP
-    VERSION 0.1.0
+    VERSION "${FAMP_VERSION}"
     DESCRIPTION "Field Archaeology Mapping Program"
     LANGUAGES CXX
+)
+
+set(FAMP_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${FAMP_GENERATED_DIR}")
+configure_file(
+    "${CMAKE_CURRENT_LIST_DIR}/Version.h.in"
+    "${FAMP_GENERATED_DIR}/Version.h"
+    @ONLY
 )
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
@@ -161,6 +170,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKRenderManager.h
     VTKPointCloudManager.h
     VTKProjectionManager.h
+    "${FAMP_GENERATED_DIR}/Version.h"
     "${FAMP_ROOT_DIR}/ui/MainWindow.ui"
     "${FAMP_ROOT_DIR}/ui/QDlgClip.ui"
     "${FAMP_ROOT_DIR}/ui/QDlgPlotTab.ui"
@@ -181,6 +191,7 @@ set_target_properties(FAMP PROPERTIES
 target_include_directories(FAMP
     PRIVATE
         "${CMAKE_CURRENT_LIST_DIR}"
+        "${FAMP_GENERATED_DIR}"
         "${PCL_INCLUDE_DIRS}"
 )
 

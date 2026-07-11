@@ -2,7 +2,7 @@
  * Copyright (C) 2023 Nanjing Normal University. All Rights Reserved.
  * Name: 田野考古制图系统(FAMS)
  * Author: liujintao
- * Version: V1.0
+ * Version: defined in cmake/FampVersion.cmake
  * Description: VTK 点云演员管理 — Actor 创建、AABB 包围盒
  *****************************************************************/
 
