@@ -1,1 +1,2 @@
-IDI_FAMP_ICON          ICON    DISCARDABLE     "famp_icon.ico"
+#define IDI_FAMP_ICON 1
+IDI_FAMP_ICON ICON DISCARDABLE "famp_icon.ico"
