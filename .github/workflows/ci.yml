@@ -115,9 +115,17 @@ jobs:
           triplet_dir="build/vcpkg_installed/${{ matrix.triplet }}"
 
           rm -rf "${package_root}"
-          mkdir -p "${package_dir}/bin" "${package_dir}/lib" "${package_dir}/Qt6"
+          mkdir -p \
+            "${package_dir}/bin" \
+            "${package_dir}/lib" \
+            "${package_dir}/Qt6" \
+            "${package_dir}/share/applications" \
+            "${package_dir}/share/icons/hicolor/256x256/apps"
 
           cp build/bin/FAMP "${package_dir}/bin/"
+          cp resources/famp.desktop "${package_dir}/share/applications/famp.desktop"
+          cp resources/images/icon/famp_icon_256.png \
+            "${package_dir}/share/icons/hicolor/256x256/apps/famp.png"
           cp -a "${triplet_dir}/lib/"*.so* "${package_dir}/lib/" || true
 
           if [ -d "${triplet_dir}/Qt6/plugins" ]; then

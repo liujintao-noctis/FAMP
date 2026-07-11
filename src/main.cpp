@@ -33,7 +33,10 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 #endif
     QApplication a(argc, argv);
-    a.setWindowIcon(QIcon(":/images/images/bfc51b65a37504fd80673364f912057.png"));
+    a.setWindowIcon(QIcon(":/images/images/icon/famp_icon_256.png"));
+#ifdef Q_OS_LINUX
+    QApplication::setDesktopFileName("famp");
+#endif
     MainWindow w;
     w.show();
     return a.exec();

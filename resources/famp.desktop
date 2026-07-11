@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=FAMP
+Comment=Field Archaeology Mapping Program
+Exec=FAMP
+Icon=famp
+Terminal=false
+Categories=Graphics;2DGraphics;
+StartupWMClass=FAMP

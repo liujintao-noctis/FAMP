@@ -222,6 +222,16 @@ endif()
 
 install(TARGETS FAMP RUNTIME DESTINATION bin)
 
+if(UNIX AND NOT APPLE)
+    install(FILES "${FAMP_ROOT_DIR}/resources/famp.desktop"
+        DESTINATION share/applications
+    )
+    install(FILES "${FAMP_ROOT_DIR}/resources/images/icon/famp_icon_256.png"
+        DESTINATION share/icons/hicolor/256x256/apps
+        RENAME famp.png
+    )
+endif()
+
 if(BUILD_TESTING)
     add_subdirectory("${FAMP_ROOT_DIR}/tests" "${CMAKE_BINARY_DIR}/tests")
 endif()

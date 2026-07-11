@@ -15,7 +15,7 @@
   </property>
   <property name="windowIcon">
    <iconset>
-    <normaloff>:/images/images/bfc51b65a37504fd80673364f912057.png</normaloff>:/images/images/bfc51b65a37504fd80673364f912057.png</iconset>
+    <normaloff>:/images/images/icon/famp_icon_256.png</normaloff>:/images/images/icon/famp_icon_256.png</iconset>
   </property>
   <widget class="QWidget" name="centralWidget">
    <widget class="QOpenGLWidget" name="openGLWidget">
