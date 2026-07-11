@@ -111,6 +111,10 @@
     <property name="title">
      <string>帮助</string>
     </property>
+    <addaction name="actQuickStart"/>
+    <addaction name="actShortcuts"/>
+    <addaction name="separator"/>
+    <addaction name="actAbout"/>
    </widget>
    <addaction name="menu_4"/>
    <addaction name="menu"/>
@@ -802,6 +806,24 @@
    </property>
    <property name="text">
     <string>制图信息</string>
+   </property>
+  </action>
+  <action name="actQuickStart">
+   <property name="text">
+    <string>快速入门</string>
+   </property>
+   <property name="shortcut">
+    <string>F1</string>
+   </property>
+  </action>
+  <action name="actShortcuts">
+   <property name="text">
+    <string>快捷键</string>
+   </property>
+  </action>
+  <action name="actAbout">
+   <property name="text">
+    <string>关于 FAMP</string>
    </property>
   </action>
  </widget>

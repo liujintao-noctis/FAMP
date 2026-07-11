@@ -158,6 +158,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CompassItem.h
     FAMPController.h
     FormTabulationItem.h
+    HelpContent.h
     MainWindow.h
     MetricScale.h
     MyGraphicsView.h
