@@ -75,6 +75,7 @@ private:
     void setScaleVisible(bool enable);          //设置比例尺的可见性
     void las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
     void showPlaneWidget(vtkPlaneWidget* (MyVTK::*displayFunc)(), const char* consoleMsg); //统一的平面部件显示方法
+    void showHelpDialog(const QString& title, const QString& html);
 
 private slots:
     //GrapView显示浮动
@@ -105,6 +106,9 @@ private slots:
     void slotBackView();    //后视
 
     void slotOpenCloud();   //打开点云文件
+    void slotShowQuickStart();
+    void slotShowShortcuts();
+    void slotShowAbout();
 
     void slotOn_treeView_clicked(const QModelIndex & index);    //点击DB Tree项目
     void slotOn_treeItemChanged(QStandardItem * item);          //DB Tree  发生变化

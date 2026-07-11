@@ -8,15 +8,22 @@
 
 #include "MainWindow.h"
 #include "FAMPController.h"
+#include "HelpContent.h"
 #include "PcdLoader.h"
 
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QPixmap>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QMessageBox>
 #include <QTime>
+#include <QTextBrowser>
 #include <QVBoxLayout>
+
+#include <pcl/pcl_config.h>
+#include <vtkVersion.h>
 
 #include <cstdint>
 #include <memory>
@@ -91,6 +98,48 @@ MainWindow::MainWindow(QWidget *parent)
     controller = new FAMPController(this, myVTK, ui.graphicsView, this);
     controller->initializeConnections(ui, model, centerDock, scaleCombox);
 
+}
+
+void MainWindow::showHelpDialog(const QString& title, const QString& html)
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(title);
+    dialog.resize(680, 520);
+
+    QVBoxLayout layout(&dialog);
+    QTextBrowser browser(&dialog);
+    browser.setOpenExternalLinks(true);
+    browser.setHtml(html);
+    layout.addWidget(&browser);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Close, &dialog);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addWidget(&buttons);
+    dialog.exec();
+}
+
+void MainWindow::slotShowQuickStart()
+{
+    showHelpDialog(tr("FAMP 快速入门"), famp::help::quickStartHtml());
+}
+
+void MainWindow::slotShowShortcuts()
+{
+    showHelpDialog(tr("FAMP 快捷键"), famp::help::shortcutsHtml());
+}
+
+void MainWindow::slotShowAbout()
+{
+    const QString version = QCoreApplication::applicationVersion().isEmpty()
+        ? tr("开发版本")
+        : QCoreApplication::applicationVersion();
+    showHelpDialog(
+        tr("关于 FAMP"),
+        famp::help::aboutHtml(
+            version,
+            QString::fromLatin1(qVersion()),
+            QString::fromLatin1(VTK_VERSION),
+            QString::fromLatin1(PCL_VERSION_PRETTY)));
 }
 
 void MainWindow::slotOn_actGraViewVisible_triggered(bool checked)

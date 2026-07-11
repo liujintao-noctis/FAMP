@@ -177,4 +177,10 @@ void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStand
     // ── 出图模板 ─────────────────────────────────────────────────────
 
     connect(ui.actPlotTab, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actPlotTab_triggered()));
+
+    // ── 帮助与版本信息 ──────────────────────────────────────────────
+
+    connect(ui.actQuickStart, SIGNAL(triggered()), m_mainWindow, SLOT(slotShowQuickStart()));
+    connect(ui.actShortcuts, SIGNAL(triggered()), m_mainWindow, SLOT(slotShowShortcuts()));
+    connect(ui.actAbout, SIGNAL(triggered()), m_mainWindow, SLOT(slotShowAbout()));
 }
