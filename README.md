@@ -6,7 +6,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 
 项目使用 CMake 和 vcpkg 管理跨平台构建。规范的本地 CMake 入口是 `src/CMakeLists.txt`，构建产物统一放在仓库根目录的 `build/`。根目录 `CMakeLists.txt` 仍可使用，但它只负责设置工程并转发到 `src/`。
 
-当前应用版本为 `0.1.1`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.1.1`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
+当前应用版本为 `0.2.0`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.2.0`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
 
 ## 当前功能
 
