@@ -1275,31 +1275,19 @@ void MyGraphicsView::getisOverLookProj(bool isproj)
 //组合按钮
 void MyGraphicsView::slotOn_actGroup_triggered()
 {
-    int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
-    //qDebug() << "selectedCounts" << selectedCounts;
-
-    if (selectedCounts>1)
+    const QList<QGraphicsItem*> selected = scene->selectedItems();
+    if (selected.size() > 1)
     {
-        invalidateHistory(tr("图元组合"));
-        QGraphicsItemGroup *group = new QGraphicsItemGroup;         //创建组合
-        scene->addItem(group);   //组合添加到场景中
-
-        for (size_t i = 0; i < selectedCounts; i++)
-        {
-
-            QGraphicsItem* item = scene->selectedItems().at(0);
-            item->setSelected(false); //清除选择虚线框
-            item->clearFocus();
-            group->addToGroup(item); //添加到组合
-        }
-
+        auto* group = new QGraphicsItemGroup;
         group->setFlags(QGraphicsItem::ItemIsMovable
             | QGraphicsItem::ItemIsSelectable
             | QGraphicsItem::ItemIsFocusable);
-
         group->setZValue(++frontZ);
-        this->scene->clearSelection();
-        group->setSelected(true);
+        history->push(famp::graphics::makeGroupItemsCommand(
+            scene,
+            handleForItem(group),
+            handlesForItems(selected),
+            tr("组合图元")));
     }
 }
 
@@ -1316,8 +1304,11 @@ void MyGraphicsView::slotOn_actBreak_triggered()
             emit sendStrFromGraphicView2Console(tr("当前选中图元不是组合。"));
             return;
         }
-        invalidateHistory(tr("图元打散"));
-        scene->destroyItemGroup(group);
+        history->push(famp::graphics::makeUngroupItemsCommand(
+            scene,
+            handleForItem(group),
+            handlesForItems(group->childItems()),
+            tr("打散图元")));
     }
 }
 

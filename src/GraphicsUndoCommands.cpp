@@ -1,6 +1,7 @@
 #include "GraphicsUndoCommands.h"
 
 #include <QGraphicsItem>
+#include <QGraphicsItemGroup>
 #include <QGraphicsScene>
 #include <QGraphicsTextItem>
 #include <QUndoCommand>
@@ -216,6 +217,91 @@ private:
     QFont before_;
     QFont after_;
 };
+
+class GroupItemsCommand final : public QUndoCommand
+{
+public:
+    GroupItemsCommand(QGraphicsScene* scene,
+                      famp::graphics::ItemHandle group,
+                      QVector<famp::graphics::ItemHandle> children,
+                      bool initiallyGrouped,
+                      const QString& text)
+        : scene_(scene)
+        , group_(std::move(group))
+        , children_(std::move(children))
+        , initiallyGrouped_(initiallyGrouped)
+    {
+        setText(text);
+        if (group_)
+            group_->deleteWhenDetached = true;
+    }
+
+    void undo() override
+    {
+        if (initiallyGrouped_)
+            groupItems();
+        else
+            ungroupItems();
+    }
+
+    void redo() override
+    {
+        if (initiallyGrouped_)
+            ungroupItems();
+        else
+            groupItems();
+    }
+
+private:
+    QGraphicsItemGroup* groupItem() const
+    {
+        return group_ ? dynamic_cast<QGraphicsItemGroup*>(group_->item) : nullptr;
+    }
+
+    void groupItems()
+    {
+        QGraphicsItemGroup* group = groupItem();
+        if (!scene_ || !group)
+            return;
+        if (!group->scene())
+            scene_->addItem(group);
+        scene_->clearSelection();
+        for (const auto& childHandle : children_)
+        {
+            QGraphicsItem* child = childHandle ? childHandle->item : nullptr;
+            if (child && child->scene() == scene_
+                && child->parentItem() != group)
+            {
+                group->addToGroup(child);
+            }
+        }
+        group->setSelected(true);
+    }
+
+    void ungroupItems()
+    {
+        QGraphicsItemGroup* group = groupItem();
+        if (!scene_ || !group)
+            return;
+        group->setSelected(false);
+        for (const auto& childHandle : children_)
+        {
+            QGraphicsItem* child = childHandle ? childHandle->item : nullptr;
+            if (child && child->parentItem() == group)
+            {
+                group->removeFromGroup(child);
+                child->setSelected(true);
+            }
+        }
+        if (group->scene() == scene_)
+            scene_->removeItem(group);
+    }
+
+    QGraphicsScene* scene_ = nullptr;
+    famp::graphics::ItemHandle group_;
+    QVector<famp::graphics::ItemHandle> children_;
+    bool initiallyGrouped_ = false;
+};
 }
 
 namespace famp::graphics
@@ -305,5 +391,23 @@ QUndoCommand* makeTextFontCommand(const ItemHandle& handle,
                                   const QString& text)
 {
     return new TextFontCommand(handle, before, after, text);
+}
+
+QUndoCommand* makeGroupItemsCommand(
+    QGraphicsScene* scene,
+    const ItemHandle& group,
+    const QVector<ItemHandle>& children,
+    const QString& text)
+{
+    return new GroupItemsCommand(scene, group, children, false, text);
+}
+
+QUndoCommand* makeUngroupItemsCommand(
+    QGraphicsScene* scene,
+    const ItemHandle& group,
+    const QVector<ItemHandle>& children,
+    const QString& text)
+{
+    return new GroupItemsCommand(scene, group, children, true, text);
 }
 }

@@ -3,6 +3,7 @@
 #include "GraphicsUndoCommands.h"
 
 #include <QGraphicsRectItem>
+#include <QGraphicsItemGroup>
 #include <QGraphicsScene>
 #include <QGraphicsTextItem>
 #include <QUndoStack>
@@ -134,6 +135,61 @@ TEST(GraphicsUndoCommandsTest, RestoresTextFont)
 
     history.clear();
     handle.reset();
+}
+
+TEST(GraphicsUndoCommandsTest, GroupsAndUngroupsWithoutLosingTransforms)
+{
+    QGraphicsScene scene;
+    auto* first = scene.addRect(QRectF(0.0, 0.0, 10.0, 10.0));
+    auto* second = scene.addRect(QRectF(0.0, 0.0, 8.0, 8.0));
+    first->setPos(12.0, -4.0);
+    first->setRotation(20.0);
+    second->setPos(-18.0, 25.0);
+    const QPointF firstScenePosition = first->scenePos();
+    const QPointF secondScenePosition = second->scenePos();
+    auto firstHandle = std::make_shared<famp::graphics::ItemLifetime>(first);
+    auto secondHandle = std::make_shared<famp::graphics::ItemLifetime>(second);
+    auto* group = new QGraphicsItemGroup();
+    group->setFlags(QGraphicsItem::ItemIsMovable
+                    | QGraphicsItem::ItemIsSelectable);
+    auto groupHandle = std::make_shared<famp::graphics::ItemLifetime>(group);
+    QUndoStack history;
+
+    history.push(famp::graphics::makeGroupItemsCommand(
+        &scene, groupHandle, {firstHandle, secondHandle},
+        QStringLiteral("group")));
+    EXPECT_EQ(group->scene(), &scene);
+    EXPECT_EQ(first->parentItem(), group);
+    EXPECT_EQ(second->parentItem(), group);
+    EXPECT_EQ(first->scenePos(), firstScenePosition);
+    EXPECT_EQ(second->scenePos(), secondScenePosition);
+
+    history.undo();
+    EXPECT_EQ(group->scene(), nullptr);
+    EXPECT_EQ(first->parentItem(), nullptr);
+    EXPECT_EQ(second->parentItem(), nullptr);
+    EXPECT_EQ(first->scenePos(), firstScenePosition);
+    EXPECT_EQ(second->scenePos(), secondScenePosition);
+
+    history.redo();
+    history.push(famp::graphics::makeUngroupItemsCommand(
+        &scene, groupHandle, {firstHandle, secondHandle},
+        QStringLiteral("ungroup")));
+    EXPECT_EQ(group->scene(), nullptr);
+    EXPECT_EQ(first->parentItem(), nullptr);
+    EXPECT_EQ(second->parentItem(), nullptr);
+
+    history.undo();
+    EXPECT_EQ(group->scene(), &scene);
+    EXPECT_EQ(first->parentItem(), group);
+    EXPECT_EQ(second->parentItem(), group);
+    EXPECT_EQ(first->scenePos(), firstScenePosition);
+    EXPECT_EQ(second->scenePos(), secondScenePosition);
+
+    history.clear();
+    groupHandle.reset();
+    firstHandle.reset();
+    secondHandle.reset();
 }
 
 TEST(GraphicsUndoCommandsTest, ReleasesUndoneAddedItemWhenHistoryIsDiscarded)
