@@ -63,6 +63,7 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 
 # ── Test executable ───────────────────────────────────────────────────────
 add_executable(famp_tests
+    "${FAMP_SRC_DIR}/ArchaeologyReport.cpp"
     "${FAMP_SRC_DIR}/CrsService.cpp"
     "${FAMP_SRC_DIR}/FileIO.cpp"
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
@@ -81,6 +82,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     "${FAMP_SRC_DIR}/ProcessingRecipe.cpp"
     test_main.cpp
+    test_archaeology_report.cpp
     test_cloud.cpp
     test_cloud_coordinates.cpp
     test_cloud_loader.cpp
