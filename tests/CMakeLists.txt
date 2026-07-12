@@ -25,7 +25,7 @@ FetchContent_MakeAvailable(googletest)
 # headers only, so no Widgets / GUI linkage is needed.
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core PrintSupport Svg Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core PrintSupport Svg Widgets)
-find_package(PCL REQUIRED COMPONENTS common features filters io)
+find_package(PCL REQUIRED COMPONENTS common features filters io registration)
 find_package(PROJ CONFIG REQUIRED)
 
 add_library(famp_cloud STATIC
@@ -75,6 +75,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/Measurement.cpp"
     "${FAMP_SRC_DIR}/MeasurementItem.cpp"
     "${FAMP_SRC_DIR}/CloudProcessing.cpp"
+    "${FAMP_SRC_DIR}/CloudRegistration.cpp"
     "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
@@ -86,6 +87,7 @@ add_executable(famp_tests
     test_additional_cloud_loader.cpp
     test_cloud_display_settings.cpp
     test_cloud_processing.cpp
+    test_cloud_registration.cpp
     test_cloud_crop.cpp
     test_crs_service.cpp
     test_file_io.cpp
