@@ -151,6 +151,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     MyItem.cpp
     MyVTK.cpp
     PcdLoader.cpp
+    ProjectDocument.cpp
     RecentFiles.cpp
     QDlgClip.cpp
     QDlgPlotTab.cpp
@@ -172,6 +173,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     MyItem.h
     MyVTK.h
     PcdLoader.h
+    ProjectDocument.h
     RecentFiles.h
     QDlgClip.h
     QDlgPlotTab.h

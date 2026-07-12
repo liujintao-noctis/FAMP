@@ -14,11 +14,13 @@
 #include "RecentFiles.h"
 
 #include <QAction>
+#include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFile>
 #include <QFileDialog>
 #include <QFontMetrics>
 #include <QPixmap>
@@ -28,6 +30,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QSettings>
+#include <QStandardPaths>
 #include <QTime>
 #include <QTextBrowser>
 #include <QTimer>
@@ -37,6 +40,7 @@
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
 
+#include <algorithm>
 #include <memory>
 
 Q_DECLARE_METATYPE(MyCloudList)
@@ -45,6 +49,13 @@ static int iCount = 0;      //记录点云的ID号
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , recentFilesMenu(nullptr)
+    , newProjectAction(nullptr)
+    , openProjectAction(nullptr)
+    , saveProjectAction(nullptr)
+    , saveProjectAsAction(nullptr)
+    , autosaveTimer(nullptr)
+    , projectDirty(false)
+    , loadingProject(false)
 {
     ui.setupUi(this);
 
@@ -110,8 +121,370 @@ MainWindow::MainWindow(QWidget *parent)
     // FAMPController 中介者：统一管理所有信号/槽连接
     controller = new FAMPController(this, myVTK, ui.graphicsView, this);
     controller->initializeConnections(ui, model, centerDock, scaleCombox);
+    initializeProjectActions();
     initializeRecentFilesMenu();
+    connect(scaleCombox, &QComboBox::currentTextChanged,
+            this, [this]() { markProjectDirty(); });
 
+    autosaveTimer = new QTimer(this);
+    autosaveTimer->setInterval(60 * 1000);
+    connect(autosaveTimer, &QTimer::timeout,
+            this, &MainWindow::slotAutosaveProject);
+    autosaveTimer->start();
+    updateWindowTitle();
+    QTimer::singleShot(0, this, [this]() { checkForRecoveryProject(); });
+
+}
+
+void MainWindow::initializeProjectActions()
+{
+    newProjectAction = new QAction(tr("新建项目"), this);
+    newProjectAction->setObjectName(QStringLiteral("actNewProject"));
+    newProjectAction->setShortcut(QKeySequence::New);
+    openProjectAction = new QAction(tr("打开项目…"), this);
+    openProjectAction->setObjectName(QStringLiteral("actOpenProject"));
+    openProjectAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+O")));
+    saveProjectAction = new QAction(tr("保存项目"), this);
+    saveProjectAction->setObjectName(QStringLiteral("actSaveProject"));
+    saveProjectAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+S")));
+    saveProjectAsAction = new QAction(tr("项目另存为…"), this);
+    saveProjectAsAction->setObjectName(QStringLiteral("actSaveProjectAs"));
+
+    ui.menu_4->insertAction(ui.actOpenCloud, newProjectAction);
+    ui.menu_4->insertAction(ui.actOpenCloud, openProjectAction);
+    ui.menu_4->insertAction(ui.actOpenCloud, saveProjectAction);
+    ui.menu_4->insertAction(ui.actOpenCloud, saveProjectAsAction);
+    ui.menu_4->insertSeparator(ui.actOpenCloud);
+    ui.actSave->setText(tr("导出平面图…"));
+
+    connect(newProjectAction, &QAction::triggered,
+            this, &MainWindow::slotNewProject);
+    connect(openProjectAction, &QAction::triggered,
+            this, &MainWindow::slotOpenProject);
+    connect(saveProjectAction, &QAction::triggered,
+            this, &MainWindow::slotSaveProject);
+    connect(saveProjectAsAction, &QAction::triggered,
+            this, &MainWindow::slotSaveProjectAs);
+}
+
+famp::project::Document MainWindow::currentProjectDocument() const
+{
+    famp::project::Document document;
+    document.mapScale = scaleCombox->currentText();
+    for (int row = 0; row < model->rowCount(); ++row)
+    {
+        const QStandardItem* projectItem = model->item(row);
+        if (!projectItem || projectItem->rowCount() == 0)
+            continue;
+
+        const QString path = projectItem->child(0)->data(Qt::UserRole).toString();
+        if (!path.isEmpty())
+            document.cloudFiles.append(path);
+    }
+    return document;
+}
+
+QString MainWindow::recoveryProjectPath() const
+{
+    const QString recoveryDirectory =
+        QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+        + QStringLiteral("/recovery");
+    QDir().mkpath(recoveryDirectory);
+    return recoveryDirectory + QStringLiteral("/autosave.famp");
+}
+
+bool MainWindow::saveProject(bool forceSaveAs)
+{
+    QString targetPath = currentProjectPath;
+    if (forceSaveAs || targetPath.isEmpty())
+    {
+        const QString initialPath = targetPath.isEmpty()
+            ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+                  + QStringLiteral("/FAMP-project.famp")
+            : targetPath;
+        targetPath = QFileDialog::getSaveFileName(
+            this,
+            tr("保存 FAMP 项目"),
+            initialPath,
+            tr("FAMP 项目 (*.famp)"));
+        if (targetPath.isEmpty())
+            return false;
+    }
+    return saveProjectToPath(famp::project::pathWithProjectSuffix(targetPath));
+}
+
+bool MainWindow::saveProjectToPath(const QString& path)
+{
+    QString error;
+    if (!famp::project::save(
+            path,
+            currentProjectDocument(),
+            QCoreApplication::applicationVersion(),
+            &error))
+    {
+        QMessageBox::warning(this, tr("保存项目失败"), error);
+        return false;
+    }
+
+    currentProjectPath = famp::project::pathWithProjectSuffix(path);
+    projectDirty = false;
+    removeRecoveryProject();
+    updateWindowTitle();
+    emit sendStr2Console(tr("已保存项目  %1").arg(currentProjectPath));
+    return true;
+}
+
+bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
+{
+    famp::project::Document document;
+    QString error;
+    if (!famp::project::load(path, document, &error))
+    {
+        QMessageBox::warning(this, tr("打开项目失败"), error);
+        return false;
+    }
+
+    loadingProject = true;
+    clearWorkspace();
+    const int scaleIndex = scaleCombox->findText(document.mapScale);
+    if (scaleIndex >= 0)
+        scaleCombox->setCurrentIndex(scaleIndex);
+
+    QStringList failedFiles;
+    for (const QString& cloudPath : document.cloudFiles)
+    {
+        const QFileInfo cloudInfo(cloudPath);
+        if (!cloudInfo.exists() || !cloudInfo.isFile() || !cloudInfo.isReadable())
+        {
+            failedFiles.append(cloudPath);
+            continue;
+        }
+        if (!openCloudFile(cloudPath))
+            failedFiles.append(cloudPath);
+    }
+    loadingProject = false;
+
+    if (isRecovery)
+    {
+        QSettings settings;
+        currentProjectPath = settings.value(
+            QStringLiteral("MainWindow/recoveryOriginalProject")).toString();
+    }
+    else
+    {
+        currentProjectPath = QFileInfo(path).absoluteFilePath();
+    }
+    projectDirty = isRecovery || !failedFiles.isEmpty();
+    updateWindowTitle();
+    emit sendStr2Console(tr("已打开项目  %1").arg(path));
+
+    if (!failedFiles.isEmpty())
+    {
+        QStringList displayedFiles = failedFiles.mid(0, 10);
+        QString details = displayedFiles.join(QLatin1Char('\n'));
+        if (failedFiles.size() > displayedFiles.size())
+        {
+            details += tr("\n…共 %1 个文件未能加载")
+                           .arg(failedFiles.size());
+        }
+        QMessageBox::warning(
+            this,
+            tr("项目未完全加载"),
+            tr("以下点云文件不存在、不可读或无效：\n%1")
+                .arg(details));
+    }
+    return true;
+}
+
+bool MainWindow::maybeSaveCurrentProject()
+{
+    if (!projectDirty)
+        return true;
+
+    const QMessageBox::StandardButton choice = QMessageBox::warning(
+        this,
+        tr("项目尚未保存"),
+        tr("当前点云项目有未保存的更改。"),
+        QMessageBox::Save | QMessageBox::Discard | QMessageBox::Cancel,
+        QMessageBox::Save);
+    if (choice == QMessageBox::Cancel)
+        return false;
+    if (choice == QMessageBox::Save)
+        return saveProject(false);
+
+    return true;
+}
+
+void MainWindow::removeCloudFromWorkspace(const MyCloudList& cloud)
+{
+    if (cloud.cloudactor)
+    {
+        myVTK->removeCloudDisplay(cloud.cloudactor);
+        cloud.cloudactor->Delete();
+    }
+    if (cloud.AABBactor)
+    {
+        myVTK->removeCloudDisplay(cloud.AABBactor);
+        cloud.AABBactor->Delete();
+    }
+    pointCloudList.erase(
+        std::remove_if(pointCloudList.begin(), pointCloudList.end(),
+                       [&cloud](const MyCloudList& candidate) {
+                           return candidate.id == cloud.id;
+                       }),
+        pointCloudList.end());
+}
+
+void MainWindow::clearWorkspace()
+{
+    while (!pointCloudList.empty())
+        removeCloudFromWorkspace(pointCloudList.back());
+    model->clear();
+    model->setHorizontalHeaderLabels(QStringList() << QString());
+    ui.graphicsView->slotOn_actClearScene_triggered();
+
+    inCloud.reset();
+    delete myCloud;
+    myCloud = nullptr;
+    itemCloud = nullptr;
+    itemProject = nullptr;
+    isAABB = false;
+    ui.actDelete->setEnabled(false);
+    ui.actAABB->setEnabled(false);
+    ui.actRandomPlane->setEnabled(false);
+    ui.actVerticalPlane->setEnabled(false);
+    ui.actHorizonalPlane->setEnabled(false);
+    scaleCombox->setCurrentIndex(2);
+    myVTK->initCamera();
+    myVTK->update();
+}
+
+void MainWindow::markProjectDirty()
+{
+    if (loadingProject || projectDirty)
+        return;
+    projectDirty = true;
+    updateWindowTitle();
+}
+
+void MainWindow::updateWindowTitle()
+{
+    QString title = QStringLiteral("FAMP %1")
+                        .arg(QCoreApplication::applicationVersion());
+    if (!currentProjectPath.isEmpty())
+        title += QStringLiteral(" — %1").arg(QFileInfo(currentProjectPath).fileName());
+    if (projectDirty)
+        title += QStringLiteral(" *");
+    setWindowTitle(title);
+}
+
+void MainWindow::removeRecoveryProject()
+{
+    QFile::remove(recoveryProjectPath());
+    QSettings settings;
+    settings.remove(QStringLiteral("MainWindow/recoveryOriginalProject"));
+}
+
+void MainWindow::checkForRecoveryProject()
+{
+    const QString recoveryPath = recoveryProjectPath();
+    if (!QFileInfo::exists(recoveryPath))
+        return;
+
+    const QMessageBox::StandardButton choice = QMessageBox::question(
+        this,
+        tr("恢复自动保存"),
+        tr("发现上次未正常关闭时的自动保存，是否恢复？"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+    if (choice == QMessageBox::Yes)
+        loadProjectFromPath(recoveryPath, true);
+    else
+        removeRecoveryProject();
+}
+
+void MainWindow::closeEvent(QCloseEvent* event)
+{
+    if (maybeSaveCurrentProject())
+    {
+        if (projectDirty)
+            removeRecoveryProject();
+        event->accept();
+    }
+    else
+        event->ignore();
+}
+
+void MainWindow::slotNewProject()
+{
+    if (!maybeSaveCurrentProject())
+        return;
+
+    loadingProject = true;
+    clearWorkspace();
+    loadingProject = false;
+    currentProjectPath.clear();
+    projectDirty = false;
+    removeRecoveryProject();
+    updateWindowTitle();
+    emit sendStr2Console(tr("已新建空项目"));
+}
+
+void MainWindow::slotOpenProject()
+{
+    if (!maybeSaveCurrentProject())
+        return;
+
+    QSettings settings;
+    const QString initialDirectory = settings.value(
+        QStringLiteral("MainWindow/lastProjectDirectory"),
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)).toString();
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        tr("打开 FAMP 项目"),
+        initialDirectory,
+        tr("FAMP 项目 (*.famp)"));
+    if (path.isEmpty())
+        return;
+
+    if (loadProjectFromPath(path))
+    {
+        settings.setValue(QStringLiteral("MainWindow/lastProjectDirectory"),
+                          QFileInfo(path).absolutePath());
+        removeRecoveryProject();
+    }
+}
+
+void MainWindow::slotSaveProject()
+{
+    saveProject(false);
+}
+
+void MainWindow::slotSaveProjectAs()
+{
+    saveProject(true);
+}
+
+void MainWindow::slotAutosaveProject()
+{
+    if (!projectDirty)
+        return;
+
+    QString error;
+    if (!famp::project::save(
+            recoveryProjectPath(),
+            currentProjectDocument(),
+            QCoreApplication::applicationVersion(),
+            &error))
+    {
+        statusBar()->showMessage(tr("自动保存失败：%1").arg(error), 8000);
+        return;
+    }
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("MainWindow/recoveryOriginalProject"),
+                      currentProjectPath);
+    statusBar()->showMessage(tr("项目已自动保存"), 3000);
 }
 
 void MainWindow::initializeRecentFilesMenu()
@@ -558,6 +931,7 @@ bool MainWindow::openCloudFile(const QString& requestedPath)
     ui.actAABB->setChecked(false);
     ui.actAABB->setText("关闭包围盒");
     addRecentFile(path);
+    markProjectDirty();
     return true;
 }
 
@@ -797,6 +1171,7 @@ void MainWindow::slotOn_actDelete_triggered()
 {
     QModelIndex index = ui.treeView->currentIndex();
     QStandardItem * currentItem = model->itemFromIndex(index);
+    bool removedItem = false;
 
     //if (parentItem == nullptr)    return;
     if (!model->hasChildren())
@@ -806,31 +1181,32 @@ void MainWindow::slotOn_actDelete_triggered()
     else if (!currentItem->hasChildren() && currentItem->parent() == 0)
     {
         model->removeRow(currentItem->index().row());
+        removedItem = true;
 
     }
     else if (currentItem->hasChildren())        //删除点云文件夹
     {
 
         MyCloudList childData = currentItem->child(0)->data(Qt::UserRole + 2).value<MyCloudList>();
-        myVTK->removeCloudDisplay(childData.cloudactor);        //移除点云演员
-        myVTK->removeCloudDisplay(childData.AABBactor);
+        removeCloudFromWorkspace(childData);
 
         while (currentItem->rowCount() != 0)
         {
             currentItem->removeRow(0);
         }
         model->removeRow(currentItem->index().row());
+        removedItem = true;
 
     }
     else if (currentItem->parent() != nullptr)      //删除点云
     {
 
         MyCloudList myCloudData = currentItem->data(Qt::UserRole + 2).value<MyCloudList>();
-        myVTK->removeCloudDisplay(myCloudData.cloudactor);      //移除点云演员
-        myVTK->removeCloudDisplay(myCloudData.AABBactor);
+        removeCloudFromWorkspace(myCloudData);
 
         QStandardItem * parentItem = currentItem->parent();
         parentItem->removeRow(currentItem->row());
+        removedItem = true;
 
     }
 
@@ -846,6 +1222,8 @@ void MainWindow::slotOn_actDelete_triggered()
 
         isAABB = false;
     }
+    if (removedItem)
+        markProjectDirty();
 }
 
 //开启AABB按钮

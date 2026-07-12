@@ -9,6 +9,7 @@ inline QString quickStartHtml()
     return QStringLiteral(R"HTML(
 <h2>FAMP 快速入门</h2>
 <ol>
+  <li><b>管理项目：</b>使用“文件 → 新建/打开/保存项目”管理 `.famp` 点云项目；未保存更改每 60 秒自动备份。</li>
   <li><b>打开点云：</b>使用“文件 → 打开点云”选择 PCD 或 LAS 文件，也可将文件直接拖入主窗口。</li>
   <li><b>继续工作：</b>“文件 → 最近打开”会保留最近 8 个可用点云文件。</li>
   <li><b>检查点云：</b>在内容列表中切换可见性，并使用六个标准视图和包围盒检查数据。</li>
@@ -27,6 +28,9 @@ inline QString shortcutsHtml()
 <table cellspacing="8">
   <tr><th align="left">快捷键</th><th align="left">功能</th></tr>
   <tr><td>Ctrl+O</td><td>打开点云</td></tr>
+  <tr><td>Ctrl+N</td><td>新建项目</td></tr>
+  <tr><td>Ctrl+Shift+O</td><td>打开项目</td></tr>
+  <tr><td>Ctrl+Shift+S</td><td>保存项目</td></tr>
   <tr><td>Ctrl+S</td><td>保存二维制图成果</td></tr>
   <tr><td>Ctrl+F12</td><td>全屏显示</td></tr>
   <tr><td>Delete</td><td>删除选中的二维图元</td></tr>

@@ -7,6 +7,8 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     const QString content = famp::help::quickStartHtml();
 
     EXPECT_TRUE(content.contains(QStringLiteral("打开点云")));
+    EXPECT_TRUE(content.contains(QStringLiteral(".famp")));
+    EXPECT_TRUE(content.contains(QStringLiteral("60 秒")));
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
@@ -18,6 +20,8 @@ TEST(HelpContentTest, ShortcutsListCoreActions)
     const QString content = famp::help::shortcutsHtml();
 
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+O")));
+    EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+O")));
+    EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+S")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+S")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+Left/Right")));
     EXPECT_TRUE(content.contains(QStringLiteral("F1")));

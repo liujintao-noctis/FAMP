@@ -13,6 +13,7 @@
 #include "Cloud.h"
 #include "QDlgClip.h"
 #include "MyGraphicsView.h"
+#include "ProjectDocument.h"
 
 #include <QtWidgets/QMainWindow>
 #include <QDockWidget>
@@ -26,9 +27,12 @@
 #include <vtkPlaneWidget.h>
 
 class FAMPController;
+class QAction;
+class QCloseEvent;
 class QDragEnterEvent;
 class QDropEvent;
 class QMenu;
+class QTimer;
 
 struct MyCloudList
 {
@@ -46,6 +50,7 @@ public:
     MainWindow(QWidget *parent = Q_NULLPTR);
 
 protected:
+    void closeEvent(QCloseEvent* event) override;
     void dragEnterEvent(QDragEnterEvent* event) override;
     void dropEvent(QDropEvent* event) override;
 
@@ -69,6 +74,14 @@ private:
     FAMPController * controller;
     QMenu * recentFilesMenu;
     QStringList recentFiles;
+    QAction * newProjectAction;
+    QAction * openProjectAction;
+    QAction * saveProjectAction;
+    QAction * saveProjectAsAction;
+    QTimer * autosaveTimer;
+    QString currentProjectPath;
+    bool projectDirty;
+    bool loadingProject;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局
@@ -85,6 +98,19 @@ private:
     void initializeRecentFilesMenu();
     void addRecentFile(const QString& path);
     void updateRecentFilesMenu();
+    void initializeProjectActions();
+    famp::project::Document currentProjectDocument() const;
+    QString recoveryProjectPath() const;
+    bool saveProject(bool forceSaveAs);
+    bool saveProjectToPath(const QString& path);
+    bool loadProjectFromPath(const QString& path, bool isRecovery = false);
+    bool maybeSaveCurrentProject();
+    void removeCloudFromWorkspace(const MyCloudList& cloud);
+    void clearWorkspace();
+    void markProjectDirty();
+    void updateWindowTitle();
+    void removeRecoveryProject();
+    void checkForRecoveryProject();
 
 private slots:
     //GrapView显示浮动
@@ -115,6 +141,11 @@ private slots:
     void slotBackView();    //后视
 
     void slotOpenCloud();   //打开点云文件
+    void slotNewProject();
+    void slotOpenProject();
+    void slotSaveProject();
+    void slotSaveProjectAs();
+    void slotAutosaveProject();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();
