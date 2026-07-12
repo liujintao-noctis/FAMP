@@ -964,7 +964,6 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
 //比例尺改变后重新绘制
 void MyGraphicsView::ReDraw(QPointF offset)
 {
-    invalidateHistory(tr("比例尺重绘"));
     QList<QGraphicsItem*> all_items = scene->items();
 
     qDebug()<< "items" << all_items.size();
@@ -1000,20 +999,8 @@ void MyGraphicsView::ReDraw(QPointF offset)
                 item_points.push_back(P4);
             }
 
-            //将点云传入到重写的QGraphicsItem中绘制
-            MyItem *item = new MyItem(item_points, item_ordercloud.project_type);
-            scene->addItem(item);
-            scene->clearSelection();
-            scene->selectedItems().clear();
-            item->setSelected(true);
-            MyOrderCloudType item_myordercloud;
-            item_myordercloud.orderCloud = item_ordercloud.orderCloud;
-            item_myordercloud.project_type = item_ordercloud.project_type;
-            item->setData(ItemCloud, QVariant::fromValue(item_myordercloud));
-
-            //将当前item删除
-            scene->removeItem(all_items.at(i));
-            delete all_items.at(i);
+            if (auto* item = dynamic_cast<MyItem*>(all_items.at(i)))
+                item->setPoints(item_points);
         }
     }
 
@@ -1603,48 +1590,39 @@ void MyGraphicsView::slotOn_actText_triggered()
 //接受ComBox发送过来的比例尺
 void MyGraphicsView::getScaleComBoxCurrentIndexChanged(int index)
 {
-    //qDebug() << "Scale" << index;
+    ScaleType requested = scaleType;
     switch (index)
     {
-    case(0):
+    case 0: requested = OneToTen; break;
+    case 1: requested = OneToTwenty; break;
+    case 2: requested = OneToFifty; break;
+    case 3: requested = OneToHundred; break;
+    default: return;
+    }
+    if (requested == scaleType)
+        return;
+    const ScaleType previous = scaleType;
+    if (!scene || scene->items().isEmpty())
     {
-        //qDebug() << "1:10" ;
-        scaleType = OneToTen;
-        sendReDraw(scaleType);      //比例尺改变时重新作图
-        //sendScaleToDlgPlotTap(scaleType); //将比例尺发送到出图模板对话框
+        applyScale(requested);
+        return;
     }
-    break;
+    history->push(famp::graphics::makeCallbackCommand(
+        [this, previous]() { applyScale(previous); },
+        [this, requested]() { applyScale(requested); },
+        tr("更改制图比例尺")));
+}
 
-    case(1):
-    {
-        //qDebug() << "1:20";
-        scaleType = OneToTwenty;
-        sendReDraw(scaleType);      //比例尺改变时重新作图
-        //sendScaleToDlgPlotTap(scaleType); //将比例尺发送到出图模板对话框
-    }
-    break;
-
-    case(2):
-    {
-        //qDebug() << "1:50";
-        scaleType = OneToFifty;
-        sendReDraw(scaleType);      //比例尺改变时重新作图
-        //sendScaleToDlgPlotTap(scaleType); //将比例尺发送到出图模板对话框
-    }
-    break;
-
-    case(3):
-    {
-        //qDebug() << "1:100";
-        scaleType = OneToHundred;
-        sendReDraw(scaleType);      //比例尺改变时重新作图
-        //sendScaleToDlgPlotTap(scaleType); //将比例尺发送到出图模板对话框
-    }
-    break;
-
-    default:
-        break;
-    }
+void MyGraphicsView::applyScale(ScaleType scale)
+{
+    if (measurementActive)
+        resetMeasurementInteraction(true);
+    scaleType = scale;
+    deltaOffset = scaleOffsetFor(scaleType);
+    emit sendScaleOffset(deltaOffset);
+    ReDraw(deltaOffset);
+    emit scaleIndexChangedByHistory(static_cast<int>(scaleType));
+    viewport()->update();
 }
 
 int MyGraphicsView::scaleDenominator(ScaleType scale)
@@ -1745,12 +1723,7 @@ void MyGraphicsView::getReDraw(ScaleType scale)
         resetMeasurementInteraction(true);
         emit measurementStatus(tr("制图比例尺发生变化，已取消当前测量。"));
     }
-    scaleType = scale;
-    deltaOffset = scaleOffsetFor(scaleType);
-    qDebug() << "重新作图1:" << scaleDenominator(scaleType)
-             << "每毫米逻辑像素:" << metricPixelsPerMillimeter;
-    emit sendScaleOffset(deltaOffset);
-    ReDraw(deltaOffset);
+    applyScale(scale);
 }
 
 //得到比例尺变化后坐标的偏移量

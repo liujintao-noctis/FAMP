@@ -160,6 +160,7 @@ private:
     void markProjectDirty();
     void updateWindowTitle();
     void updateCrsStatus();
+    void applyProjectCrs(const QString& crs);
     void removeRecoveryProject();
     void checkForRecoveryProject();
 

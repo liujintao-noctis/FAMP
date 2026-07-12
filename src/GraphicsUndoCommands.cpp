@@ -302,6 +302,23 @@ private:
     QVector<famp::graphics::ItemHandle> children_;
     bool initiallyGrouped_ = false;
 };
+
+class CallbackCommand final : public QUndoCommand
+{
+public:
+    CallbackCommand(std::function<void()> undo,
+                    std::function<void()> redo,
+                    const QString& text)
+        : undo_(std::move(undo)), redo_(std::move(redo))
+    {
+        setText(text);
+    }
+    void undo() override { if (undo_) undo_(); }
+    void redo() override { if (redo_) redo_(); }
+private:
+    std::function<void()> undo_;
+    std::function<void()> redo_;
+};
 }
 
 namespace famp::graphics
@@ -409,5 +426,12 @@ QUndoCommand* makeUngroupItemsCommand(
     const QString& text)
 {
     return new GroupItemsCommand(scene, group, children, true, text);
+}
+
+QUndoCommand* makeCallbackCommand(std::function<void()> undo,
+                                  std::function<void()> redo,
+                                  const QString& text)
+{
+    return new CallbackCommand(std::move(undo), std::move(redo), text);
 }
 }

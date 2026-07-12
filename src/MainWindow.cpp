@@ -45,6 +45,7 @@
 #include <QKeySequence>
 #include <QLineEdit>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QSpinBox>
 #include <QTime>
@@ -184,6 +185,14 @@ MainWindow::MainWindow(QWidget *parent)
     statusBar()->addPermanentWidget(cloudLoadProgress);
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
+    connect(ui.graphicsView, &MyGraphicsView::scaleIndexChangedByHistory,
+            this, [this](int index) {
+                if (scaleCombox->currentIndex() == index)
+                    return;
+                const QSignalBlocker blocker(scaleCombox);
+                scaleCombox->setCurrentIndex(index);
+                markProjectDirty();
+            });
     connect(ui.graphicsView->commandStack(), &QUndoStack::cleanChanged,
             this, [this](bool clean) {
                 if (!clean)
@@ -825,9 +834,12 @@ void MainWindow::slotSetProjectCrs()
     {
         if (!projectCrs.isEmpty())
         {
-            projectCrs.clear();
-            updateCrsStatus();
-            markProjectDirty();
+            const QString previous = projectCrs;
+            ui.graphicsView->commandStack()->push(
+                famp::graphics::makeCallbackCommand(
+                    [this, previous]() { applyProjectCrs(previous); },
+                    [this]() { applyProjectCrs(QString()); },
+                    tr("清除项目坐标系")));
         }
         return;
     }
@@ -842,13 +854,24 @@ void MainWindow::slotSetProjectCrs()
 
     if (projectCrs == info.identifier)
         return;
-    projectCrs = info.identifier;
-    updateCrsStatus();
-    markProjectDirty();
+    const QString previous = projectCrs;
+    const QString requested = info.identifier;
+    ui.graphicsView->commandStack()->push(
+        famp::graphics::makeCallbackCommand(
+            [this, previous]() { applyProjectCrs(previous); },
+            [this, requested]() { applyProjectCrs(requested); },
+            tr("更改项目坐标系")));
     statusBar()->showMessage(
         tr("项目 CRS 已设置为 %1 — %2；已加载点云坐标未被修改。")
             .arg(info.identifier, info.name),
         8000);
+}
+
+void MainWindow::applyProjectCrs(const QString& crs)
+{
+    projectCrs = crs;
+    updateCrsStatus();
+    markProjectDirty();
 }
 
 void MainWindow::slotOpenCoordinateConverter()

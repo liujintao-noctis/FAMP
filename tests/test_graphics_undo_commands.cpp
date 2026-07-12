@@ -192,6 +192,21 @@ TEST(GraphicsUndoCommandsTest, GroupsAndUngroupsWithoutLosingTransforms)
     secondHandle.reset();
 }
 
+TEST(GraphicsUndoCommandsTest, RunsPropertyCallbacksOnUndoAndRedo)
+{
+    int value = 1;
+    QUndoStack history;
+    history.push(famp::graphics::makeCallbackCommand(
+        [&value]() { value = 1; },
+        [&value]() { value = 2; },
+        QStringLiteral("property")));
+    EXPECT_EQ(value, 2);
+    history.undo();
+    EXPECT_EQ(value, 1);
+    history.redo();
+    EXPECT_EQ(value, 2);
+}
+
 TEST(GraphicsUndoCommandsTest, ReleasesUndoneAddedItemWhenHistoryIsDiscarded)
 {
     QGraphicsScene scene;

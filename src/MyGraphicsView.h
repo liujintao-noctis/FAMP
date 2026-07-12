@@ -207,6 +207,7 @@ private:
     void finishMeasurement();
     void resetMeasurementInteraction(bool notify);
     void rescaleMeasurementItems();
+    void applyScale(ScaleType scale);
 
     QDlgPlotTab  *dlgPlotTab;
     void setDlgPlotTab();           //设置弹出出图模板对话框
@@ -274,5 +275,6 @@ signals:
     void selectionAvailabilityChanged(bool available);
     void measurementModeEnded();
     void measurementStatus(QString message);
+    void scaleIndexChangedByHistory(int index);
     //void sendGetText();                   //发送获得制图人，比例尺，日期的信号
 };
