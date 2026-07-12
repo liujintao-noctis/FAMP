@@ -9,6 +9,9 @@
 #include "MainWindow.h"
 #include "FAMPController.h"
 #include "CrsService.h"
+#include "CloudDisplaySettings.h"
+#include "CloudProcessing.h"
+#include "FileIO.h"
 #include "HelpContent.h"
 #include "LasLoader.h"
 #include "PcdLoader.h"
@@ -17,6 +20,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QCloseEvent>
+#include <QColorDialog>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -31,6 +35,7 @@
 #include <QPixmap>
 #include <QPushButton>
 #include <QProgressBar>
+#include <QProgressDialog>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QMenu>
@@ -41,6 +46,7 @@
 #include <QLineEdit>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QSpinBox>
 #include <QTime>
 #include <QTextBrowser>
 #include <QTimer>
@@ -51,6 +57,8 @@
 
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
+#include <vtkMapper.h>
+#include <vtkProperty.h>
 
 #include <algorithm>
 #include <memory>
@@ -74,6 +82,8 @@ MainWindow::MainWindow(QWidget *parent)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
     , clearMeasurementsAction(nullptr)
+    , cloudDisplaySettingsAction(nullptr)
+    , preprocessCloudAction(nullptr)
     , undoGraphicsAction(nullptr)
     , redoGraphicsAction(nullptr)
     , crsStatusLabel(nullptr)
@@ -218,6 +228,20 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
             this, &MainWindow::slotOpenCoordinateConverter);
+
+    toolsMenu->addSeparator();
+    cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
+    cloudDisplaySettingsAction->setObjectName(
+        QStringLiteral("actCloudDisplaySettings"));
+    cloudDisplaySettingsAction->setEnabled(false);
+    preprocessCloudAction = toolsMenu->addAction(tr("点云预处理…"));
+    preprocessCloudAction->setObjectName(
+        QStringLiteral("actPreprocessCloud"));
+    preprocessCloudAction->setEnabled(false);
+    connect(cloudDisplaySettingsAction, &QAction::triggered,
+            this, &MainWindow::slotCloudDisplaySettings);
+    connect(preprocessCloudAction, &QAction::triggered,
+            this, &MainWindow::slotPreprocessCloud);
 
     toolsMenu->addSeparator();
     measurementActionGroup = new QActionGroup(this);
@@ -479,6 +503,10 @@ void MainWindow::clearWorkspace()
     scaleCombox->setCurrentIndex(2);
     myVTK->initCamera();
     myVTK->update();
+    if (cloudDisplaySettingsAction)
+        cloudDisplaySettingsAction->setEnabled(false);
+    if (preprocessCloudAction)
+        preprocessCloudAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -746,6 +774,285 @@ void MainWindow::slotOpenCoordinateConverter()
                      QString::number(target.z, 'g', 15)));
     });
     dialog.exec();
+}
+
+bool MainWindow::selectedCloudData(MyCloudList& cloud, QString* path) const
+{
+    const QModelIndex index = ui.treeView->currentIndex();
+    if (!index.isValid())
+        return false;
+
+    QStandardItem* item = model->itemFromIndex(index);
+    if (!item)
+        return false;
+    if (item->hasChildren())
+        item = item->child(0);
+    if (!item)
+        return false;
+
+    const QVariant data = item->data(Qt::UserRole + 2);
+    if (!data.isValid())
+        return false;
+    cloud = data.value<MyCloudList>();
+    if (!cloud.input_cloud || cloud.input_cloud->empty() || !cloud.cloudactor)
+        return false;
+
+    if (path)
+        *path = item->data(Qt::UserRole).toString();
+    return true;
+}
+
+void MainWindow::updateCloudToolActions()
+{
+    MyCloudList cloud;
+    const bool available = selectedCloudData(cloud);
+    if (cloudDisplaySettingsAction)
+        cloudDisplaySettingsAction->setEnabled(available);
+    if (preprocessCloudAction)
+        preprocessCloudAction->setEnabled(available && !cloudLoadBusy);
+}
+
+void MainWindow::slotCloudDisplaySettings()
+{
+    MyCloudList cloud;
+    if (!selectedCloudData(cloud))
+    {
+        QMessageBox::information(this, tr("点云显示设置"),
+                                 tr("请先在内容列表中选择一个点云。"));
+        return;
+    }
+
+    vtkActor* actor = cloud.cloudactor;
+    vtkMapper* mapper = actor->GetMapper();
+    if (!mapper)
+    {
+        QMessageBox::warning(this, tr("点云显示设置"),
+                             tr("所选点云没有可用的渲染器。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("点云显示设置"));
+    QFormLayout layout(&dialog);
+
+    QDoubleSpinBox pointSize(&dialog);
+    pointSize.setRange(1.0, 20.0);
+    pointSize.setDecimals(1);
+    pointSize.setSingleStep(0.5);
+    pointSize.setValue(actor->GetProperty()->GetPointSize());
+
+    QDoubleSpinBox opacity(&dialog);
+    opacity.setRange(0.05, 1.0);
+    opacity.setDecimals(2);
+    opacity.setSingleStep(0.05);
+    opacity.setValue(actor->GetProperty()->GetOpacity());
+
+    QComboBox colorMode(&dialog);
+    colorMode.addItem(tr("使用点云 RGB"), true);
+    colorMode.addItem(tr("使用统一颜色"), false);
+    colorMode.setCurrentIndex(mapper->GetScalarVisibility() ? 0 : 1);
+
+    const double* vtkColor = actor->GetProperty()->GetColor();
+    QColor selectedColor = QColor::fromRgbF(
+        vtkColor[0], vtkColor[1], vtkColor[2]);
+    QPushButton colorButton(tr("选择颜色…"), &dialog);
+    auto updateColorButton = [&]() {
+        colorButton.setStyleSheet(
+            QStringLiteral("background-color: %1;").arg(selectedColor.name()));
+    };
+    updateColorButton();
+    colorButton.setEnabled(colorMode.currentIndex() == 1);
+    connect(&colorMode, qOverload<int>(&QComboBox::currentIndexChanged),
+            &dialog, [&](int index) { colorButton.setEnabled(index == 1); });
+    connect(&colorButton, &QPushButton::clicked, &dialog, [&]() {
+        const QColor color = QColorDialog::getColor(
+            selectedColor, &dialog, tr("选择点云颜色"));
+        if (color.isValid())
+        {
+            selectedColor = color;
+            updateColorButton();
+        }
+    });
+
+    layout.addRow(tr("点大小"), &pointSize);
+    layout.addRow(tr("不透明度"), &opacity);
+    layout.addRow(tr("颜色模式"), &colorMode);
+    layout.addRow(tr("统一颜色"), &colorButton);
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    famp::display::Settings settings;
+    settings.pointSize = pointSize.value();
+    settings.opacity = opacity.value();
+    settings.usePointColors = colorMode.currentData().toBool();
+    settings.red = selectedColor.redF();
+    settings.green = selectedColor.greenF();
+    settings.blue = selectedColor.blueF();
+    QString error;
+    if (!famp::display::apply(actor, settings, &error))
+    {
+        QMessageBox::warning(this, tr("点云显示设置"), error);
+        return;
+    }
+    myVTK->refresh();
+    emit sendStr2Console(tr("已更新所选点云的显示设置。"));
+}
+
+void MainWindow::slotPreprocessCloud()
+{
+    MyCloudList cloud;
+    QString sourcePath;
+    if (!selectedCloudData(cloud, &sourcePath))
+    {
+        QMessageBox::information(this, tr("点云预处理"),
+                                 tr("请先在内容列表中选择一个点云。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("点云预处理"));
+    QFormLayout layout(&dialog);
+
+    QComboBox method(&dialog);
+    method.addItem(tr("体素降采样"),
+                   static_cast<int>(famp::processing::Method::VoxelDownsample));
+    method.addItem(
+        tr("统计离群点去噪"),
+        static_cast<int>(famp::processing::Method::StatisticalOutlierRemoval));
+
+    QDoubleSpinBox leafSize(&dialog);
+    leafSize.setDecimals(6);
+    leafSize.setRange(0.000001, 1000.0);
+    leafSize.setValue(0.01);
+    leafSize.setSuffix(tr(" m"));
+
+    QSpinBox meanNeighbors(&dialog);
+    const std::size_t availableNeighbors = cloud.input_cloud->size() > 1
+        ? cloud.input_cloud->size() - 1
+        : 0;
+    const int maximumNeighbors = std::max(
+        2, static_cast<int>(std::min<std::size_t>(10000, availableNeighbors)));
+    meanNeighbors.setRange(2, maximumNeighbors);
+    meanNeighbors.setValue(std::min(20, maximumNeighbors));
+
+    QDoubleSpinBox deviationMultiplier(&dialog);
+    deviationMultiplier.setRange(0.01, 100.0);
+    deviationMultiplier.setDecimals(2);
+    deviationMultiplier.setValue(1.0);
+
+    QLabel note(
+        tr("处理结果会原子保存为新的 PCD 文件并作为新点云加入项目，原始点云和原始文件不会被修改。"),
+        &dialog);
+    note.setWordWrap(true);
+
+    layout.addRow(tr("方法"), &method);
+    layout.addRow(tr("体素边长"), &leafSize);
+    layout.addRow(tr("邻域点数"), &meanNeighbors);
+    layout.addRow(tr("标准差倍数"), &deviationMultiplier);
+    layout.addRow(&note);
+    auto updateParameterAvailability = [&]() {
+        const bool voxel = static_cast<famp::processing::Method>(
+            method.currentData().toInt())
+            == famp::processing::Method::VoxelDownsample;
+        leafSize.setEnabled(voxel);
+        meanNeighbors.setEnabled(!voxel);
+        deviationMultiplier.setEnabled(!voxel);
+    };
+    connect(&method, qOverload<int>(&QComboBox::currentIndexChanged),
+            &dialog, [&](int) { updateParameterAvailability(); });
+    updateParameterAvailability();
+
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    famp::processing::Options options;
+    options.method = static_cast<famp::processing::Method>(
+        method.currentData().toInt());
+    options.voxelLeafSizeMeters = leafSize.value();
+    options.meanNeighbors = meanNeighbors.value();
+    options.standardDeviationMultiplier = deviationMultiplier.value();
+    QString validationError;
+    if (!famp::processing::validateOptions(
+            options, cloud.input_cloud->size(), &validationError))
+    {
+        QMessageBox::warning(this, tr("点云预处理"), validationError);
+        return;
+    }
+
+    const QFileInfo sourceInfo(sourcePath);
+    const QString suffix = options.method
+            == famp::processing::Method::VoxelDownsample
+        ? QStringLiteral("_voxel.pcd")
+        : QStringLiteral("_denoised.pcd");
+    const QString initialPath = sourceInfo.absoluteDir().filePath(
+        sourceInfo.completeBaseName() + suffix);
+    QString outputPath = QFileDialog::getSaveFileName(
+        this, tr("保存预处理点云"), initialPath, tr("PCD 点云 (*.pcd)"));
+    if (outputPath.isEmpty())
+        return;
+    outputPath = famp::io::pathWithRequiredSuffix(outputPath, QStringLiteral("pcd"));
+
+    const Qt::CaseSensitivity pathCaseSensitivity =
+#ifdef Q_OS_WIN
+        Qt::CaseInsensitive;
+#else
+        Qt::CaseSensitive;
+#endif
+    if (QFileInfo(outputPath).absoluteFilePath().compare(
+            QFileInfo(sourcePath).absoluteFilePath(), pathCaseSensitivity) == 0)
+    {
+        QMessageBox::warning(
+            this, tr("点云预处理"),
+            tr("输出文件不能覆盖当前源点云，请选择新的文件名。"));
+        return;
+    }
+
+    QProgressDialog progress(
+        tr("正在后台预处理并保存点云…"), QString(), 0, 0, this);
+    progress.setWindowTitle(tr("点云预处理"));
+    progress.setCancelButton(nullptr);
+    progress.setWindowFlag(Qt::WindowCloseButtonHint, false);
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+
+    QFutureWatcher<famp::processing::Result> watcher;
+    connect(&watcher, &QFutureWatcher<famp::processing::Result>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
+    watcher.setFuture(QtConcurrent::run([input, options, outputPath]() {
+        return famp::processing::processAndSave(input, options, outputPath);
+    }));
+    if (!watcher.isFinished())
+        progress.exec();
+
+    const famp::processing::Result result = watcher.result();
+    if (!result.succeeded())
+    {
+        QMessageBox::warning(this, tr("点云预处理失败"), result.error);
+        return;
+    }
+
+    famp::cloud::LoadResult loaded;
+    loaded.path = result.outputPath;
+    loaded.displayCloud = result.cloud;
+    integrateLoadedCloud(loaded);
+    emit sendStr2Console(
+        tr("点云预处理完成：%1 → %2 个点，已保存到 %3")
+            .arg(result.inputPointCount)
+            .arg(result.outputPointCount)
+            .arg(result.outputPath));
+    updateCloudToolActions();
 }
 
 void MainWindow::initializeRecentFilesMenu()
@@ -1263,6 +1570,10 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         recentFilesMenu->setEnabled(!busy);
     setAcceptDrops(!busy);
     cloudLoadProgress->setVisible(busy);
+    if (busy && preprocessCloudAction)
+        preprocessCloudAction->setEnabled(false);
+    else if (!busy)
+        updateCloudToolActions();
 }
 
 void MainWindow::finishCloudLoadBatch()
@@ -1327,6 +1638,8 @@ void MainWindow::finishCloudLoadBatch()
 //点击DB Tree项目
 void MainWindow::slotOn_treeView_clicked(const QModelIndex & index)
 {
+    ui.treeView->setCurrentIndex(index);
+    updateCloudToolActions();
     QStandardItem * currentItem = model->itemFromIndex(index);
     //qDebug() << currentItem->data(Qt::UserRole).toString();
     MyCloudList cloudData = currentItem->data(Qt::UserRole + 2).value<MyCloudList>();
@@ -1613,6 +1926,7 @@ void MainWindow::slotOn_actDelete_triggered()
     }
     if (removedItem)
         markProjectDirty();
+    updateCloudToolActions();
 }
 
 //开启AABB按钮

@@ -25,7 +25,7 @@ FetchContent_MakeAvailable(googletest)
 # headers only, so no Widgets / GUI linkage is needed.
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
-find_package(PCL REQUIRED COMPONENTS common features io)
+find_package(PCL REQUIRED COMPONENTS common features filters io)
 find_package(PROJ CONFIG REQUIRED)
 
 add_library(famp_cloud STATIC
@@ -65,10 +65,14 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/GraphicsUndoCommands.cpp"
     "${FAMP_SRC_DIR}/Measurement.cpp"
     "${FAMP_SRC_DIR}/MeasurementItem.cpp"
+    "${FAMP_SRC_DIR}/CloudProcessing.cpp"
+    "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     test_main.cpp
     test_cloud.cpp
     test_cloud_loader.cpp
+    test_cloud_display_settings.cpp
+    test_cloud_processing.cpp
     test_crs_service.cpp
     test_file_io.cpp
     test_graphics_item_transform.cpp
@@ -90,6 +94,7 @@ target_link_libraries(famp_tests
         GTest::gtest
         Qt${QT_VERSION_MAJOR}::Widgets
         PROJ::proj
+        VTK::RenderingCore
 )
 
 target_compile_definitions(famp_tests

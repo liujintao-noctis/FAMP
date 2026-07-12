@@ -93,6 +93,7 @@ public:
     void removeCloudDisplay(vtkActor * actor);      //移除点云演员显示
     void removeAABBDisplay(vtkActor * actor);       //移除AABB演员显示
     void initCamera();      //初始化相机
+    void refresh();         //立即刷新渲染窗口
     vtkPlaneWidget * DisplayVerticalPlane();        //显示相机垂直面
     vtkPlaneWidget * DisplayHorizonalPlane();       //显示相机垂直面
     vtkPlaneWidget * DisplayRandomPlane();          //显示随机面
