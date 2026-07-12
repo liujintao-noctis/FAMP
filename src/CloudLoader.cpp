@@ -81,14 +81,40 @@ LoadResult load(const QString& requestedPath)
                 return result;
             }
 
-            Cloud cloud(loadedPoints);
             result.sourceCloud = loadedPoints;
-            result.displayCloud = cloud.computeDecentrationCloud();
+            long double sumX = 0.0;
+            long double sumY = 0.0;
+            long double sumZ = 0.0;
+            for (const pcl::PointXYZRGB& point : loadedPoints->points)
+            {
+                sumX += point.x;
+                sumY += point.y;
+                sumZ += point.z;
+            }
+            const long double count = static_cast<long double>(
+                loadedPoints->size());
+            result.spatial.origin = {
+                static_cast<double>(sumX / count),
+                static_cast<double>(sumY / count),
+                static_cast<double>(sumZ / count)};
+            result.displayCloud.reset(
+                new pcl::PointCloud<pcl::PointXYZRGB>(*loadedPoints));
+            for (pcl::PointXYZRGB& point : result.displayCloud->points)
+            {
+                point.x = static_cast<float>(
+                    static_cast<double>(point.x) - result.spatial.origin[0]);
+                point.y = static_cast<float>(
+                    static_cast<double>(point.y) - result.spatial.origin[1]);
+                point.z = static_cast<float>(
+                    static_cast<double>(point.z) - result.spatial.origin[2]);
+            }
             result.sourceWasPcd = true;
         }
         else
         {
-            if (!loadLasAsRgb(result.path, loadedPoints, &loadError))
+            if (!loadLasAsRgb(
+                    result.path, loadedPoints, &loadError,
+                    &result.spatial.origin))
             {
                 result.error = loadError;
                 return result;

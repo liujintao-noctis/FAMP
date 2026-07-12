@@ -44,6 +44,8 @@ public:
     MyItem(QVector<QPointF> &points, ProjectType project_type, QGraphicsItem* parentItem = nullptr);
     MyItem();
     ~MyItem();
+    const QVector<QPointF>& points() const { return itemPoints; }
+    ProjectType projectionType() const { return projectType; }
 
 public:
     enum ItemOperator       //选择要处理的模式

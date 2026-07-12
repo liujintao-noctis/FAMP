@@ -31,6 +31,7 @@ find_package(PROJ CONFIG REQUIRED)
 add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/Cloud.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
+    "${FAMP_SRC_DIR}/CloudCoordinates.h"
     "${FAMP_SRC_DIR}/CloudLoader.cpp"
     "${FAMP_SRC_DIR}/CloudLoader.h"
     "${FAMP_SRC_DIR}/LasLoader.cpp"
@@ -62,7 +63,11 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/FileIO.cpp"
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
     "${FAMP_SRC_DIR}/GraphicsExport.cpp"
+    "${FAMP_SRC_DIR}/GraphicsSceneDocument.cpp"
     "${FAMP_SRC_DIR}/GraphicsUndoCommands.cpp"
+    "${FAMP_SRC_DIR}/CompassItem.cpp"
+    "${FAMP_SRC_DIR}/FormTabulationItem.cpp"
+    "${FAMP_SRC_DIR}/MyItem.cpp"
     "${FAMP_SRC_DIR}/Measurement.cpp"
     "${FAMP_SRC_DIR}/MeasurementItem.cpp"
     "${FAMP_SRC_DIR}/CloudProcessing.cpp"
@@ -77,6 +82,7 @@ add_executable(famp_tests
     test_file_io.cpp
     test_graphics_item_transform.cpp
     test_graphics_export.cpp
+    test_graphics_scene_document.cpp
     test_graphics_undo_commands.cpp
     test_help_content.cpp
     test_las_loader.cpp

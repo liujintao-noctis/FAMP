@@ -151,6 +151,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     FormTabulationItem.cpp
     GraphicsItemTransform.cpp
     GraphicsExport.cpp
+    GraphicsSceneDocument.cpp
     GraphicsUndoCommands.cpp
     LasLoader.cpp
     MainWindow.cpp
@@ -169,6 +170,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKProjectionManager.cpp
     main.cpp
     Cloud.h
+    CloudCoordinates.h
     CloudDisplaySettings.h
     CloudLoader.h
     CloudProcessing.h
@@ -179,6 +181,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     FormTabulationItem.h
     GraphicsItemTransform.h
     GraphicsExport.h
+    GraphicsSceneDocument.h
     GraphicsUndoCommands.h
     HelpContent.h
     LasLoader.h

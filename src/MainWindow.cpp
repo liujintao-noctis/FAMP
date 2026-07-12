@@ -58,6 +58,8 @@
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
 #include <vtkMapper.h>
+#include <vtkMatrix4x4.h>
+#include <vtkNew.h>
 #include <vtkProperty.h>
 
 #include <algorithm>
@@ -181,6 +183,11 @@ MainWindow::MainWindow(QWidget *parent)
     statusBar()->addPermanentWidget(cloudLoadProgress);
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
+    connect(ui.graphicsView->commandStack(), &QUndoStack::cleanChanged,
+            this, [this](bool clean) {
+                if (!clean)
+                    markProjectDirty();
+            });
 
     autosaveTimer = new QTimer(this);
     autosaveTimer->setInterval(60 * 1000);
@@ -322,11 +329,19 @@ void MainWindow::initializeProjectActions()
             this, &MainWindow::slotSaveProjectAs);
 }
 
-famp::project::Document MainWindow::currentProjectDocument() const
+bool MainWindow::currentProjectDocument(
+    famp::project::Document& document,
+    QString* errorMessage) const
 {
-    famp::project::Document document;
     document.mapScale = scaleCombox->currentText();
     document.projectCrs = projectCrs;
+    document.graphicsState = ui.graphicsView->saveProjectState(errorMessage);
+    if (document.graphicsState.isEmpty())
+        return false;
+    document.windowGeometry = saveGeometry();
+    document.windowState = saveState(famp::project::SchemaVersion);
+    document.xoyLabelVisible = xoy_label && !xoy_label->isHidden();
+    document.scaleVisible = scaleCombox && !scaleCombox->isHidden();
     for (int row = 0; row < model->rowCount(); ++row)
     {
         const QStandardItem* projectItem = model->item(row);
@@ -335,9 +350,20 @@ famp::project::Document MainWindow::currentProjectDocument() const
 
         const QString path = projectItem->child(0)->data(Qt::UserRole).toString();
         if (!path.isEmpty())
+        {
             document.cloudFiles.append(path);
+            const MyCloudList cloud = projectItem->child(0)
+                                          ->data(Qt::UserRole + 2)
+                                          .value<MyCloudList>();
+            famp::project::CloudReference reference;
+            reference.path = path;
+            reference.visible = projectItem->child(0)->checkState()
+                == Qt::Checked;
+            reference.spatial = cloud.spatial;
+            document.clouds.append(reference);
+        }
     }
-    return document;
+    return true;
 }
 
 QString MainWindow::recoveryProjectPath() const
@@ -372,9 +398,15 @@ bool MainWindow::saveProject(bool forceSaveAs)
 bool MainWindow::saveProjectToPath(const QString& path)
 {
     QString error;
+    famp::project::Document document;
+    if (!currentProjectDocument(document, &error))
+    {
+        QMessageBox::warning(this, tr("保存项目失败"), error);
+        return false;
+    }
     if (!famp::project::save(
             path,
-            currentProjectDocument(),
+            document,
             QCoreApplication::applicationVersion(),
             &error))
     {
@@ -384,6 +416,7 @@ bool MainWindow::saveProjectToPath(const QString& path)
 
     currentProjectPath = famp::project::pathWithProjectSuffix(path);
     projectDirty = false;
+    ui.graphicsView->commandStack()->setClean();
     removeRecoveryProject();
     updateWindowTitle();
     emit sendStr2Console(tr("已保存项目  %1").arg(currentProjectPath));
@@ -414,6 +447,17 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
             return false;
         }
     }
+    if (!document.graphicsState.isEmpty()
+        && !ui.graphicsView->validateProjectState(
+            document.graphicsState, &error))
+    {
+        QMessageBox::warning(this, tr("打开项目失败"), error);
+        return false;
+    }
+    relocateMissingProjectClouds(document, path);
+    projectCloudReferences.clear();
+    for (const famp::project::CloudReference& reference : document.clouds)
+        projectCloudReferences.insert(reference.path, reference);
 
     loadingProject = true;
     clearWorkspace();
@@ -422,6 +466,20 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
         scaleCombox->setCurrentIndex(scaleIndex);
     projectCrs = document.projectCrs;
     updateCrsStatus();
+    if (!document.graphicsState.isEmpty()
+        && !ui.graphicsView->restoreProjectState(
+            document.graphicsState, &error))
+    {
+        loadingProject = false;
+        QMessageBox::warning(this, tr("打开项目失败"), error);
+        return false;
+    }
+    setXOYLabelVisible(document.xoyLabelVisible);
+    setScaleVisible(document.scaleVisible);
+    if (!document.windowGeometry.isEmpty())
+        restoreGeometry(document.windowGeometry);
+    if (!document.windowState.isEmpty())
+        restoreState(document.windowState, famp::project::SchemaVersion);
 
     if (isRecovery)
     {
@@ -438,6 +496,69 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
 
     beginCloudLoadBatch(document.cloudFiles, true, path, isRecovery);
     return true;
+}
+
+void MainWindow::relocateMissingProjectClouds(
+    famp::project::Document& document,
+    const QString& projectPath)
+{
+    if (document.clouds.isEmpty())
+        return;
+
+    QStringList resolvedFiles;
+    for (famp::project::CloudReference& reference : document.clouds)
+    {
+        if (QFileInfo::exists(reference.path))
+        {
+            resolvedFiles.append(reference.path);
+            continue;
+        }
+
+        const QString replacement = QFileDialog::getOpenFileName(
+            this,
+            tr("重新定位缺失点云：%1").arg(QFileInfo(reference.path).fileName()),
+            QFileInfo(projectPath).absolutePath(),
+            tr("点云文件 (*.pcd *.las);;PCD (*.pcd);;LAS (*.las)"));
+        if (replacement.isEmpty())
+        {
+            resolvedFiles.append(reference.path);
+            continue;
+        }
+        QString normalized;
+        QString validationError;
+        if (!famp::cloud::validatePath(
+                replacement, &normalized, &validationError))
+        {
+            QMessageBox::warning(this, tr("无法重新定位点云"), validationError);
+            resolvedFiles.append(reference.path);
+            continue;
+        }
+
+        const QFileInfo replacementInfo(normalized);
+        const bool metadataMismatch =
+            (reference.size >= 0 && replacementInfo.size() != reference.size)
+            || (reference.modifiedUtcMilliseconds >= 0
+                && replacementInfo.lastModified().toUTC().toMSecsSinceEpoch()
+                    != reference.modifiedUtcMilliseconds);
+        if (metadataMismatch
+            && QMessageBox::question(
+                   this,
+                   tr("点云元数据不一致"),
+                   tr("所选文件的大小或修改时间与项目记录不同，是否仍使用该文件？\n%1")
+                       .arg(normalized),
+                   QMessageBox::Yes | QMessageBox::No,
+                   QMessageBox::No) != QMessageBox::Yes)
+        {
+            resolvedFiles.append(reference.path);
+            continue;
+        }
+        reference.path = normalized;
+        reference.size = replacementInfo.size();
+        reference.modifiedUtcMilliseconds =
+            replacementInfo.lastModified().toUTC().toMSecsSinceEpoch();
+        resolvedFiles.append(reference.path);
+    }
+    document.cloudFiles = resolvedFiles;
 }
 
 bool MainWindow::maybeSaveCurrentProject()
@@ -656,9 +777,15 @@ void MainWindow::slotAutosaveProject()
         return;
 
     QString error;
+    famp::project::Document document;
+    if (!currentProjectDocument(document, &error))
+    {
+        statusBar()->showMessage(tr("自动保存失败：%1").arg(error), 8000);
+        return;
+    }
     if (!famp::project::save(
             recoveryProjectPath(),
-            currentProjectDocument(),
+            document,
             QCoreApplication::applicationVersion(),
             &error))
     {
@@ -1046,6 +1173,7 @@ void MainWindow::slotPreprocessCloud()
     famp::cloud::LoadResult loaded;
     loaded.path = result.outputPath;
     loaded.displayCloud = result.cloud;
+    loaded.spatial = cloud.spatial;
     integrateLoadedCloud(loaded);
     emit sendStr2Console(
         tr("点云预处理完成：%1 → %2 个点，已保存到 %3")
@@ -1514,6 +1642,27 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     pointCloud.id = iCount;
     pointCloud.cloudactor = cloud_actor;
     pointCloud.AABBactor = AABB_actor;
+    pointCloud.spatial = result.spatial;
+    bool cloudVisible = true;
+    const auto storedReference = projectCloudReferences.constFind(result.path);
+    if (storedReference != projectCloudReferences.cend())
+    {
+        pointCloud.spatial = storedReference->spatial;
+        cloudVisible = storedReference->visible;
+    }
+    vtkNew<vtkMatrix4x4> cloudTransform;
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int column = 0; column < 4; ++column)
+        {
+            cloudTransform->SetElement(
+                row, column,
+                pointCloud.spatial.transform[static_cast<std::size_t>(
+                    row * 4 + column)]);
+        }
+    }
+    pointCloud.cloudactor->SetUserMatrix(cloudTransform);
+    pointCloud.AABBactor->SetUserMatrix(cloudTransform);
     pointCloudList.push_back(pointCloud);
 
     //发送给Console消息
@@ -1525,7 +1674,7 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     //点云文件夹
     itemProject = new QStandardItem(icon_1, str);
     itemProject->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsEditable );
-    itemProject->setCheckState(Qt::Checked);
+    itemProject->setCheckState(cloudVisible ? Qt::Checked : Qt::Unchecked);
     itemProject->setData(QVariant(result.path), Qt::UserRole);
     itemProject->setData(QVariant::fromValue(pointCloud), Qt::UserRole + 2);
     model->appendRow(itemProject);
@@ -1535,13 +1684,14 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     QStandardItem * itemChild = new QStandardItem(icon_2, dir);
     ui.treeView->expand(itemProject->index());      //默认展开该项
     itemChild->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsEditable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
-    itemChild->setCheckState(Qt::Checked);
+    itemChild->setCheckState(cloudVisible ? Qt::Checked : Qt::Unchecked);
     itemChild->setData(QVariant(result.path), Qt::UserRole);
     itemChild->setData(QVariant(dir), Qt::UserRole+1);
     itemChild->setData(QVariant::fromValue(pointCloud), Qt::UserRole + 2);
     itemProject->appendRow(itemChild);
 
-    myVTK->display(pointCloudList.back().cloudactor);       //显示点云
+    if (cloudVisible)
+        myVTK->display(pointCloudList.back().cloudactor);       //显示点云
     //myVTK->display(pointCloudList.back().AABBactor);     //显示AABB
     myVTK->initCamera();
     myVTK->update();
@@ -1592,6 +1742,7 @@ void MainWindow::finishCloudLoadBatch()
     cloudLoadBusy = false;
     cloudLoadProjectBatch = false;
     cloudLoadProjectRecovery = false;
+    projectCloudReferences.clear();
     pendingCloudFiles.clear();
     currentCloudLoadPath.clear();
     setCloudLoadUiBusy(false);

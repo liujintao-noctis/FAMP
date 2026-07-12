@@ -46,6 +46,111 @@ TEST(ProjectDocumentTest, RoundTripsRelativeCloudPathsAndScale)
     EXPECT_EQ(loaded.projectCrs, QStringLiteral("EPSG:4490"));
 }
 
+TEST(ProjectDocumentTest, RoundTripsGraphicsAndWindowState)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString projectPath = directory.filePath(QStringLiteral("完整项目.famp"));
+    famp::project::Document source;
+    source.graphicsState = QJsonObject{
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("sceneRect"), QJsonArray{-10.0, -20.0, 30.0, 40.0}},
+        {QStringLiteral("items"), QJsonArray()},
+        {QStringLiteral("metricGridVisible"), true}};
+    source.windowGeometry = QByteArray::fromHex("01020304aabb");
+    source.windowState = QByteArray::fromHex("10203040ccdd");
+    source.xoyLabelVisible = false;
+    source.scaleVisible = false;
+    QString error;
+
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.3.1"), &error))
+        << error.toStdString();
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(projectPath, loaded, &error))
+        << error.toStdString();
+    EXPECT_EQ(loaded.graphicsState, source.graphicsState);
+    EXPECT_EQ(loaded.windowGeometry, source.windowGeometry);
+    EXPECT_EQ(loaded.windowState, source.windowState);
+    EXPECT_FALSE(loaded.xoyLabelVisible);
+    EXPECT_FALSE(loaded.scaleVisible);
+}
+
+TEST(ProjectDocumentTest, PreservesCloudMetadataAndUsesAbsoluteFallback)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    ASSERT_TRUE(QDir(directory.path()).mkpath(QStringLiteral("source")));
+    ASSERT_TRUE(QDir(directory.path()).mkpath(QStringLiteral("projects/a")));
+    ASSERT_TRUE(QDir(directory.path()).mkpath(QStringLiteral("projects/b")));
+    const QString cloudPath = directory.filePath(QStringLiteral("source/site.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    ASSERT_EQ(cloudFile.write("pcd-placeholder"), 15);
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.visible = false;
+    cloud.sha256 = QByteArray(32, '\x5a');
+    cloud.spatial.origin = {123456.25, 3456789.5, 88.75};
+    cloud.spatial.transform[3] = 12.0;
+    cloud.spatial.transform[7] = -4.0;
+    famp::project::Document source;
+    source.clouds = {cloud};
+    const QString originalProject = directory.filePath(
+        QStringLiteral("projects/a/site.famp"));
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        originalProject, source, QStringLiteral("0.3.1"), &error))
+        << error.toStdString();
+
+    const QString movedProject = directory.filePath(
+        QStringLiteral("projects/b/site.famp"));
+    ASSERT_TRUE(QFile::copy(originalProject, movedProject));
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(movedProject, loaded, &error))
+        << error.toStdString();
+    ASSERT_EQ(loaded.clouds.size(), 1);
+    EXPECT_EQ(loaded.clouds.front().path,
+              QFileInfo(cloudPath).canonicalFilePath());
+    EXPECT_EQ(loaded.cloudFiles,
+              QStringList{QFileInfo(cloudPath).canonicalFilePath()});
+    EXPECT_EQ(loaded.clouds.front().size, 15);
+    EXPECT_FALSE(loaded.clouds.front().visible);
+    EXPECT_EQ(loaded.clouds.front().sha256, QByteArray(32, '\x5a'));
+    EXPECT_EQ(loaded.clouds.front().spatial.origin, cloud.spatial.origin);
+    EXPECT_EQ(loaded.clouds.front().spatial.transform,
+              cloud.spatial.transform);
+}
+
+TEST(ProjectDocumentTest, LoadsSchemaOneWithSafeDefaults)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString projectPath = directory.filePath(QStringLiteral("legacy.famp"));
+    QFile file(projectPath);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    const QJsonObject root{
+        {QStringLiteral("format"), QStringLiteral("FAMP Project")},
+        {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("mapScale"), QStringLiteral("1:50")},
+        {QStringLiteral("projectCrs"), QString()},
+        {QStringLiteral("cloudFiles"), QJsonArray()}};
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    famp::project::Document loaded;
+    QString error;
+    ASSERT_TRUE(famp::project::load(projectPath, loaded, &error))
+        << error.toStdString();
+    EXPECT_TRUE(loaded.graphicsState.isEmpty());
+    EXPECT_TRUE(loaded.windowGeometry.isEmpty());
+    EXPECT_TRUE(loaded.windowState.isEmpty());
+    EXPECT_TRUE(loaded.xoyLabelVisible);
+    EXPECT_TRUE(loaded.scaleVisible);
+}
+
 TEST(ProjectDocumentTest, RejectsInvalidJsonWithoutMutatingOutput)
 {
     QTemporaryDir directory;

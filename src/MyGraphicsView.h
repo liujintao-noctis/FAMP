@@ -41,6 +41,7 @@
 #include <QInputDialog>
 #include <QGraphicsSceneEvent>
 #include <QHash>
+#include <QJsonObject>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -118,6 +119,11 @@ public:
     void getText();                 //获得制图人，比例尺，日期文字
     QUndoStack* commandStack() const;
     void clearSceneAndHistory();
+    QJsonObject saveProjectState(QString* errorMessage = nullptr) const;
+    bool validateProjectState(const QJsonObject& state,
+                              QString* errorMessage = nullptr) const;
+    bool restoreProjectState(const QJsonObject& state,
+                             QString* errorMessage = nullptr);
 
 private:
     // 绘制投影的配置参数，消除4个draw方法的代码重复

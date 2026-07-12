@@ -9,6 +9,8 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("打开点云")));
     EXPECT_TRUE(content.contains(QStringLiteral(".famp")));
     EXPECT_TRUE(content.contains(QStringLiteral("60 秒")));
+    EXPECT_TRUE(content.contains(QStringLiteral("原始坐标")));
+    EXPECT_TRUE(content.contains(QStringLiteral("重新定位")));
     EXPECT_TRUE(content.contains(QStringLiteral("EPSG")));
     EXPECT_TRUE(content.contains(QStringLiteral("PROJ")));
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));

@@ -24,6 +24,7 @@
 #include <QStandardItemModel>
 #include <QDebug>
 #include <QFutureWatcher>
+#include <QHash>
 #include <QStringList>
 
 #include <vtkPlaneWidget.h>
@@ -44,6 +45,7 @@ struct MyCloudList
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud;
     vtkActor * cloudactor;
     vtkActor * AABBactor;
+    famp::cloud::SpatialReference spatial;
 };
 
 class MainWindow : public QMainWindow
@@ -113,6 +115,7 @@ private:
     bool cloudLoadBusy;
     bool cloudLoadProjectBatch;
     bool cloudLoadProjectRecovery;
+    QHash<QString, famp::project::CloudReference> projectCloudReferences;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局
@@ -142,11 +145,14 @@ private:
     void initializeProjectActions();
     void initializeCrsActions();
     void initializeUndoActions();
-    famp::project::Document currentProjectDocument() const;
+    bool currentProjectDocument(famp::project::Document& document,
+                                QString* errorMessage = nullptr) const;
     QString recoveryProjectPath() const;
     bool saveProject(bool forceSaveAs);
     bool saveProjectToPath(const QString& path);
     bool loadProjectFromPath(const QString& path, bool isRecovery = false);
+    void relocateMissingProjectClouds(famp::project::Document& document,
+                                      const QString& projectPath);
     bool maybeSaveCurrentProject();
     void removeCloudFromWorkspace(const MyCloudList& cloud);
     void clearWorkspace();
