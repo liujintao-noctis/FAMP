@@ -35,8 +35,8 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS "${FAMP_ROOT_DIR}/ui")
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Widgets)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Gui Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Concurrent Gui Widgets)
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     find_package(Qt6 REQUIRED COMPONENTS OpenGLWidgets)
 endif()
@@ -141,6 +141,7 @@ endif()
 
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
+    CloudLoader.cpp
     CompassItem.cpp
     CrsService.cpp
     FAMPController.cpp
@@ -164,6 +165,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKProjectionManager.cpp
     main.cpp
     Cloud.h
+    CloudLoader.h
     CompassItem.h
     CrsService.h
     FAMPController.h
@@ -223,6 +225,7 @@ endif()
 target_link_libraries(FAMP
     PRIVATE
         Qt${QT_VERSION_MAJOR}::Core
+        Qt${QT_VERSION_MAJOR}::Concurrent
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Widgets
         PROJ::proj

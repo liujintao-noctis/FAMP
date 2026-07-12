@@ -26,8 +26,10 @@
 #include <QFileDialog>
 #include <QFontMetrics>
 #include <QFormLayout>
+#include <QFuture>
 #include <QPixmap>
 #include <QPushButton>
+#include <QProgressBar>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QMenu>
@@ -44,6 +46,7 @@
 #include <QUndoStack>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QtConcurrentRun>
 
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
@@ -71,6 +74,14 @@ MainWindow::MainWindow(QWidget *parent)
     , crsStatusLabel(nullptr)
     , projectDirty(false)
     , loadingProject(false)
+    , cloudLoadWatcher(nullptr)
+    , cloudLoadProgress(nullptr)
+    , cloudLoadTotal(0)
+    , cloudLoadCompleted(0)
+    , cloudLoadSucceeded(0)
+    , cloudLoadBusy(false)
+    , cloudLoadProjectBatch(false)
+    , cloudLoadProjectRecovery(false)
 {
     ui.setupUi(this);
 
@@ -140,6 +151,19 @@ MainWindow::MainWindow(QWidget *parent)
     initializeRecentFilesMenu();
     initializeCrsActions();
     initializeUndoActions();
+
+    cloudLoadWatcher = new QFutureWatcher<famp::cloud::LoadResult>(this);
+    connect(cloudLoadWatcher,
+            &QFutureWatcher<famp::cloud::LoadResult>::finished,
+            this,
+            &MainWindow::slotCloudLoadFinished);
+    cloudLoadProgress = new QProgressBar(this);
+    cloudLoadProgress->setObjectName(QStringLiteral("cloudLoadProgress"));
+    cloudLoadProgress->setMinimumWidth(180);
+    cloudLoadProgress->setMaximumWidth(260);
+    cloudLoadProgress->setTextVisible(true);
+    cloudLoadProgress->hide();
+    statusBar()->addPermanentWidget(cloudLoadProgress);
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
 
@@ -297,6 +321,12 @@ bool MainWindow::saveProjectToPath(const QString& path)
 
 bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
 {
+    if (cloudLoadBusy)
+    {
+        statusBar()->showMessage(tr("请等待当前点云加载完成"), 5000);
+        return false;
+    }
+
     famp::project::Document document;
     QString error;
     if (!famp::project::load(path, document, &error))
@@ -322,20 +352,6 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
     projectCrs = document.projectCrs;
     updateCrsStatus();
 
-    QStringList failedFiles;
-    for (const QString& cloudPath : document.cloudFiles)
-    {
-        const QFileInfo cloudInfo(cloudPath);
-        if (!cloudInfo.exists() || !cloudInfo.isFile() || !cloudInfo.isReadable())
-        {
-            failedFiles.append(cloudPath);
-            continue;
-        }
-        if (!openCloudFile(cloudPath))
-            failedFiles.append(cloudPath);
-    }
-    loadingProject = false;
-
     if (isRecovery)
     {
         QSettings settings;
@@ -346,25 +362,10 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
     {
         currentProjectPath = QFileInfo(path).absoluteFilePath();
     }
-    projectDirty = isRecovery || !failedFiles.isEmpty();
+    projectDirty = false;
     updateWindowTitle();
-    emit sendStr2Console(tr("已打开项目  %1").arg(path));
 
-    if (!failedFiles.isEmpty())
-    {
-        QStringList displayedFiles = failedFiles.mid(0, 10);
-        QString details = displayedFiles.join(QLatin1Char('\n'));
-        if (failedFiles.size() > displayedFiles.size())
-        {
-            details += tr("\n…共 %1 个文件未能加载")
-                           .arg(failedFiles.size());
-        }
-        QMessageBox::warning(
-            this,
-            tr("项目未完全加载"),
-            tr("以下点云文件不存在、不可读或无效：\n%1")
-                .arg(details));
-    }
+    beginCloudLoadBatch(document.cloudFiles, true, path, isRecovery);
     return true;
 }
 
@@ -507,6 +508,13 @@ void MainWindow::checkForRecoveryProject()
 
 void MainWindow::closeEvent(QCloseEvent* event)
 {
+    if (cloudLoadBusy)
+    {
+        statusBar()->showMessage(tr("点云仍在后台加载，请等待加载完成后再退出"), 8000);
+        event->ignore();
+        return;
+    }
+
     if (maybeSaveCurrentProject())
     {
         if (projectDirty)
@@ -569,7 +577,7 @@ void MainWindow::slotSaveProjectAs()
 
 void MainWindow::slotAutosaveProject()
 {
-    if (!projectDirty)
+    if (loadingProject || cloudLoadBusy || !projectDirty)
         return;
 
     QString error;
@@ -770,6 +778,12 @@ void MainWindow::dragEnterEvent(QDragEnterEvent* event)
 
 void MainWindow::dropEvent(QDropEvent* event)
 {
+    if (cloudLoadBusy)
+    {
+        statusBar()->showMessage(tr("请等待当前点云加载完成"), 5000);
+        return;
+    }
+
     QStringList paths;
     for (const QUrl& url : event->mimeData()->urls())
     {
@@ -785,15 +799,11 @@ void MainWindow::dropEvent(QDropEvent* event)
         return;
 
     event->acceptProposedAction();
-    int openedCount = 0;
-    for (const QString& path : paths)
+    if (beginCloudLoadBatch(paths))
     {
-        if (openCloudFile(path))
-            ++openedCount;
+        emit sendStr2Console(tr("已将 %1 个拖放点云加入后台加载队列")
+                                 .arg(paths.size()));
     }
-    emit sendStr2Console(tr("拖放打开 %1/%2 个点云文件")
-                             .arg(openedCount)
-                             .arg(paths.size()));
 }
 
 void MainWindow::showHelpDialog(const QString& title, const QString& html)
@@ -1014,73 +1024,123 @@ void MainWindow::slotOpenCloud()
 
 bool MainWindow::openCloudFile(const QString& requestedPath)
 {
-    const QString path = famp::recent::normalizedPath(requestedPath);
-    const QFileInfo fileInfo(path);
-    if (!fileInfo.exists() || !fileInfo.isFile())
+    if (cloudLoadBusy)
     {
-        QMessageBox::warning(
-            this, tr("无法打开点云"), tr("文件不存在：\n%1").arg(path));
+        statusBar()->showMessage(tr("请等待当前点云加载完成"), 5000);
         return false;
     }
-    if (!fileInfo.isReadable())
-    {
-        QMessageBox::warning(
-            this, tr("无法打开点云"), tr("文件不可读：\n%1").arg(path));
+    return beginCloudLoadBatch(QStringList{requestedPath});
+}
+
+bool MainWindow::beginCloudLoadBatch(const QStringList& paths,
+                                     bool projectBatch,
+                                     const QString& projectPath,
+                                     bool projectRecovery)
+{
+    if (cloudLoadBusy)
         return false;
-    }
-    if (!famp::recent::isSupportedCloudFile(path))
+
+    pendingCloudFiles.clear();
+    cloudLoadFailurePaths.clear();
+    cloudLoadFailureMessages.clear();
+    currentCloudLoadPath.clear();
+    cloudLoadProjectPath = projectPath;
+    cloudLoadTotal = paths.size();
+    cloudLoadCompleted = 0;
+    cloudLoadSucceeded = 0;
+    cloudLoadProjectBatch = projectBatch;
+    cloudLoadProjectRecovery = projectRecovery;
+
+    for (const QString& requestedPath : paths)
     {
-        QMessageBox::warning(
-            this,
-            tr("不支持的文件"),
-            tr("仅支持 PCD 和 LAS 点云文件：\n%1").arg(path));
-        return false;
+        QString normalizedPath;
+        QString error;
+        if (!famp::cloud::validatePath(requestedPath, &normalizedPath, &error))
+        {
+            ++cloudLoadCompleted;
+            cloudLoadFailurePaths.append(normalizedPath);
+            cloudLoadFailureMessages.append(error);
+            continue;
+        }
+        if (!pendingCloudFiles.contains(normalizedPath))
+            pendingCloudFiles.append(normalizedPath);
+        else
+            --cloudLoadTotal;
     }
 
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadedPoints(
-        new pcl::PointCloud<pcl::PointXYZRGB>);
-    const QString fileSuffix = fileInfo.suffix().toLower();
+    cloudLoadBusy = true;
+    setCloudLoadUiBusy(true);
+    cloudLoadProgress->setRange(0, std::max(1, cloudLoadTotal));
+    cloudLoadProgress->setValue(cloudLoadCompleted);
 
-    //读取点云
-    if (fileSuffix == "pcd")
+    if (pendingCloudFiles.isEmpty())
+        finishCloudLoadBatch();
+    else
+        startNextCloudLoad();
+
+    return projectBatch || cloudLoadTotal > cloudLoadCompleted;
+}
+
+void MainWindow::startNextCloudLoad()
+{
+    if (!cloudLoadBusy || pendingCloudFiles.isEmpty())
     {
-        QString loadError;
-        if (!loadPcdAsRgb(path, loadedPoints, &loadError))
-        {
-            QMessageBox::warning(this, tr("无法打开点云"), loadError);
-            return false;
-        }
-        if (loadedPoints->empty())
-        {
-            QMessageBox::warning(
-                this, tr("无法打开点云"), tr("点云不包含可用点：\n%1").arg(path));
-            return false;
-        }
-
-        std::unique_ptr<Cloud> loadedCloud(new Cloud(loadedPoints));
-        loadedPoints = loadedCloud->computeDecentrationCloud();
-        if (!loadedPoints || loadedPoints->empty())
-        {
-            QMessageBox::warning(
-                this, tr("无法打开点云"), tr("点云不包含可用点：\n%1").arg(path));
-            return false;
-        }
-
-        delete myCloud;
-        myCloud = loadedCloud.release();
+        finishCloudLoadBatch();
+        return;
     }
-    else if (fileSuffix == "las")
+
+    currentCloudLoadPath = pendingCloudFiles.takeFirst();
+    statusBar()->showMessage(
+        tr("正在后台加载点云 %1/%2：%3")
+            .arg(cloudLoadCompleted + 1)
+            .arg(cloudLoadTotal)
+            .arg(QFileInfo(currentCloudLoadPath).fileName()));
+    emit sendStr2Console(tr("后台读取点云  %1").arg(currentCloudLoadPath));
+
+    const QString path = currentCloudLoadPath;
+    cloudLoadWatcher->setFuture(QtConcurrent::run([path]() {
+        return famp::cloud::load(path);
+    }));
+}
+
+void MainWindow::slotCloudLoadFinished()
+{
+    if (!cloudLoadBusy)
+        return;
+
+    const famp::cloud::LoadResult result = cloudLoadWatcher->result();
+    ++cloudLoadCompleted;
+    if (result.succeeded())
     {
-        QString loadError;
-        if (!loadLasAsRgb(path, loadedPoints, &loadError))
-        {
-            QMessageBox::warning(this, tr("无法打开点云"), loadError);
-            return false;
-        }
+        integrateLoadedCloud(result);
+        ++cloudLoadSucceeded;
     }
+    else
+    {
+        cloudLoadFailurePaths.append(
+            result.path.isEmpty() ? currentCloudLoadPath : result.path);
+        cloudLoadFailureMessages.append(result.error);
+        emit sendStr2Console(tr("点云加载失败  %1").arg(result.error));
+    }
+    cloudLoadProgress->setValue(cloudLoadCompleted);
 
-    inCloud = loadedPoints;
+    if (pendingCloudFiles.isEmpty())
+        finishCloudLoadBatch();
+    else
+        QTimer::singleShot(0, this, [this]() { startNextCloudLoad(); });
+}
+
+void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
+{
+    inCloud = result.displayCloud;
+    const QFileInfo fileInfo(result.path);
     const QString dir = fileInfo.fileName();
+
+    if (result.sourceWasPcd && result.sourceCloud)
+    {
+        delete myCloud;
+        myCloud = new Cloud(result.sourceCloud);
+    }
 
     emit sendOrignalCloud(inCloud);
 
@@ -1103,16 +1163,16 @@ bool MainWindow::openCloudFile(const QString& requestedPath)
     pointCloudList.push_back(pointCloud);
 
     //发送给Console消息
-    emit sendStr2Console(tr("打开点云  %1").arg(path));
+    emit sendStr2Console(tr("打开点云  %1").arg(result.path));
 
     /////-------------------DB tree---------------------
-    QString str = dir + "(" + path + ")";
+    QString str = dir + "(" + result.path + ")";
 
     //点云文件夹
     itemProject = new QStandardItem(icon_1, str);
     itemProject->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsEditable );
     itemProject->setCheckState(Qt::Checked);
-    itemProject->setData(QVariant(path), Qt::UserRole);
+    itemProject->setData(QVariant(result.path), Qt::UserRole);
     itemProject->setData(QVariant::fromValue(pointCloud), Qt::UserRole + 2);
     model->appendRow(itemProject);
     //else(currentItem->parent()->appendRow(itemProject));
@@ -1122,7 +1182,7 @@ bool MainWindow::openCloudFile(const QString& requestedPath)
     ui.treeView->expand(itemProject->index());      //默认展开该项
     itemChild->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsEditable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
     itemChild->setCheckState(Qt::Checked);
-    itemChild->setData(QVariant(path), Qt::UserRole);
+    itemChild->setData(QVariant(result.path), Qt::UserRole);
     itemChild->setData(QVariant(dir), Qt::UserRole+1);
     itemChild->setData(QVariant::fromValue(pointCloud), Qt::UserRole + 2);
     itemProject->appendRow(itemChild);
@@ -1137,9 +1197,84 @@ bool MainWindow::openCloudFile(const QString& requestedPath)
     ui.actAABB->setEnabled(true);
     ui.actAABB->setChecked(false);
     ui.actAABB->setText("关闭包围盒");
-    addRecentFile(path);
+    addRecentFile(result.path);
     markProjectDirty();
-    return true;
+}
+
+void MainWindow::setCloudLoadUiBusy(bool busy)
+{
+    ui.actOpenCloud->setEnabled(!busy);
+    if (newProjectAction)
+        newProjectAction->setEnabled(!busy);
+    if (openProjectAction)
+        openProjectAction->setEnabled(!busy);
+    if (saveProjectAction)
+        saveProjectAction->setEnabled(!busy);
+    if (saveProjectAsAction)
+        saveProjectAsAction->setEnabled(!busy);
+    if (recentFilesMenu)
+        recentFilesMenu->setEnabled(!busy);
+    setAcceptDrops(!busy);
+    cloudLoadProgress->setVisible(busy);
+}
+
+void MainWindow::finishCloudLoadBatch()
+{
+    if (!cloudLoadBusy)
+        return;
+
+    const bool projectBatch = cloudLoadProjectBatch;
+    const bool projectRecovery = cloudLoadProjectRecovery;
+    const QString projectPath = cloudLoadProjectPath;
+    const int total = cloudLoadTotal;
+    const int succeeded = cloudLoadSucceeded;
+    const QStringList failurePaths = cloudLoadFailurePaths;
+    const QStringList failureMessages = cloudLoadFailureMessages;
+
+    cloudLoadBusy = false;
+    cloudLoadProjectBatch = false;
+    cloudLoadProjectRecovery = false;
+    pendingCloudFiles.clear();
+    currentCloudLoadPath.clear();
+    setCloudLoadUiBusy(false);
+
+    if (projectBatch)
+    {
+        loadingProject = false;
+        projectDirty = projectRecovery || !failurePaths.isEmpty();
+        updateWindowTitle();
+        emit sendStr2Console(tr("已打开项目  %1（点云 %2/%3）")
+                                 .arg(projectPath)
+                                 .arg(succeeded)
+                                 .arg(total));
+    }
+    else
+    {
+        emit sendStr2Console(tr("后台点云加载完成 %1/%2")
+                                 .arg(succeeded)
+                                 .arg(total));
+    }
+
+    statusBar()->showMessage(
+        tr("点云加载完成：成功 %1，失败 %2")
+            .arg(succeeded)
+            .arg(failurePaths.size()),
+        6000);
+
+    if (!failurePaths.isEmpty())
+    {
+        QStringList displayedMessages = failureMessages.mid(0, 10);
+        QString details = displayedMessages.join(QStringLiteral("\n\n"));
+        if (failureMessages.size() > displayedMessages.size())
+        {
+            details += tr("\n\n…共 %1 个文件未能加载")
+                           .arg(failureMessages.size());
+        }
+        QMessageBox::warning(
+            this,
+            projectBatch ? tr("项目未完全加载") : tr("点云未完全加载"),
+            details);
+    }
 }
 
 //点击DB Tree项目

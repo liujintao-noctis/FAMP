@@ -11,6 +11,7 @@
 #include "ui_MainWindow.h"
 #include "MyVTK.h"
 #include "Cloud.h"
+#include "CloudLoader.h"
 #include "QDlgClip.h"
 #include "MyGraphicsView.h"
 #include "ProjectDocument.h"
@@ -22,6 +23,7 @@
 #include <QIcon>
 #include <QStandardItemModel>
 #include <QDebug>
+#include <QFutureWatcher>
 #include <QStringList>
 
 #include <vtkPlaneWidget.h>
@@ -32,6 +34,7 @@ class QCloseEvent;
 class QDragEnterEvent;
 class QDropEvent;
 class QMenu;
+class QProgressBar;
 class QTimer;
 
 struct MyCloudList
@@ -90,6 +93,19 @@ private:
     QString projectCrs;
     bool projectDirty;
     bool loadingProject;
+    QFutureWatcher<famp::cloud::LoadResult> * cloudLoadWatcher;
+    QProgressBar * cloudLoadProgress;
+    QStringList pendingCloudFiles;
+    QStringList cloudLoadFailurePaths;
+    QStringList cloudLoadFailureMessages;
+    QString currentCloudLoadPath;
+    QString cloudLoadProjectPath;
+    int cloudLoadTotal;
+    int cloudLoadCompleted;
+    int cloudLoadSucceeded;
+    bool cloudLoadBusy;
+    bool cloudLoadProjectBatch;
+    bool cloudLoadProjectRecovery;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局
@@ -103,6 +119,14 @@ private:
     void showPlaneWidget(vtkPlaneWidget* (MyVTK::*displayFunc)(), const char* consoleMsg); //统一的平面部件显示方法
     void showHelpDialog(const QString& title, const QString& html);
     bool openCloudFile(const QString& path);
+    bool beginCloudLoadBatch(const QStringList& paths,
+                             bool projectBatch = false,
+                             const QString& projectPath = QString(),
+                             bool projectRecovery = false);
+    void startNextCloudLoad();
+    void integrateLoadedCloud(const famp::cloud::LoadResult& result);
+    void finishCloudLoadBatch();
+    void setCloudLoadUiBusy(bool busy);
     void initializeRecentFilesMenu();
     void addRecentFile(const QString& path);
     void updateRecentFilesMenu();
@@ -152,6 +176,7 @@ private slots:
     void slotBackView();    //后视
 
     void slotOpenCloud();   //打开点云文件
+    void slotCloudLoadFinished();
     void slotNewProject();
     void slotOpenProject();
     void slotSaveProject();
