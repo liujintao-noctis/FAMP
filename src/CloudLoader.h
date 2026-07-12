@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "CloudCoordinates.h"
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -20,6 +22,7 @@ struct LoadResult
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr sourceCloud;
     QString error;
     bool sourceWasPcd = false;
+    SpatialReference spatial;
 
     bool succeeded() const
     {

@@ -8,6 +8,8 @@
 
 #include "CloudLoader.h"
 
+#include <cmath>
+
 #ifndef FAMP_SAMPLE_DIR
 #error "FAMP_SAMPLE_DIR must point to the repository samples directory"
 #endif
@@ -28,6 +30,22 @@ TEST(CloudLoaderTest, LoadsAndRecentersPcd)
     EXPECT_NEAR(centroid.x(), 0.0f, 1.0e-3f);
     EXPECT_NEAR(centroid.y(), 0.0f, 1.0e-3f);
     EXPECT_NEAR(centroid.z(), 0.0f, 1.0e-3f);
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[0]));
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[1]));
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[2]));
+    ASSERT_FALSE(result.sourceCloud->empty());
+    EXPECT_NEAR(
+        static_cast<double>(result.displayCloud->front().x)
+            + result.spatial.origin[0],
+        static_cast<double>(result.sourceCloud->front().x), 1.0e-5);
+    EXPECT_NEAR(
+        static_cast<double>(result.displayCloud->front().y)
+            + result.spatial.origin[1],
+        static_cast<double>(result.sourceCloud->front().y), 1.0e-5);
+    EXPECT_NEAR(
+        static_cast<double>(result.displayCloud->front().z)
+            + result.spatial.origin[2],
+        static_cast<double>(result.sourceCloud->front().z), 1.0e-5);
 }
 
 TEST(CloudLoaderTest, LoadsLasWithoutKeepingDuplicateSource)
@@ -39,6 +57,9 @@ TEST(CloudLoaderTest, LoadsLasWithoutKeepingDuplicateSource)
     EXPECT_FALSE(result.sourceWasPcd);
     EXPECT_FALSE(result.sourceCloud);
     EXPECT_FALSE(result.displayCloud->empty());
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[0]));
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[1]));
+    EXPECT_TRUE(std::isfinite(result.spatial.origin[2]));
 }
 
 TEST(CloudLoaderTest, SupportsUnicodePath)

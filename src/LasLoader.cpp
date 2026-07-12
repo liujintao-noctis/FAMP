@@ -25,7 +25,8 @@ void setError(QString* errorMessage, const QString& message)
 }
 
 bool loadLasFromStdPath(const std::string& path,
-                        pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud)
+                        pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
+                        std::array<double, 3>* origin)
 {
     LASreadOpener opener;
     std::vector<char> pathBuffer(path.begin(), path.end());
@@ -85,13 +86,16 @@ bool loadLasFromStdPath(const std::string& path,
     loaded->height = 1;
     loaded->is_dense = true;
     outCloud = loaded;
+    if (origin)
+        *origin = {centerX, centerY, centerZ};
     return true;
 }
 }
 
 bool loadLasAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
-                  QString* errorMessage)
+                  QString* errorMessage,
+                  std::array<double, 3>* origin)
 {
     const QFileInfo fileInfo(path);
     if (!fileInfo.exists() || !fileInfo.isFile())
@@ -100,7 +104,8 @@ bool loadLasAsRgb(const QString& path,
         return false;
     }
 
-    if (loadLasFromStdPath(qstr2str(fileInfo.absoluteFilePath()), outCloud))
+    if (loadLasFromStdPath(
+            qstr2str(fileInfo.absoluteFilePath()), outCloud, origin))
         return true;
 
     // LAStools uses a narrow path API. On Windows, retry through a temporary
@@ -126,7 +131,8 @@ bool loadLasAsRgb(const QString& path,
         return false;
     }
 
-    const bool loaded = loadLasFromStdPath(qstr2str(temporaryPath), outCloud);
+    const bool loaded = loadLasFromStdPath(
+        qstr2str(temporaryPath), outCloud, origin);
     QFile::remove(temporaryPath);
     if (!loaded)
     {

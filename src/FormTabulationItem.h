@@ -34,6 +34,9 @@ class FormTabulationItem :public QObject, public QGraphicsItem
 public:
     FormTabulationItem(QString designer, QString data, QString scale, QWidget *parent);
     ~FormTabulationItem();
+    QString designerText() const { return currentDesignerText; }
+    QString dateText() const { return currentDataText; }
+    QString scaleText() const { return currentScaleText; }
 
 private:
     QRectF AABB;        //AABB包围盒

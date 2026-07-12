@@ -10,6 +10,7 @@
 #include "FileIO.h"
 #include "GraphicsExport.h"
 #include "GraphicsItemTransform.h"
+#include "GraphicsSceneDocument.h"
 #include "MainWindow.h"
 #include "MetricScale.h"
 #include "Version.h"
@@ -106,6 +107,40 @@ MyGraphicsView::~MyGraphicsView()
 QUndoStack* MyGraphicsView::commandStack() const
 {
     return history;
+}
+
+QJsonObject MyGraphicsView::saveProjectState(QString* errorMessage) const
+{
+    QJsonObject result = famp::graphicsdoc::saveScene(scene, errorMessage);
+    if (!result.isEmpty())
+        result.insert(QStringLiteral("metricGridVisible"), metricGridVisible);
+    return result;
+}
+
+bool MyGraphicsView::validateProjectState(const QJsonObject& state,
+                                          QString* errorMessage) const
+{
+    return famp::graphicsdoc::validateSceneDocument(state, errorMessage);
+}
+
+bool MyGraphicsView::restoreProjectState(const QJsonObject& state,
+                                         QString* errorMessage)
+{
+    resetMeasurementInteraction(false);
+    QList<QGraphicsItem*> restoredItems;
+    if (!famp::graphicsdoc::restoreScene(
+            scene, state, &restoredItems, errorMessage))
+    {
+        return false;
+    }
+    history->clear();
+    history->setClean();
+    itemHandles.clear();
+    metricGridVisible = state.value(QStringLiteral("metricGridVisible"))
+                            .toBool(false);
+    viewport()->update();
+    emit selectionAvailabilityChanged(false);
+    return true;
 }
 
 famp::graphics::ItemHandle MyGraphicsView::handleForItem(QGraphicsItem* item)
@@ -1914,6 +1949,8 @@ void MyGraphicsView::updateMeasurementPreview()
     if (!measurementPreviewPath)
     {
         measurementPreviewPath = scene->addPath(QPainterPath());
+        measurementPreviewPath->setData(
+            famp::graphicsdoc::TransientItemDataKey, true);
         QPen previewPen(QColor(0, 102, 204));
         previewPen.setWidthF(2.0);
         previewPen.setStyle(Qt::DashLine);
@@ -1969,6 +2006,8 @@ void MyGraphicsView::updateMeasurementPreview()
     if (!measurementPreviewLabel)
     {
         measurementPreviewLabel = scene->addSimpleText(QString());
+        measurementPreviewLabel->setData(
+            famp::graphicsdoc::TransientItemDataKey, true);
         measurementPreviewLabel->setBrush(QColor(0, 70, 140));
         measurementPreviewLabel->setZValue(10000.0);
     }

@@ -23,6 +23,7 @@ public:
 
     famp::measurement::Kind kind() const { return kind_; }
     const QVector<QPointF>& meterPoints() const { return meterPoints_; }
+    QPointF sceneUnitsPerMeter() const { return sceneUnitsPerMeter_; }
     double value() const { return value_; }
     void setSceneUnitsPerMeter(const QPointF& sceneUnitsPerMeter);
 

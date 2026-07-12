@@ -6,6 +6,8 @@
 
 #include "LasLoader.h"
 
+#include <cmath>
+
 #ifndef FAMP_SAMPLE_DIR
 #error "FAMP_SAMPLE_DIR must point to the repository samples directory"
 #endif
@@ -14,13 +16,17 @@ TEST(LasLoaderTest, LoadsBundledSampleAndRecentersCoordinates)
 {
     const QString path = QStringLiteral(FAMP_SAMPLE_DIR "/1.las");
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud;
+    std::array<double, 3> origin{};
     QString error;
 
-    ASSERT_TRUE(loadLasAsRgb(path, cloud, &error)) << error.toStdString();
+    ASSERT_TRUE(loadLasAsRgb(path, cloud, &error, &origin)) << error.toStdString();
     ASSERT_TRUE(cloud);
     EXPECT_FALSE(cloud->empty());
     EXPECT_EQ(cloud->height, 1U);
     EXPECT_EQ(cloud->width, cloud->size());
+    EXPECT_TRUE(std::isfinite(origin[0]));
+    EXPECT_TRUE(std::isfinite(origin[1]));
+    EXPECT_TRUE(std::isfinite(origin[2]));
 }
 
 TEST(LasLoaderTest, LoadsFromNonAsciiPath)
