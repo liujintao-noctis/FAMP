@@ -59,6 +59,26 @@ TEST(CloudRegistrationTest, AlignsTranslatedAsymmetricCloud)
     }
 }
 
+TEST(CloudRegistrationTest, SupportsVoxelSamplingAndRejectsNoOverlap)
+{
+    const auto source = cloudWithTranslation(0.0F, 0.0F, 0.0F);
+    const auto target = cloudWithTranslation(0.18F, -0.12F, 0.09F);
+    famp::registration::Options options;
+    options.maximumCorrespondenceDistance = 0.8;
+    options.samplingVoxelSizeMeters = 0.2;
+    const auto sampled = famp::registration::align(source, target, options);
+    ASSERT_TRUE(sampled.succeeded()) << sampled.error.toStdString();
+    EXPECT_GT(sampled.registrationSourcePointCount, 2U);
+    EXPECT_LE(sampled.registrationSourcePointCount, source->size());
+
+    options.maximumCorrespondenceDistance = 0.05;
+    options.samplingVoxelSizeMeters = 0.0;
+    const auto separated = famp::registration::align(
+        source, cloudWithTranslation(100.0F, 100.0F, 100.0F), options);
+    EXPECT_FALSE(separated.succeeded());
+    EXPECT_FALSE(separated.error.isEmpty());
+}
+
 TEST(CloudRegistrationTest, RejectsInvalidInputsAndOptions)
 {
     const auto source = cloudWithTranslation(0.0F, 0.0F, 0.0F);

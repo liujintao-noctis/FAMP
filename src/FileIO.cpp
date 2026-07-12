@@ -5,6 +5,7 @@
 #include <QTextStream>
 
 #include <cstdint>
+#include <cmath>
 #include <limits>
 
 namespace
@@ -24,6 +25,21 @@ bool openOutputFile(QSaveFile& file, QString* errorMessage)
              QStringLiteral("无法创建文件 %1：%2")
                  .arg(file.fileName(), file.errorString()));
     return false;
+}
+
+bool validSpatialReference(const famp::cloud::SpatialReference& spatial)
+{
+    for (double value : spatial.origin)
+    {
+        if (!std::isfinite(value))
+            return false;
+    }
+    for (double value : spatial.transform)
+    {
+        if (!std::isfinite(value))
+            return false;
+    }
+    return true;
 }
 }
 
@@ -89,7 +105,8 @@ bool saveImageAtomically(const QString& path,
 bool savePcdAsciiAtomically(
     const QString& path,
     const pcl::PointCloud<pcl::PointXYZRGB>& cloud,
-    QString* errorMessage)
+    QString* errorMessage,
+    const famp::cloud::SpatialReference* spatial)
 {
     if (path.trimmed().isEmpty())
     {
@@ -101,6 +118,21 @@ bool savePcdAsciiAtomically(
         setError(errorMessage, QStringLiteral("没有可保存的点云数据。"));
         return false;
     }
+    for (const pcl::PointXYZRGB& point : cloud)
+    {
+        if (!std::isfinite(point.x) || !std::isfinite(point.y)
+            || !std::isfinite(point.z))
+        {
+            setError(errorMessage,
+                     QStringLiteral("点云包含非有限坐标，无法保存。"));
+            return false;
+        }
+    }
+    if (spatial && !validSpatialReference(*spatial))
+    {
+        setError(errorMessage, QStringLiteral("点云空间参考包含无效数值。"));
+        return false;
+    }
 
     QSaveFile file(path);
     if (!openOutputFile(file, errorMessage))
@@ -110,8 +142,21 @@ bool savePcdAsciiAtomically(
     stream.setLocale(QLocale::c());
     stream.setRealNumberNotation(QTextStream::SmartNotation);
     stream.setRealNumberPrecision(std::numeric_limits<float>::max_digits10);
-    stream << "# .PCD v0.7 - Point Cloud Data file format\n"
-           << "VERSION 0.7\n"
+    stream << "# .PCD v0.7 - Point Cloud Data file format\n";
+    if (spatial)
+    {
+        stream.setRealNumberPrecision(std::numeric_limits<double>::max_digits10);
+        stream << "# FAMP_SPATIAL_REFERENCE 1\n"
+               << "# FAMP_ORIGIN "
+               << spatial->origin[0] << ' ' << spatial->origin[1] << ' '
+               << spatial->origin[2] << '\n'
+               << "# FAMP_TRANSFORM";
+        for (double value : spatial->transform)
+            stream << ' ' << value;
+        stream << '\n';
+        stream.setRealNumberPrecision(std::numeric_limits<float>::max_digits10);
+    }
+    stream << "VERSION 0.7\n"
            << "FIELDS x y z rgb\n"
            << "SIZE 4 4 4 4\n"
            << "TYPE F F F U\n"

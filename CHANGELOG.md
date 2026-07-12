@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-07-12
+
+### Changed
+
+- ICP 配准新增可选体素降采样，减少大点云配准耗时和内存占用，并拒绝无有效重叠或非有限变换的伪收敛结果。
+- 考古项目报告增加点云、点数和测量汇总，并在生成前校验空间参考。
+
+### Fixed
+
+- FAMP 生成的局部坐标 PCD 现在嵌入双精度原点和 4×4 变换，重新打开预处理、裁剪或配准成果时不再丢失真实坐标参考。
+- PCD 加载会过滤 `NaN/Inf` 点，项目文件会在整数转换前拒绝非有限、非整数或超范围的文件元数据。
+
 ## [0.5.0] - 2026-07-12
 
 ### Added
@@ -90,7 +102,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...v0.3.1

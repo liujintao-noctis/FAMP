@@ -45,6 +45,21 @@ bool readPoint(const QJsonValue& value, QPointF& point)
     return std::isfinite(point.x()) && std::isfinite(point.y());
 }
 
+bool validSpatialReference(const famp::cloud::SpatialReference& spatial)
+{
+    for (double value : spatial.origin)
+    {
+        if (!std::isfinite(value))
+            return false;
+    }
+    for (double value : spatial.transform)
+    {
+        if (!std::isfinite(value))
+            return false;
+    }
+    return true;
+}
+
 void collectMeasurements(const QJsonArray& items,
                          QVector<MeasurementRow>& rows)
 {
@@ -134,6 +149,16 @@ QString toHtml(const Data& data, QString* errorMessage)
         setError(errorMessage, QStringLiteral("报告生成时间无效。"));
         return {};
     }
+    for (const CloudEntry& cloud : data.clouds)
+    {
+        if (!validSpatialReference(cloud.spatial))
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的点云空间参考包含无效数值：%1")
+                         .arg(cloud.path));
+            return {};
+        }
+    }
     QVector<MeasurementRow> measurements;
     collectMeasurements(data.graphicsState.value(QStringLiteral("items")).toArray(),
                         measurements);
@@ -168,7 +193,13 @@ QString toHtml(const Data& data, QString* errorMessage)
     }
     if (data.clouds.isEmpty())
         stream << "<tr><td colspan=\"5\">无已加载点云</td></tr>";
-    stream << "</table><h2>二维测量成果</h2><table><tr><th>#</th><th>类型</th><th>结果</th></tr>";
+    qulonglong totalPoints = 0;
+    for (const CloudEntry& cloud : data.clouds)
+        totalPoints += static_cast<qulonglong>(cloud.pointCount);
+    stream << "</table><p><b>汇总：</b>" << data.clouds.size()
+           << " 个点云，共 " << totalPoints << " 个点；"
+           << measurements.size() << " 项二维测量。</p>";
+    stream << "<h2>二维测量成果</h2><table><tr><th>#</th><th>类型</th><th>结果</th></tr>";
     for (qsizetype index = 0; index < measurements.size(); ++index)
     {
         stream << "<tr><td>" << index + 1 << "</td><td>"

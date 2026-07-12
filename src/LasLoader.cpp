@@ -17,11 +17,33 @@
 namespace
 {
 constexpr std::uint64_t MaxPreallocatedPoints = 1'000'000;
+constexpr qint64 CopyBufferSize = 1024 * 1024;
 
 void setError(QString* errorMessage, const QString& message)
 {
     if (errorMessage)
         *errorMessage = message;
+}
+
+bool copyIntoTemporaryFile(const QString& sourcePath,
+                           QTemporaryFile& target)
+{
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly))
+        return false;
+    while (!source.atEnd())
+    {
+        const QByteArray chunk = source.read(CopyBufferSize);
+        if ((chunk.isEmpty() && source.error() != QFile::NoError)
+            || target.write(chunk) != chunk.size())
+        {
+            return false;
+        }
+    }
+    if (!target.flush() || target.error() != QFile::NoError)
+        return false;
+    target.close();
+    return true;
 }
 
 bool loadLasFromStdPath(const std::string& path,
@@ -122,9 +144,8 @@ bool loadLasAsRgb(const QString& path,
     }
 
     const QString temporaryPath = temporaryFile.fileName();
-    temporaryFile.close();
-    QFile::remove(temporaryPath);
-    if (!QFile::copy(fileInfo.absoluteFilePath(), temporaryPath))
+    if (!copyIntoTemporaryFile(
+            fileInfo.absoluteFilePath(), temporaryFile))
     {
         setError(errorMessage,
                  QStringLiteral("无法读取 LAS 文件：%1").arg(path));
@@ -133,7 +154,6 @@ bool loadLasAsRgb(const QString& path,
 
     const bool loaded = loadLasFromStdPath(
         qstr2str(temporaryPath), outCloud, origin);
-    QFile::remove(temporaryPath);
     if (!loaded)
     {
         setError(errorMessage,

@@ -8,6 +8,7 @@
 #include "QstringAndStringConvert.h"
 
 #include <pcl/io/pcd_io.h>
+#include <pcl/common/point_tests.h>
 
 #include <QDir>
 #include <QFile>
@@ -18,6 +19,7 @@
 #include <cstdint>
 #include <fstream>
 #include <sstream>
+#include <cmath>
 
 namespace
 {
@@ -25,6 +27,105 @@ constexpr std::uint8_t kDefaultRed = 255;
 constexpr std::uint8_t kDefaultGreen = 255;
 constexpr std::uint8_t kDefaultBlue = 255;
 constexpr qint64 kCopyBufferSize = 1024 * 1024;
+constexpr qint64 kMaxHeaderBytes = 1024 * 1024;
+
+enum class SpatialMetadataStatus
+{
+    NotPresent,
+    Valid,
+    Invalid
+};
+
+SpatialMetadataStatus readEmbeddedSpatial(
+    const QString& path,
+    famp::cloud::SpatialReference& spatial)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return SpatialMetadataStatus::NotPresent;
+    bool markerPresent = false;
+    bool markerValid = false;
+    bool haveOrigin = false;
+    bool haveTransform = false;
+    famp::cloud::SpatialReference candidate;
+    qint64 headerBytes = 0;
+    while (!file.atEnd())
+    {
+        const QByteArray rawLine = file.readLine(64 * 1024);
+        headerBytes += rawLine.size();
+        if (headerBytes > kMaxHeaderBytes
+            || (!rawLine.endsWith('\n') && !file.atEnd()))
+        {
+            return markerPresent
+                ? SpatialMetadataStatus::Invalid
+                : SpatialMetadataStatus::NotPresent;
+        }
+        const QString line = QString::fromLatin1(rawLine).trimmed();
+        if (line.startsWith(QStringLiteral("DATA "), Qt::CaseInsensitive))
+            break;
+        const QStringList fields = line.split(QLatin1Char(' '), Qt::SkipEmptyParts);
+        if (line.startsWith(QStringLiteral("# FAMP_SPATIAL_REFERENCE")))
+        {
+            markerPresent = true;
+            markerValid = fields.size() == 3
+                && fields.at(0) == QStringLiteral("#")
+                && fields.at(1) == QStringLiteral("FAMP_SPATIAL_REFERENCE")
+                && fields.at(2) == QStringLiteral("1");
+        }
+        else if (fields.size() == 5
+                 && fields.at(0) == QStringLiteral("#")
+                 && fields.at(1) == QStringLiteral("FAMP_ORIGIN"))
+        {
+            haveOrigin = true;
+            for (int index = 0; index < 3; ++index)
+            {
+                bool ok = false;
+                const double value = fields.at(index + 2).toDouble(&ok);
+                if (!ok || !std::isfinite(value))
+                    return SpatialMetadataStatus::Invalid;
+                candidate.origin[static_cast<std::size_t>(index)] = value;
+            }
+        }
+        else if (fields.size() == 18
+                 && fields.at(0) == QStringLiteral("#")
+                 && fields.at(1) == QStringLiteral("FAMP_TRANSFORM"))
+        {
+            haveTransform = true;
+            for (int index = 0; index < 16; ++index)
+            {
+                bool ok = false;
+                const double value = fields.at(index + 2).toDouble(&ok);
+                if (!ok || !std::isfinite(value))
+                    return SpatialMetadataStatus::Invalid;
+                candidate.transform[static_cast<std::size_t>(index)] = value;
+            }
+        }
+    }
+    if (!markerPresent)
+        return SpatialMetadataStatus::NotPresent;
+    if (!markerValid || !haveOrigin || !haveTransform)
+        return SpatialMetadataStatus::Invalid;
+    spatial = candidate;
+    return SpatialMetadataStatus::Valid;
+}
+
+bool sanitizeCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud)
+{
+    if (!cloud)
+        return false;
+    cloud->erase(
+        std::remove_if(cloud->begin(), cloud->end(),
+                       [](const pcl::PointXYZRGB& point) {
+                           return !pcl::isFinite(point);
+                       }),
+        cloud->end());
+    if (cloud->empty())
+        return false;
+    cloud->width = static_cast<std::uint32_t>(cloud->size());
+    cloud->height = 1;
+    cloud->is_dense = true;
+    return true;
+}
 
 bool pcdHeaderHasColorField(const std::string& path)
 {
@@ -103,19 +204,30 @@ bool loadXyzPcdAsRgb(const std::string& path,
 bool loadPcdFromStdPath(const std::string& path,
                         pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud)
 {
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr candidate;
+    bool loaded = false;
     if (!pcdHeaderHasColorField(path))
     {
-        return loadXyzPcdAsRgb(path, outCloud);
+        loaded = loadXyzPcdAsRgb(path, candidate);
     }
-
-    auto rgbCloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(new pcl::PointCloud<pcl::PointXYZRGB>);
-    if (pcl::io::loadPCDFile(path, *rgbCloud) == 0)
+    else
     {
-        outCloud = rgbCloud;
-        return true;
+        auto rgbCloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+            new pcl::PointCloud<pcl::PointXYZRGB>);
+        if (pcl::io::loadPCDFile(path, *rgbCloud) == 0)
+        {
+            candidate = rgbCloud;
+            loaded = true;
+        }
+        else
+        {
+            loaded = loadXyzPcdAsRgb(path, candidate);
+        }
     }
-
-    return loadXyzPcdAsRgb(path, outCloud);
+    if (!loaded || !sanitizeCloud(candidate))
+        return false;
+    outCloud = candidate;
+    return true;
 }
 
 bool copyFileWithQt(const QString& sourcePath, const QString& targetPath, QString* errorMessage)
@@ -199,8 +311,22 @@ bool loadPcdAsRgb(const std::string& path,
 
 bool loadPcdAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
-                  QString* errorMessage)
+                  QString* errorMessage,
+                  famp::cloud::SpatialReference* embeddedSpatial,
+                  bool* hasEmbeddedSpatial)
 {
+    famp::cloud::SpatialReference parsedSpatial;
+    const SpatialMetadataStatus metadata = readEmbeddedSpatial(path, parsedSpatial);
+    if (metadata == SpatialMetadataStatus::Invalid)
+    {
+        if (errorMessage)
+            *errorMessage = QStringLiteral("PCD 中的 FAMP 空间参考元数据无效：%1").arg(path);
+        return false;
+    }
+    if (hasEmbeddedSpatial)
+        *hasEmbeddedSpatial = metadata == SpatialMetadataStatus::Valid;
+    if (embeddedSpatial && metadata == SpatialMetadataStatus::Valid)
+        *embeddedSpatial = parsedSpatial;
     const std::string utf8Path = qstr2str(path);
     if (loadPcdFromStdPath(utf8Path, outCloud))
     {
@@ -215,7 +341,6 @@ bool loadPcdAsRgb(const QString& path,
     {
         const QString tempPath = tempFile.fileName();
         tempFile.close();
-        QFile::remove(tempPath);
 
         QString copyError;
         if (copyFileWithQt(path, tempPath, &copyError))

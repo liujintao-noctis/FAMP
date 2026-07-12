@@ -6,6 +6,8 @@
 #include <QImage>
 #include <QTemporaryDir>
 
+#include <limits>
+
 #include "FileIO.h"
 #include "PcdLoader.h"
 
@@ -100,4 +102,30 @@ TEST(FileIOTest, ReportsUnwritableDestinationWithoutLeavingAFile)
     EXPECT_FALSE(famp::io::savePcdAsciiAtomically(path, cloud, &error));
     EXPECT_FALSE(error.isEmpty());
     EXPECT_FALSE(QFileInfo::exists(path));
+}
+
+TEST(FileIOTest, RejectsInvalidCoordinatesAndSpatialReferenceBeforeWriting)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    pcl::PointCloud<pcl::PointXYZRGB> cloud;
+    pcl::PointXYZRGB point;
+    point.x = std::numeric_limits<float>::quiet_NaN();
+    point.y = 0.0F;
+    point.z = 0.0F;
+    cloud.push_back(point);
+    QString error;
+    const QString invalidPointPath = directory.filePath(QStringLiteral("point.pcd"));
+    EXPECT_FALSE(famp::io::savePcdAsciiAtomically(
+        invalidPointPath, cloud, &error));
+    EXPECT_FALSE(QFileInfo::exists(invalidPointPath));
+
+    point.x = 0.0F;
+    cloud[0] = point;
+    famp::cloud::SpatialReference spatial;
+    spatial.origin[0] = std::numeric_limits<double>::infinity();
+    const QString invalidSpatialPath = directory.filePath(QStringLiteral("spatial.pcd"));
+    EXPECT_FALSE(famp::io::savePcdAsciiAtomically(
+        invalidSpatialPath, cloud, &error, &spatial));
+    EXPECT_FALSE(QFileInfo::exists(invalidSpatialPath));
 }

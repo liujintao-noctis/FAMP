@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CloudCoordinates.h"
 #include "TaskCancellation.h"
 
 #include <pcl/point_cloud.h>
@@ -54,5 +55,6 @@ Result processAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
     const Options& options,
     const QString& requestedOutputPath,
-    const famp::tasks::CancellationCheck& shouldCancel = {});
+    const famp::tasks::CancellationCheck& shouldCancel = {},
+    const famp::cloud::SpatialReference* spatial = nullptr);
 }

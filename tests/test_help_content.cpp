@@ -20,6 +20,8 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
     EXPECT_TRUE(content.contains(QStringLiteral("体素降采样")));
     EXPECT_TRUE(content.contains(QStringLiteral("统计离群点")));
+    EXPECT_TRUE(content.contains(QStringLiteral("ICP")));
+    EXPECT_TRUE(content.contains(QStringLiteral("空间参考")));
     EXPECT_TRUE(content.contains(QStringLiteral("导出成果")));
     EXPECT_TRUE(content.contains(QStringLiteral("测量面积")));
     EXPECT_TRUE(content.contains(QStringLiteral("PDF")));

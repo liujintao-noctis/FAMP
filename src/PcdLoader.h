@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "CloudCoordinates.h"
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -19,4 +21,6 @@ bool loadPcdAsRgb(const std::string& path,
 
 bool loadPcdAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
-                  QString* errorMessage = nullptr);
+                  QString* errorMessage = nullptr,
+                  famp::cloud::SpatialReference* embeddedSpatial = nullptr,
+                  bool* hasEmbeddedSpatial = nullptr);

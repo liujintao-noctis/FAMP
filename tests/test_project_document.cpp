@@ -230,3 +230,38 @@ TEST(ProjectDocumentTest, RejectsMalformedProjectCrs)
     EXPECT_FALSE(error.isEmpty());
     EXPECT_FALSE(QFileInfo::exists(projectPath));
 }
+
+TEST(ProjectDocumentTest, RejectsUnsafeNumericCloudMetadata)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("site.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    famp::project::Document source;
+    source.clouds = {cloud};
+    const QString projectPath = directory.filePath(QStringLiteral("unsafe.famp"));
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.5.0"), &error));
+
+    QFile file(projectPath);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonArray clouds = root.value(QStringLiteral("clouds")).toArray();
+    QJsonObject serializedCloud = clouds.at(0).toObject();
+    serializedCloud.insert(QStringLiteral("size"), 1.0e300);
+    clouds[0] = serializedCloud;
+    root.insert(QStringLiteral("clouds"), clouds);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    famp::project::Document loaded;
+    EXPECT_FALSE(famp::project::load(projectPath, loaded, &error));
+    EXPECT_FALSE(error.isEmpty());
+}

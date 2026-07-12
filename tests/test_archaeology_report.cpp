@@ -6,6 +6,8 @@
 #include <QJsonArray>
 #include <QTemporaryDir>
 
+#include <limits>
+
 namespace
 {
 famp::report::Data sampleReport()
@@ -70,4 +72,14 @@ TEST(ArchaeologyReportTest, RejectsInvalidTimestampWithoutWriting)
     const QString path = directory.filePath(QStringLiteral("invalid.html"));
     EXPECT_FALSE(famp::report::saveHtml(path, data));
     EXPECT_FALSE(QFile::exists(path));
+}
+
+TEST(ArchaeologyReportTest, RejectsInvalidCloudSpatialReference)
+{
+    auto data = sampleReport();
+    data.clouds[0].spatial.origin[1] =
+        std::numeric_limits<double>::quiet_NaN();
+    QString error;
+    EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
+    EXPECT_TRUE(error.contains(QStringLiteral("空间参考")));
 }

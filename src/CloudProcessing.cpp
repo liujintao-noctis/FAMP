@@ -175,7 +175,8 @@ Result processAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
     const Options& options,
     const QString& requestedOutputPath,
-    const famp::tasks::CancellationCheck& shouldCancel)
+    const famp::tasks::CancellationCheck& shouldCancel,
+    const famp::cloud::SpatialReference* spatial)
 {
     Result result = process(input, options, shouldCancel);
     if (!result.succeeded())
@@ -186,7 +187,7 @@ Result processAndSave(
     result.outputPath = famp::io::pathWithRequiredSuffix(
         requestedOutputPath, QStringLiteral("pcd"));
     if (!famp::io::savePcdAsciiAtomically(
-            result.outputPath, *result.cloud, &result.error))
+            result.outputPath, *result.cloud, &result.error, spatial))
     {
         result.cloud.reset();
         result.outputPointCount = 0;

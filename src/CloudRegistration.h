@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CloudCoordinates.h"
 #include "TaskCancellation.h"
 
 #include <pcl/point_cloud.h>
@@ -16,6 +17,7 @@ struct Options
 {
     int maximumIterations = 60;
     double maximumCorrespondenceDistance = 1.0;
+    double samplingVoxelSizeMeters = 0.0;
     double transformationEpsilon = 1.0e-8;
     double fitnessEpsilon = 1.0e-8;
 };
@@ -28,6 +30,8 @@ struct Result
     QString error;
     std::size_t sourcePointCount = 0;
     std::size_t targetPointCount = 0;
+    std::size_t registrationSourcePointCount = 0;
+    std::size_t registrationTargetPointCount = 0;
     std::size_t outputPointCount = 0;
     double fitnessScore = 0.0;
     bool converged = false;
@@ -51,5 +55,6 @@ Result alignAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& target,
     const Options& options,
     const QString& requestedOutputPath,
-    const famp::tasks::CancellationCheck& shouldCancel = {});
+    const famp::tasks::CancellationCheck& shouldCancel = {},
+    const famp::cloud::SpatialReference* spatial = nullptr);
 }
