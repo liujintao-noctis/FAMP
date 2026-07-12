@@ -55,4 +55,14 @@ QUndoCommand* makeTextFontCommand(const ItemHandle& handle,
                                   const QFont& before,
                                   const QFont& after,
                                   const QString& text);
+QUndoCommand* makeGroupItemsCommand(
+    QGraphicsScene* scene,
+    const ItemHandle& group,
+    const QVector<ItemHandle>& children,
+    const QString& text);
+QUndoCommand* makeUngroupItemsCommand(
+    QGraphicsScene* scene,
+    const ItemHandle& group,
+    const QVector<ItemHandle>& children,
+    const QString& text);
 }
