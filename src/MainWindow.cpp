@@ -20,6 +20,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QCloseEvent>
+#include <QCheckBox>
 #include <QColorDialog>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -1128,22 +1129,63 @@ void MainWindow::slotCloudDisplaySettings()
     opacity.setValue(actor->GetProperty()->GetOpacity());
 
     QComboBox colorMode(&dialog);
-    colorMode.addItem(tr("使用点云 RGB"), true);
-    colorMode.addItem(tr("使用统一颜色"), false);
-    colorMode.setCurrentIndex(mapper->GetScalarVisibility() ? 0 : 1);
+    colorMode.addItem(
+        tr("使用点云 RGB"),
+        static_cast<int>(famp::display::ColorMode::PointRgb));
+    colorMode.addItem(
+        tr("使用统一颜色"),
+        static_cast<int>(famp::display::ColorMode::Uniform));
+    colorMode.addItem(
+        tr("按局部高程 Z 渐变"),
+        static_cast<int>(famp::display::ColorMode::Elevation));
+    if (!mapper->GetScalarVisibility())
+        colorMode.setCurrentIndex(1);
+    else if (mapper->GetColorMode() == VTK_COLOR_MODE_MAP_SCALARS)
+        colorMode.setCurrentIndex(2);
+    else
+        colorMode.setCurrentIndex(0);
 
     const double* vtkColor = actor->GetProperty()->GetColor();
     QColor selectedColor = QColor::fromRgbF(
         vtkColor[0], vtkColor[1], vtkColor[2]);
     QPushButton colorButton(tr("选择颜色…"), &dialog);
+    QCheckBox automaticRange(tr("自动使用点云高程范围"), &dialog);
+    automaticRange.setChecked(true);
+    QDoubleSpinBox scalarMinimum(&dialog);
+    QDoubleSpinBox scalarMaximum(&dialog);
+    for (QDoubleSpinBox* spinBox : {&scalarMinimum, &scalarMaximum})
+    {
+        spinBox->setRange(-1.0e9, 1.0e9);
+        spinBox->setDecimals(6);
+        spinBox->setSuffix(tr(" m"));
+    }
+    double elevationMinimum = 0.0;
+    double elevationMaximum = 1.0;
+    if (famp::display::elevationRange(
+            actor, elevationMinimum, elevationMaximum, nullptr))
+    {
+        scalarMinimum.setValue(elevationMinimum);
+        scalarMaximum.setValue(elevationMaximum);
+    }
     auto updateColorButton = [&]() {
         colorButton.setStyleSheet(
             QStringLiteral("background-color: %1;").arg(selectedColor.name()));
     };
     updateColorButton();
-    colorButton.setEnabled(colorMode.currentIndex() == 1);
+    auto updateColorControls = [&]() {
+        const auto mode = static_cast<famp::display::ColorMode>(
+            colorMode.currentData().toInt());
+        const bool elevation = mode == famp::display::ColorMode::Elevation;
+        colorButton.setEnabled(mode == famp::display::ColorMode::Uniform);
+        automaticRange.setEnabled(elevation);
+        scalarMinimum.setEnabled(elevation && !automaticRange.isChecked());
+        scalarMaximum.setEnabled(elevation && !automaticRange.isChecked());
+    };
     connect(&colorMode, qOverload<int>(&QComboBox::currentIndexChanged),
-            &dialog, [&](int index) { colorButton.setEnabled(index == 1); });
+            &dialog, [&](int) { updateColorControls(); });
+    connect(&automaticRange, &QCheckBox::toggled,
+            &dialog, [&](bool) { updateColorControls(); });
+    updateColorControls();
     connect(&colorButton, &QPushButton::clicked, &dialog, [&]() {
         const QColor color = QColorDialog::getColor(
             selectedColor, &dialog, tr("选择点云颜色"));
@@ -1158,6 +1200,9 @@ void MainWindow::slotCloudDisplaySettings()
     layout.addRow(tr("不透明度"), &opacity);
     layout.addRow(tr("颜色模式"), &colorMode);
     layout.addRow(tr("统一颜色"), &colorButton);
+    layout.addRow(QString(), &automaticRange);
+    layout.addRow(tr("色带最小高程"), &scalarMinimum);
+    layout.addRow(tr("色带最大高程"), &scalarMaximum);
     QDialogButtonBox buttons(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -1169,10 +1214,14 @@ void MainWindow::slotCloudDisplaySettings()
     famp::display::Settings settings;
     settings.pointSize = pointSize.value();
     settings.opacity = opacity.value();
-    settings.usePointColors = colorMode.currentData().toBool();
+    settings.colorMode = static_cast<famp::display::ColorMode>(
+        colorMode.currentData().toInt());
     settings.red = selectedColor.redF();
     settings.green = selectedColor.greenF();
     settings.blue = selectedColor.blueF();
+    settings.automaticScalarRange = automaticRange.isChecked();
+    settings.scalarMinimum = scalarMinimum.value();
+    settings.scalarMaximum = scalarMaximum.value();
     QString error;
     if (!famp::display::apply(actor, settings, &error))
     {
