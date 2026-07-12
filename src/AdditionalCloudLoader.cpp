@@ -20,6 +20,8 @@
 namespace
 {
 constexpr std::size_t MaxTextPoints = 100'000'000;
+constexpr qint64 CopyBufferSize = 1024 * 1024;
+constexpr qint64 MaxHeaderBytes = 1024 * 1024;
 
 void setError(QString* errorMessage, const QString& message)
 {
@@ -35,19 +37,58 @@ bool plyHeaderHasColors(const QString& path)
     bool red = false;
     bool green = false;
     bool blue = false;
+    bool vertexProperties = false;
+    qint64 headerBytes = 0;
     while (!file.atEnd())
     {
-        const QString line = QString::fromLatin1(file.readLine()).trimmed().toLower();
-        red = red || line.endsWith(QStringLiteral(" red"))
-            || line.endsWith(QStringLiteral(" r"));
-        green = green || line.endsWith(QStringLiteral(" green"))
-            || line.endsWith(QStringLiteral(" g"));
-        blue = blue || line.endsWith(QStringLiteral(" blue"))
-            || line.endsWith(QStringLiteral(" b"));
+        const QByteArray rawLine = file.readLine(64 * 1024);
+        headerBytes += rawLine.size();
+        if (headerBytes > MaxHeaderBytes
+            || (!rawLine.endsWith('\n') && !file.atEnd()))
+        {
+            return false;
+        }
+        const QString line = QString::fromLatin1(rawLine).trimmed().toLower();
+        const QStringList fields = line.split(
+            QRegularExpression(QStringLiteral("\\s+")), Qt::SkipEmptyParts);
+        if (fields.size() >= 2 && fields.at(0) == QStringLiteral("element"))
+            vertexProperties = fields.at(1) == QStringLiteral("vertex");
+        if (vertexProperties && fields.size() >= 3
+            && fields.at(0) == QStringLiteral("property"))
+        {
+            const QString name = fields.back();
+            red = red || name == QStringLiteral("red") || name == QStringLiteral("r");
+            green = green || name == QStringLiteral("green") || name == QStringLiteral("g");
+            blue = blue || name == QStringLiteral("blue") || name == QStringLiteral("b");
+        }
         if (line == QStringLiteral("end_header"))
             break;
     }
     return red && green && blue;
+}
+
+bool copyIntoTemporaryFile(const QString& sourcePath,
+                           QTemporaryFile& target,
+                           const famp::tasks::CancellationCheck& shouldCancel)
+{
+    QFile source(sourcePath);
+    if (!source.open(QIODevice::ReadOnly))
+        return false;
+    while (!source.atEnd())
+    {
+        if (famp::tasks::isCancellationRequested(shouldCancel))
+            return false;
+        const QByteArray chunk = source.read(CopyBufferSize);
+        if ((chunk.isEmpty() && source.error() != QFile::NoError)
+            || target.write(chunk) != chunk.size())
+        {
+            return false;
+        }
+    }
+    if (!target.flush() || target.error() != QFile::NoError)
+        return false;
+    target.close();
+    return true;
 }
 
 bool loadPlyFromStdPath(
@@ -127,16 +168,16 @@ bool loadPlyAsRgb(
             return false;
         }
         const QString temporaryPath = temporary.fileName();
-        temporary.close();
-        QFile::remove(temporaryPath);
-        if (!QFile::copy(info.absoluteFilePath(), temporaryPath)
+        if (!copyIntoTemporaryFile(
+                info.absoluteFilePath(), temporary, shouldCancel)
             || !loadPlyFromStdPath(qstr2str(temporaryPath), hasColors, loaded))
         {
-            QFile::remove(temporaryPath);
-            setError(errorMessage, QStringLiteral("PLY 文件无效或不受支持：%1").arg(path));
+            setError(errorMessage,
+                     famp::tasks::isCancellationRequested(shouldCancel)
+                         ? QStringLiteral("PLY 点云加载已取消。")
+                         : QStringLiteral("PLY 文件无效或不受支持：%1").arg(path));
             return false;
         }
-        QFile::remove(temporaryPath);
     }
     if (famp::tasks::isCancellationRequested(shouldCancel))
     {

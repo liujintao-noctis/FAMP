@@ -4,6 +4,7 @@
 
 #include <pcl/common/point_tests.h>
 #include <pcl/common/transforms.h>
+#include <pcl/filters/voxel_grid.h>
 #include <pcl/registration/icp.h>
 
 #include <cmath>
@@ -69,6 +70,14 @@ bool validateOptions(const Options& options, QString* errorMessage)
         setError(errorMessage, QStringLiteral("最大对应距离必须大于 0 且不超过 100000 米。"));
         return false;
     }
+    if (!std::isfinite(options.samplingVoxelSizeMeters)
+        || options.samplingVoxelSizeMeters < 0.0
+        || options.samplingVoxelSizeMeters > 1000.0)
+    {
+        setError(errorMessage,
+                 QStringLiteral("配准体素边长必须为 0（不降采样）或不超过 1000 米。"));
+        return false;
+    }
     if (!std::isfinite(options.transformationEpsilon)
         || options.transformationEpsilon <= 0.0
         || options.transformationEpsilon > 1.0)
@@ -123,9 +132,42 @@ Result align(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& source,
 
     try
     {
+        auto registrationSource = finiteSource;
+        auto registrationTarget = finiteTarget;
+        if (options.samplingVoxelSizeMeters > 0.0)
+        {
+            const float leaf = static_cast<float>(options.samplingVoxelSizeMeters);
+            auto sampledSource = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+                new pcl::PointCloud<pcl::PointXYZRGB>);
+            auto sampledTarget = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+                new pcl::PointCloud<pcl::PointXYZRGB>);
+            pcl::VoxelGrid<pcl::PointXYZRGB> sourceFilter;
+            sourceFilter.setInputCloud(finiteSource);
+            sourceFilter.setLeafSize(leaf, leaf, leaf);
+            sourceFilter.filter(*sampledSource);
+            if (cancel(result, shouldCancel))
+                return result;
+            pcl::VoxelGrid<pcl::PointXYZRGB> targetFilter;
+            targetFilter.setInputCloud(finiteTarget);
+            targetFilter.setLeafSize(leaf, leaf, leaf);
+            targetFilter.filter(*sampledTarget);
+            if (cancel(result, shouldCancel))
+                return result;
+            registrationSource = sampledSource;
+            registrationTarget = sampledTarget;
+        }
+        result.registrationSourcePointCount = registrationSource->size();
+        result.registrationTargetPointCount = registrationTarget->size();
+        if (registrationSource->size() < 3 || registrationTarget->size() < 3)
+        {
+            result.error = QStringLiteral(
+                "配准降采样后有效点少于 3 个，请减小体素边长或关闭降采样。");
+            return result;
+        }
+
         pcl::IterativeClosestPoint<pcl::PointXYZRGB, pcl::PointXYZRGB> icp;
-        icp.setInputSource(finiteSource);
-        icp.setInputTarget(finiteTarget);
+        icp.setInputSource(registrationSource);
+        icp.setInputTarget(registrationTarget);
         icp.setMaximumIterations(options.maximumIterations);
         icp.setMaxCorrespondenceDistance(options.maximumCorrespondenceDistance);
         icp.setTransformationEpsilon(options.transformationEpsilon);
@@ -137,13 +179,19 @@ Result align(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& source,
         result.converged = icp.hasConverged();
         result.fitnessScore = icp.getFitnessScore(
             options.maximumCorrespondenceDistance);
-        if (!result.converged || !std::isfinite(result.fitnessScore))
+        result.transform = icp.getFinalTransformation();
+        const double maximumAcceptedFitness =
+            options.maximumCorrespondenceDistance
+            * options.maximumCorrespondenceDistance;
+        if (!result.converged || !std::isfinite(result.fitnessScore)
+            || result.fitnessScore > maximumAcceptedFitness
+            || !result.transform.allFinite())
         {
             result.converged = false;
-            result.error = QStringLiteral("ICP 未收敛，请检查初始位置或增大最大对应距离。");
+            result.error = QStringLiteral(
+                "ICP 未获得有效重叠结果，请检查初始位置、最大对应距离或降采样参数。");
             return result;
         }
-        result.transform = icp.getFinalTransformation();
         result.cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud(*finiteSource, *result.cloud, result.transform);
         result.cloud->width = static_cast<std::uint32_t>(result.cloud->size());
@@ -172,7 +220,8 @@ Result alignAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& target,
     const Options& options,
     const QString& requestedOutputPath,
-    const famp::tasks::CancellationCheck& shouldCancel)
+    const famp::tasks::CancellationCheck& shouldCancel,
+    const famp::cloud::SpatialReference* spatial)
 {
     Result result = align(source, target, options, shouldCancel);
     if (!result.succeeded() || cancel(result, shouldCancel))
@@ -180,7 +229,7 @@ Result alignAndSave(
     result.outputPath = famp::io::pathWithRequiredSuffix(
         requestedOutputPath, QStringLiteral("pcd"));
     if (!famp::io::savePcdAsciiAtomically(
-            result.outputPath, *result.cloud, &result.error))
+            result.outputPath, *result.cloud, &result.error, spatial))
     {
         result.cloud.reset();
         result.outputPointCount = 0;

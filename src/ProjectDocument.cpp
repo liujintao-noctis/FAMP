@@ -13,12 +13,14 @@
 #include <QSaveFile>
 
 #include <cmath>
+#include <limits>
 
 namespace
 {
 constexpr int MaxCloudFiles = 1'000;
 constexpr qint64 MaxProjectBytes = 64 * 1024 * 1024;
 constexpr int MaxWindowStateBytes = 4 * 1024 * 1024;
+constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
 
 void setError(QString* errorMessage, const QString& message)
 {
@@ -74,6 +76,44 @@ bool validSpatialReference(const famp::cloud::SpatialReference& spatial)
     for (double component : spatial.transform)
     {
         if (!std::isfinite(component))
+            return false;
+    }
+    return true;
+}
+
+bool validMetadataInteger(qint64 value)
+{
+    return value >= -1
+        && static_cast<double>(value) <= MaxExactJsonInteger;
+}
+
+bool readMetadataInteger(const QJsonValue& value, qint64& output)
+{
+    if (!value.isDouble())
+        return false;
+    const double number = value.toDouble();
+    if (!std::isfinite(number) || number < -1.0
+        || number > MaxExactJsonInteger || std::floor(number) != number)
+    {
+        return false;
+    }
+    output = static_cast<qint64>(number);
+    return true;
+}
+
+bool validSha256Hex(const QString& value)
+{
+    if (value.isEmpty())
+        return true;
+    if (value.size() != 64)
+        return false;
+    for (const QChar character : value)
+    {
+        const ushort code = character.unicode();
+        const bool digit = code >= '0' && code <= '9';
+        const bool lower = code >= 'a' && code <= 'f';
+        const bool upper = code >= 'A' && code <= 'F';
+        if (!digit && !lower && !upper)
             return false;
     }
     return true;
@@ -200,8 +240,8 @@ bool save(const QString& projectPath,
             return false;
         }
         if (!validSpatialReference(reference.spatial)
-            || (reference.size < -1)
-            || (reference.modifiedUtcMilliseconds < -1)
+            || !validMetadataInteger(reference.size)
+            || !validMetadataInteger(reference.modifiedUtcMilliseconds)
             || (!reference.sha256.isEmpty()
                 && reference.sha256.size() != 32))
         {
@@ -224,6 +264,13 @@ bool save(const QString& projectPath,
         const qint64 modified = reference.modifiedUtcMilliseconds >= 0
             ? reference.modifiedUtcMilliseconds
             : (info.exists() ? info.lastModified().toUTC().toMSecsSinceEpoch() : -1);
+        if (!validMetadataInteger(size) || !validMetadataInteger(modified))
+        {
+            setError(errorMessage,
+                     QStringLiteral("点云文件元数据超出可安全保存的范围：%1")
+                         .arg(reference.path));
+            return false;
+        }
         QJsonObject serializedReference;
         serializedReference.insert(QStringLiteral("relativePath"), relativePath);
         serializedReference.insert(QStringLiteral("absolutePath"),
@@ -470,16 +517,12 @@ bool load(const QString& projectPath,
 
             CloudReference reference;
             reference.path = resolvedPath;
-            reference.size = static_cast<qint64>(sizeValue.toDouble(-1.0));
-            reference.modifiedUtcMilliseconds = static_cast<qint64>(
-                modifiedValue.toDouble(-1.0));
-            reference.sha256 = QByteArray::fromHex(
-                hashValue.toString().toLatin1());
+            const QString hash = hashValue.toString();
             reference.visible = visibleValue.toBool();
-            if (reference.size < -1 || reference.modifiedUtcMilliseconds < -1
-                || (!hashValue.toString().isEmpty()
-                    && (hashValue.toString().size() != 64
-                        || reference.sha256.size() != 32))
+            if (!readMetadataInteger(sizeValue, reference.size)
+                || !readMetadataInteger(
+                    modifiedValue, reference.modifiedUtcMilliseconds)
+                || !validSha256Hex(hash)
                 || !readNumberArray(
                     object.value(QStringLiteral("origin")),
                     reference.spatial.origin)
@@ -491,6 +534,7 @@ bool load(const QString& projectPath,
                          QStringLiteral("项目包含无效的点云空间或文件元数据。"));
                 return false;
             }
+            reference.sha256 = QByteArray::fromHex(hash.toLatin1());
             if (!containsPath(referencedPaths, reference.path))
             {
                 referencedPaths.append(reference.path);

@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 
 #include "CloudLoader.h"
+#include "FileIO.h"
 
 #include <cmath>
 
@@ -129,4 +130,37 @@ TEST(CloudLoaderTest, LoadsAndRecentersUnicodeXyz)
     EXPECT_FLOAT_EQ(result.displayCloud->front().x, -2.0f);
     EXPECT_FLOAT_EQ(result.displayCloud->back().z, 2.0f);
     EXPECT_EQ(result.displayCloud->front().r, 1);
+}
+
+TEST(CloudLoaderTest, PreservesEmbeddedSpatialAndLocalPcdCoordinates)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("局部成果.pcd"));
+    pcl::PointCloud<pcl::PointXYZRGB> cloud;
+    pcl::PointXYZRGB first;
+    first.x = 5.0F;
+    first.y = 7.0F;
+    first.z = 9.0F;
+    first.r = 10;
+    first.g = 20;
+    first.b = 30;
+    cloud.push_back(first);
+    pcl::PointXYZRGB second = first;
+    second.x = 8.0F;
+    cloud.push_back(second);
+    famp::cloud::SpatialReference spatial;
+    spatial.origin = {123456.25, 3456789.5, 88.75};
+    spatial.transform[3] = 12.5;
+    QString error;
+    ASSERT_TRUE(famp::io::savePcdAsciiAtomically(
+        path, cloud, &error, &spatial)) << error.toStdString();
+
+    const auto result = famp::cloud::load(path);
+    ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
+    ASSERT_EQ(result.displayCloud->size(), 2U);
+    EXPECT_FLOAT_EQ((*result.displayCloud)[0].x, 5.0F);
+    EXPECT_FLOAT_EQ((*result.displayCloud)[1].x, 8.0F);
+    EXPECT_EQ(result.spatial.origin, spatial.origin);
+    EXPECT_EQ(result.spatial.transform, spatial.transform);
 }

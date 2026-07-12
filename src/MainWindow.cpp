@@ -1528,13 +1528,14 @@ void MainWindow::slotPreprocessCloud()
     connect(&watcher, &QFutureWatcher<famp::processing::Result>::finished,
             &progress, &QProgressDialog::accept);
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
+    const famp::cloud::SpatialReference spatial = cloud.spatial;
     watcher.setFuture(QtConcurrent::run(
-        [input, options, outputPath, cancellation]() {
-        return famp::processing::processAndSave(
-            input, options, outputPath, [cancellation]() {
-                return cancellation->load(std::memory_order_relaxed);
-            });
-    }));
+        [input, options, outputPath, cancellation, spatial]() {
+            return famp::processing::processAndSave(
+                input, options, outputPath, [cancellation]() {
+                    return cancellation->load(std::memory_order_relaxed);
+                }, &spatial);
+        }));
     if (!watcher.isFinished())
         progress.exec();
 
@@ -1759,12 +1760,13 @@ void MainWindow::slotCropCloud()
     connect(&watcher, &QFutureWatcher<famp::crop::Result>::finished,
             &progress, &QProgressDialog::accept);
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
+    const famp::cloud::SpatialReference spatial = cloud.spatial;
     watcher.setFuture(QtConcurrent::run(
-        [input, options, outputPath, cancellation]() {
+        [input, options, outputPath, cancellation, spatial]() {
             return famp::crop::processAndSave(
                 input, options, outputPath, [cancellation]() {
                     return cancellation->load(std::memory_order_relaxed);
-                });
+                }, &spatial);
         }));
     if (!watcher.isFinished())
         progress.exec();
@@ -1884,6 +1886,13 @@ void MainWindow::slotRegisterCloud()
     correspondenceDistance.setRange(0.000001, 100000.0);
     correspondenceDistance.setValue(1.0);
     correspondenceDistance.setSuffix(tr(" m"));
+    QDoubleSpinBox samplingVoxelSize(&dialog);
+    samplingVoxelSize.setDecimals(4);
+    samplingVoxelSize.setRange(0.0, 1000.0);
+    samplingVoxelSize.setSingleStep(0.01);
+    samplingVoxelSize.setValue(0.05);
+    samplingVoxelSize.setSpecialValueText(tr("不降采样"));
+    samplingVoxelSize.setSuffix(tr(" m"));
     QDoubleSpinBox transformationEpsilon(&dialog);
     transformationEpsilon.setDecimals(12);
     transformationEpsilon.setRange(1.0e-12, 1.0);
@@ -1898,6 +1907,7 @@ void MainWindow::slotRegisterCloud()
     layout.addRow(tr("目标点云（固定）"), &targetCombo);
     layout.addRow(tr("最大迭代次数"), &iterations);
     layout.addRow(tr("最大对应距离"), &correspondenceDistance);
+    layout.addRow(tr("配准体素边长"), &samplingVoxelSize);
     layout.addRow(tr("变换收敛阈值"), &transformationEpsilon);
     layout.addRow(tr("适应度收敛阈值"), &fitnessEpsilon);
     layout.addRow(&note);
@@ -1921,6 +1931,7 @@ void MainWindow::slotRegisterCloud()
     famp::registration::Options options;
     options.maximumIterations = iterations.value();
     options.maximumCorrespondenceDistance = correspondenceDistance.value();
+    options.samplingVoxelSizeMeters = samplingVoxelSize.value();
     options.transformationEpsilon = transformationEpsilon.value();
     options.fitnessEpsilon = fitnessEpsilon.value();
     QString validationError;
@@ -1967,12 +1978,13 @@ void MainWindow::slotRegisterCloud()
             &progress, &QProgressDialog::accept);
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr sourceCloud = source.cloud.input_cloud;
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr targetCloud = target.cloud.input_cloud;
+    const famp::cloud::SpatialReference targetSpatial = target.cloud.spatial;
     watcher.setFuture(QtConcurrent::run(
-        [sourceCloud, targetCloud, options, outputPath, cancellation]() {
+        [sourceCloud, targetCloud, options, outputPath, cancellation, targetSpatial]() {
             return famp::registration::alignAndSave(
                 sourceCloud, targetCloud, options, outputPath, [cancellation]() {
                     return cancellation->load(std::memory_order_relaxed);
-                });
+                }, &targetSpatial);
         }));
     if (!watcher.isFinished())
         progress.exec();
@@ -2003,8 +2015,10 @@ void MainWindow::slotRegisterCloud()
             .arg(result.transform(row, 3), 0, 'g', 9);
     }
     emit sendStr2Console(
-        tr("ICP 配准完成：适应度 %1，输出 %2\n变换矩阵：\n%3")
+        tr("ICP 配准完成：适应度 %1，配准采样 %2/%3 点，输出 %4\n变换矩阵：\n%5")
             .arg(result.fitnessScore, 0, 'g', 10)
+            .arg(result.registrationSourcePointCount)
+            .arg(result.registrationTargetPointCount)
             .arg(result.outputPath, matrixRows.join(QLatin1Char('\n'))));
     updateCloudToolActions();
 }

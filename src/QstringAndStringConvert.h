@@ -9,13 +9,14 @@
 #pragma once
 
 #include <QString>
+#include <string>
 
-static QString str2qstr(const std::string str)      // string转QString 乱码问题
+inline QString str2qstr(const std::string& str)      // string转QString 乱码问题
 {
-    return QString::fromUtf8(str.data());
+    return QString::fromUtf8(str.c_str());
 }
 
-static std::string qstr2str(const QString qstr) //QString转string 乱码问题
+inline std::string qstr2str(const QString& qstr) //QString转string 乱码问题
 {
     return qstr.toUtf8().toStdString();
 }

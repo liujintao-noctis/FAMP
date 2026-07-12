@@ -86,7 +86,10 @@ LoadResult load(const QString& requestedPath,
 
         if (suffix == QStringLiteral("pcd"))
         {
-            if (!loadPcdAsRgb(result.path, loadedPoints, &loadError))
+            bool hasEmbeddedSpatial = false;
+            famp::cloud::SpatialReference embeddedSpatial;
+            if (!loadPcdAsRgb(result.path, loadedPoints, &loadError,
+                              &embeddedSpatial, &hasEmbeddedSpatial))
             {
                 result.error = loadError;
                 return result;
@@ -101,45 +104,54 @@ LoadResult load(const QString& requestedPath,
             }
 
             result.sourceCloud = loadedPoints;
-            long double sumX = 0.0;
-            long double sumY = 0.0;
-            long double sumZ = 0.0;
-            std::size_t pointIndex = 0;
-            for (const pcl::PointXYZRGB& point : loadedPoints->points)
+            if (hasEmbeddedSpatial)
             {
-                if ((pointIndex++ & 0x0fffU) == 0U
-                    && cancel(result, shouldCancel))
-                {
-                    return result;
-                }
-                sumX += point.x;
-                sumY += point.y;
-                sumZ += point.z;
+                result.displayCloud = loadedPoints;
+                result.spatial = embeddedSpatial;
+                result.sourceWasPcd = true;
             }
-            const long double count = static_cast<long double>(
-                loadedPoints->size());
-            result.spatial.origin = {
-                static_cast<double>(sumX / count),
-                static_cast<double>(sumY / count),
-                static_cast<double>(sumZ / count)};
-            result.displayCloud.reset(
-                new pcl::PointCloud<pcl::PointXYZRGB>(*loadedPoints));
-            pointIndex = 0;
-            for (pcl::PointXYZRGB& point : result.displayCloud->points)
+            else
             {
-                if ((pointIndex++ & 0x0fffU) == 0U
-                    && cancel(result, shouldCancel))
+                long double sumX = 0.0;
+                long double sumY = 0.0;
+                long double sumZ = 0.0;
+                std::size_t pointIndex = 0;
+                for (const pcl::PointXYZRGB& point : loadedPoints->points)
                 {
-                    return result;
+                    if ((pointIndex++ & 0x0fffU) == 0U
+                        && cancel(result, shouldCancel))
+                    {
+                        return result;
+                    }
+                    sumX += point.x;
+                    sumY += point.y;
+                    sumZ += point.z;
                 }
-                point.x = static_cast<float>(
-                    static_cast<double>(point.x) - result.spatial.origin[0]);
-                point.y = static_cast<float>(
-                    static_cast<double>(point.y) - result.spatial.origin[1]);
-                point.z = static_cast<float>(
-                    static_cast<double>(point.z) - result.spatial.origin[2]);
+                const long double count = static_cast<long double>(
+                    loadedPoints->size());
+                result.spatial.origin = {
+                    static_cast<double>(sumX / count),
+                    static_cast<double>(sumY / count),
+                    static_cast<double>(sumZ / count)};
+                result.displayCloud.reset(
+                    new pcl::PointCloud<pcl::PointXYZRGB>(*loadedPoints));
+                pointIndex = 0;
+                for (pcl::PointXYZRGB& point : result.displayCloud->points)
+                {
+                    if ((pointIndex++ & 0x0fffU) == 0U
+                        && cancel(result, shouldCancel))
+                    {
+                        return result;
+                    }
+                    point.x = static_cast<float>(
+                        static_cast<double>(point.x) - result.spatial.origin[0]);
+                    point.y = static_cast<float>(
+                        static_cast<double>(point.y) - result.spatial.origin[1]);
+                    point.z = static_cast<float>(
+                        static_cast<double>(point.z) - result.spatial.origin[2]);
+                }
+                result.sourceWasPcd = true;
             }
-            result.sourceWasPcd = true;
         }
         else if (suffix == QStringLiteral("las"))
         {

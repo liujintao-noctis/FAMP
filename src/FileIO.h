@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CloudCoordinates.h"
+
 #include <QImage>
 #include <QString>
 
@@ -19,5 +21,6 @@ bool saveImageAtomically(const QString& path,
 bool savePcdAsciiAtomically(
     const QString& path,
     const pcl::PointCloud<pcl::PointXYZRGB>& cloud,
-    QString* errorMessage = nullptr);
+    QString* errorMessage = nullptr,
+    const famp::cloud::SpatialReference* spatial = nullptr);
 }
