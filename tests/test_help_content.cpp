@@ -25,6 +25,8 @@ TEST(HelpContentTest, ShortcutsListCoreActions)
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+O")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+S")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+S")));
+    EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Z")));
+    EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+Z")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+Left/Right")));
     EXPECT_TRUE(content.contains(QStringLiteral("F1")));
 }

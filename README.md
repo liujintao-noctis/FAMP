@@ -15,6 +15,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 - 为项目记录经 PROJ 验证的 EPSG 坐标系，并使用单点坐标转换器核对坐标。
 - 将 PCD/LAS 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
 - 使用 `Ctrl+Shift+Left/Right` 将选中的二维图元绕中心每次旋转 5°。
+- 使用 `Ctrl+Z` 和 `Ctrl+Shift+Z`/`Ctrl+Y` 撤销或重做最近 100 步二维图元编辑。
 - 通过“帮助”菜单查看离线快速入门、快捷键和 Qt/VTK/PCL 版本。
 - 以原子写入方式保存 BMP 平面图和 PCD 切割点云，并明确报告无效输入或写入失败。
 

@@ -54,6 +54,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/CrsService.cpp"
     "${FAMP_SRC_DIR}/FileIO.cpp"
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
+    "${FAMP_SRC_DIR}/GraphicsUndoCommands.cpp"
     "${FAMP_SRC_DIR}/LasLoader.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     "${FAMP_SRC_DIR}/RecentFiles.cpp"
@@ -62,6 +63,7 @@ add_executable(famp_tests
     test_crs_service.cpp
     test_file_io.cpp
     test_graphics_item_transform.cpp
+    test_graphics_undo_commands.cpp
     test_help_content.cpp
     test_las_loader.cpp
     test_metric_scale.cpp

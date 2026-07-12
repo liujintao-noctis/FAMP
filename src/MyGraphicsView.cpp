@@ -18,9 +18,11 @@
 #include <QPainterPath>
 #include <QScreen>
 #include <QShowEvent>
+#include <QUndoStack>
 #include <QWindow>
 
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <stack>
 Q_DECLARE_METATYPE(MyOrderCloudType)
@@ -66,7 +68,9 @@ MyGraphicsView::MyGraphicsView(QWidget *parent)
             famp::metric::DefaultDotsPerInch));
     deltaOffset = scaleOffsetFor(scaleType);
 
-    scene = new QGraphicsScene(-1500, -1500, 3000, 3000);
+    scene = new QGraphicsScene(-1500, -1500, 3000, 3000, this);
+    history = new QUndoStack(this);
+    history->setUndoLimit(100);
     this->setScene(scene);
     connect(scene, &QGraphicsScene::selectionChanged, this, [this]() {
         emit selectionAvailabilityChanged(!scene->selectedItems().isEmpty());
@@ -78,6 +82,109 @@ MyGraphicsView::MyGraphicsView(QWidget *parent)
 
 MyGraphicsView::~MyGraphicsView()
 {
+    mousePressItemStates.clear();
+    history->clear();
+    itemHandles.clear();
+    scene->clear();
+}
+
+QUndoStack* MyGraphicsView::commandStack() const
+{
+    return history;
+}
+
+famp::graphics::ItemHandle MyGraphicsView::handleForItem(QGraphicsItem* item)
+{
+    if (!item)
+        return {};
+
+    auto existing = itemHandles.value(item).lock();
+    if (existing)
+        return existing;
+
+    auto handle = std::make_shared<famp::graphics::ItemLifetime>(item);
+    itemHandles.insert(item, handle);
+    return handle;
+}
+
+QVector<famp::graphics::ItemHandle> MyGraphicsView::handlesForItems(
+    const QList<QGraphicsItem*>& items)
+{
+    QVector<famp::graphics::ItemHandle> handles;
+    handles.reserve(items.size());
+    for (QGraphicsItem* item : items)
+    {
+        if (item && std::none_of(handles.cbegin(), handles.cend(),
+                                [item](const auto& handle) {
+                                    return handle && handle->item == item;
+                                }))
+        {
+            handles.push_back(handleForItem(item));
+        }
+    }
+    return handles;
+}
+
+QVector<famp::graphics::ItemState> MyGraphicsView::selectedItemStates()
+{
+    return famp::graphics::captureItemStates(
+        handlesForItems(scene->selectedItems()));
+}
+
+void MyGraphicsView::pushTransformChange(
+    const QVector<famp::graphics::ItemState>& before,
+    const QString& text)
+{
+    QVector<famp::graphics::ItemHandle> handles;
+    handles.reserve(before.size());
+    for (const auto& state : before)
+        handles.push_back(state.handle);
+
+    const auto after = famp::graphics::captureItemStates(handles);
+    if (!famp::graphics::itemStatesEqual(before, after))
+    {
+        history->push(famp::graphics::makeTransformCommand(
+            before, after, text));
+    }
+}
+
+void MyGraphicsView::addItemWithHistory(QGraphicsItem* item,
+                                        const QString& text)
+{
+    if (!item)
+        return;
+    history->push(famp::graphics::makeAddItemCommand(
+        scene, handleForItem(item), text));
+}
+
+void MyGraphicsView::invalidateHistory(const QString& reason)
+{
+    mousePressItemStates.clear();
+    if (history->count() == 0)
+        return;
+    history->clear();
+    emit sendStrFromGraphicView2Console(
+        QStringLiteral("因%1已重置撤销历史。").arg(reason));
+}
+
+void MyGraphicsView::clearSceneAndHistory()
+{
+    mousePressItemStates.clear();
+    history->clear();
+    itemHandles.clear();
+    scene->clear();
+}
+
+void MyGraphicsView::moveSelectedItemsBy(const QPointF& delta,
+                                         const QString& text)
+{
+    const auto before = selectedItemStates();
+    for (const auto& state : before)
+    {
+        if (state.handle && state.handle->item)
+            state.handle->item->moveBy(delta.x(), delta.y());
+    }
+    pushTransformChange(before, text);
 }
 
 void MyGraphicsView::getDBItemCloud(pcl::PointCloud<pcl::PointXYZRGB>::Ptr Cloud)
@@ -296,15 +403,14 @@ void MyGraphicsView::drawProjection(const DrawConfig& config, QPointF offset)
 
     //将点云传入到重写的QGraphicsItem中绘制
     MyItem *item = new MyItem(qtPoints, config.projType);
-    scene->addItem(item);
-    scene->clearSelection();
-    scene->selectedItems().clear();
-    item->setSelected(true);
     MyOrderCloudType myordercloud;
     myordercloud.orderCloud = cloud_DP;
     myordercloud.project_type = config.projType;
     item->setData(ItemName, config.labelText);
     item->setData(ItemCloud, QVariant::fromValue(myordercloud));
+    addItemWithHistory(item, tr("添加投影轮廓"));
+    scene->clearSelection();
+    item->setSelected(true);
     emit sendStrFromGraphicView2Console(QString(config.consoleMsg));
 }
 
@@ -375,16 +481,14 @@ void MyGraphicsView::drawXOYLine(QPointF offset)
 
     //将点云传入到重写的QGraphicsItem中绘制
     MyItem *itemXOYLine = new MyItem(points_xoy, XOY);
-    itemXOYLine->setSelected(true);
-    scene->addItem(itemXOYLine);
-    scene->clearSelection();
-    scene->selectedItems().clear();
-    itemXOYLine->setSelected(true);
     MyOrderCloudType xoyline_myordercloud;
     xoyline_myordercloud.orderCloud = XOYLineCloud;
     xoyline_myordercloud.project_type = XOY;
     itemXOYLine->setData(ItemName, "剖面线");
     itemXOYLine->setData(ItemCloud, QVariant::fromValue(xoyline_myordercloud));
+    addItemWithHistory(itemXOYLine, tr("添加剖面线"));
+    scene->clearSelection();
+    itemXOYLine->setSelected(true);
     emit sendStrFromGraphicView2Console(QString::asprintf("已生成剖面连线！"));
 
 }
@@ -809,6 +913,7 @@ void MyGraphicsView::PCLCloud2QTPoints(const pcl::PointCloud<pcl::PointXYZRGB>::
 //比例尺改变后重新绘制
 void MyGraphicsView::ReDraw(QPointF offset)
 {
+    invalidateHistory(tr("比例尺重绘"));
     QList<QGraphicsItem*> all_items = scene->items();
 
     qDebug()<< "items" << all_items.size();
@@ -881,9 +986,8 @@ void MyGraphicsView::setDlgPlotTab()
 void MyGraphicsView::drawFormTable()
 {
     FormTabulationItem * item = new FormTabulationItem(designerText, dataText, scaleText, this);
-    scene->addItem(item);
+    addItemWithHistory(item, tr("添加制图信息"));
     scene->clearSelection();
-    scene->selectedItems().clear();
 
     item->setSelected(true);
     emit sendStrFromGraphicView2Console("已添加制图信息！");
@@ -968,9 +1072,8 @@ void MyGraphicsView::slotOn_actPoints_triggered()
     item->setFlags(QGraphicsItem::ItemIsFocusable | QGraphicsItem::ItemIsMovable |
         QGraphicsItem::ItemIsSelectable | QGraphicsItem::ItemIsFocusScope);
     item->setBrush(QBrush(Qt::blue)); //填充颜色
-    scene->addItem(item);
+    addItemWithHistory(item, tr("添加图元"));
     scene->clearSelection();
-    scene->selectedItems().clear();
     item->setSelected(true);
 }
 
@@ -1088,22 +1191,19 @@ void MyGraphicsView::getProjCloudFromVTK(pcl::PointCloud<pcl::PointXYZRGB>::Ptr 
 //删除Item
 void MyGraphicsView::slotOn_actDeleteItem_triggered()
 {
-    int selectItemCounts = scene->selectedItems().count();
-
-    if (selectItemCounts == 0)      return;
-
-    for (size_t i = 0; i < selectItemCounts; i++)
-    {
-        QGraphicsItem * item = scene->selectedItems().at(0);
-        scene->removeItem(item);
-        delete item;
-    }
+    const auto handles = handlesForItems(scene->selectedItems());
+    if (!handles.isEmpty())
+        history->push(famp::graphics::makeRemoveItemsCommand(
+            scene, handles, tr("删除图元")));
 }
 
 //清空
 void MyGraphicsView::slotOn_actClearScene_triggered()
 {
-    scene->clear();
+    const auto handles = handlesForItems(scene->items());
+    if (!handles.isEmpty())
+        history->push(famp::graphics::makeRemoveItemsCommand(
+            scene, handles, tr("清空画布")));
 }
 
 void MyGraphicsView::getAABBMaxFromVTK(float x, float y, float z)
@@ -1127,13 +1227,14 @@ void MyGraphicsView::slotOn_actGroup_triggered()
 
     if (selectedCounts>1)
     {
+        invalidateHistory(tr("图元组合"));
         QGraphicsItemGroup *group = new QGraphicsItemGroup;         //创建组合
         scene->addItem(group);   //组合添加到场景中
 
         for (size_t i = 0; i < selectedCounts; i++)
         {
 
-            MyItem* item = static_cast<MyItem*> (scene->selectedItems().at(0));
+            QGraphicsItem* item = scene->selectedItems().at(0);
             item->setSelected(false); //清除选择虚线框
             item->clearFocus();
             group->addToGroup(item); //添加到组合
@@ -1155,8 +1256,14 @@ void MyGraphicsView::slotOn_actBreak_triggered()
     int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
     if (selectedCounts ==1)
     {
-        QGraphicsItemGroup  *group;
-        group = (QGraphicsItemGroup*)scene->selectedItems().at(0);
+        auto* group = qgraphicsitem_cast<QGraphicsItemGroup*>(
+            scene->selectedItems().at(0));
+        if (!group)
+        {
+            emit sendStrFromGraphicView2Console(tr("当前选中图元不是组合。"));
+            return;
+        }
+        invalidateHistory(tr("图元打散"));
         scene->destroyItemGroup(group);
     }
 }
@@ -1164,69 +1271,30 @@ void MyGraphicsView::slotOn_actBreak_triggered()
 //向上移动
 void MyGraphicsView::slotOn_actMoveUp_triggered()
 {
-    int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
-    if (selectedCounts >= 1)
-    {
-        for (size_t i = 0; i < selectedCounts; i++)
-        {
-            MyItem * item = static_cast<MyItem *>(scene->selectedItems().at(i));
-            QPointF itemPos = item->pos();
-            qDebug() << "itemPos" << itemPos;
-            item->setPos(itemPos.x(), itemPos.y() - 10);
-        }
-    }
+    moveSelectedItemsBy(QPointF(0.0, -10.0), tr("上移图元"));
 }
 
 //向下移动
 void MyGraphicsView::slotOn_actMoveDown_triggered()
 {
-    int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
-    if (selectedCounts >= 1)
-    {
-        for (size_t i = 0; i < selectedCounts; i++)
-        {
-            MyItem * item = static_cast<MyItem *>(scene->selectedItems().at(i));
-            QPointF itemPos = item->pos();
-            qDebug() << "itemPos" << itemPos;
-            item->setPos(itemPos.x(), itemPos.y() + 10);
-        }
-    }
+    moveSelectedItemsBy(QPointF(0.0, 10.0), tr("下移图元"));
 }
 
 //向左移动
 void MyGraphicsView::slotOn_actMoveLeft_triggered()
 {
-    int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
-    if (selectedCounts >= 1)
-    {
-        for (size_t i = 0; i < selectedCounts; i++)
-        {
-            MyItem * item = static_cast<MyItem *>(scene->selectedItems().at(i));
-            QPointF itemPos = item->pos();
-            qDebug() << "itemPos" << itemPos;
-            item->setPos(itemPos.x()-10, itemPos.y());
-        }
-    }
+    moveSelectedItemsBy(QPointF(-10.0, 0.0), tr("左移图元"));
 }
 
 //向右移动
 void MyGraphicsView::slotOn_actMoveRight_triggered()
 {
-    int selectedCounts = this->scene->selectedItems().count();  //Scene中选中的个数
-    if (selectedCounts >= 1)
-    {
-        for (size_t i = 0; i < selectedCounts; i++)
-        {
-            MyItem * item = static_cast<MyItem *>(scene->selectedItems().at(i));
-            QPointF itemPos = item->pos();
-            qDebug() << "itemPos" << itemPos;
-            item->setPos(itemPos.x() + 10, itemPos.y());
-        }
-    }
+    moveSelectedItemsBy(QPointF(10.0, 0.0), tr("右移图元"));
 }
 
 void MyGraphicsView::rotateSelectedItems(qreal deltaDegrees)
 {
+    const auto before = selectedItemStates();
     const int rotatedCount = famp::graphics::rotateItems(
         scene->selectedItems(), deltaDegrees);
     if (rotatedCount > 0)
@@ -1235,6 +1303,7 @@ void MyGraphicsView::rotateSelectedItems(qreal deltaDegrees)
             QStringLiteral("已旋转 %1 个图元 %2°")
                 .arg(rotatedCount)
                 .arg(deltaDegrees));
+        pushTransformChange(before, tr("旋转图元"));
     }
 }
 
@@ -1254,8 +1323,10 @@ void MyGraphicsView::slotOn_actEditFront_triggered()
     int cnt = scene->selectedItems().count();
     if (cnt>0)
     {
+        const auto before = selectedItemStates();
         QGraphicsItem * item = scene->selectedItems().at(0);
         item->setZValue(++frontZ);
+        pushTransformChange(before, tr("前置图层"));
         emit sendStrFromGraphicView2Console("已将当前选中图层前置成功！");
     }
 }
@@ -1266,8 +1337,10 @@ void MyGraphicsView::slotOn_actEditBack_triggered()
     int cnt = scene->selectedItems().count();
     if (cnt > 0)
     {
+        const auto before = selectedItemStates();
         QGraphicsItem * item = scene->selectedItems().at(0);
         item->setZValue(--backZ);
+        pushTransformChange(before, tr("后置图层"));
         emit sendStrFromGraphicView2Console("已将当前选中图层后置成功！");
     }
 }
@@ -1320,9 +1393,8 @@ void MyGraphicsView::slotOn_actCompass_triggered()
     //img_compass->load(":/images/images/compassMap.bmp");
 
     CompassItem * item = new CompassItem();
-    scene->addItem(item);
+    addItemWithHistory(item, tr("添加指北针"));
     scene->clearSelection();
-    scene->selectedItems().clear();
 
     item->setSelected(true);
     emit sendStrFromGraphicView2Console("已添加指北针！");
@@ -1347,9 +1419,8 @@ void MyGraphicsView::slotOn_actText_triggered()
     item->setPos(140, 200);
     item->setData(ItemName, "文字");
     item->setCursor(Qt::SizeAllCursor);
-    scene->addItem(item);
+    addItemWithHistory(item, tr("添加文字"));
     scene->clearSelection();
-    scene->selectedItems().clear();
     item->setSelected(true);
 }
 
@@ -1619,6 +1690,9 @@ void MyGraphicsView::mousePressEvent(QMouseEvent *e)
         emit this->mouseClicked(point);
     }
     QGraphicsView::mousePressEvent(e);
+    mousePressItemStates = e->button() == Qt::LeftButton
+        ? selectedItemStates()
+        : QVector<famp::graphics::ItemState>();
 }
 
 void MyGraphicsView::mouseMoveEvent(QMouseEvent *e)
@@ -1628,6 +1702,14 @@ void MyGraphicsView::mouseMoveEvent(QMouseEvent *e)
     emit this->mouseMovePoint(point);
 
     return QGraphicsView::mouseMoveEvent(e);
+}
+
+void MyGraphicsView::mouseReleaseEvent(QMouseEvent *e)
+{
+    QGraphicsView::mouseReleaseEvent(e);
+    if (e->button() == Qt::LeftButton && !mousePressItemStates.isEmpty())
+        pushTransformChange(mousePressItemStates, tr("拖动图元"));
+    mousePressItemStates.clear();
 }
 
 void MyGraphicsView::mouseDoubleClickEvent(QMouseEvent * e)
@@ -1646,10 +1728,16 @@ void MyGraphicsView::mouseDoubleClickEvent(QMouseEvent * e)
     {
         QGraphicsTextItem * textItem = qgraphicsitem_cast<QGraphicsTextItem*>(item);
 
-        QFont font = textItem->font();
+        const QFont previousFont = textItem->font();
+        QFont font = previousFont;
         bool ok = false;
         font = QFontDialog::getFont(&ok, font, this, "设置字体");
-        if (ok) textItem->setFont(font);
+        if (ok && font != previousFont)
+        {
+            textItem->setFont(font);
+            history->push(famp::graphics::makeTextFontCommand(
+                handleForItem(textItem), previousFont, font, tr("修改文字字体")));
+        }
     }
     break;
 

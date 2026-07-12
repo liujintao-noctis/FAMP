@@ -81,8 +81,11 @@ private:
     QTimer * autosaveTimer;
     QString currentProjectPath;
     QMenu * toolsMenu;
+    QMenu * editMenu;
     QAction * setProjectCrsAction;
     QAction * coordinateConverterAction;
+    QAction * undoGraphicsAction;
+    QAction * redoGraphicsAction;
     QLabel * crsStatusLabel;
     QString projectCrs;
     bool projectDirty;
@@ -105,6 +108,7 @@ private:
     void updateRecentFilesMenu();
     void initializeProjectActions();
     void initializeCrsActions();
+    void initializeUndoActions();
     famp::project::Document currentProjectDocument() const;
     QString recoveryProjectPath() const;
     bool saveProject(bool forceSaveAs);
