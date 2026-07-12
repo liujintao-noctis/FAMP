@@ -23,8 +23,8 @@ FetchContent_MakeAvailable(googletest)
 # ── Cloud library (standalone, no GUI deps) ──────────────────────────────
 # Cloud.h has a residual #include <qdebug.h>; we pull Qt::Core for its
 # headers only, so no Widgets / GUI linkage is needed.
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core PrintSupport Svg Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core PrintSupport Svg Widgets)
 find_package(PCL REQUIRED COMPONENTS common features filters io)
 find_package(PROJ CONFIG REQUIRED)
 
@@ -92,6 +92,8 @@ target_link_libraries(famp_tests
     PRIVATE
         famp_cloud
         GTest::gtest
+        Qt${QT_VERSION_MAJOR}::PrintSupport
+        Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::Widgets
         PROJ::proj
         VTK::RenderingCore

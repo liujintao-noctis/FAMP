@@ -18,11 +18,14 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QDoubleSpinBox>
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGraphicsPathItem>
 #include <QGraphicsSimpleTextItem>
 #include <QPushButton>
+#include <QPrintPreviewDialog>
+#include <QPrinter>
 #include <QGuiApplication>
 #include <QLineF>
 #include <QMessageBox>
@@ -1374,12 +1377,39 @@ void MyGraphicsView::slotOn_actSave_triggered()
                         static_cast<int>(famp::exporting::Format::Png));
     formatCombo.addItem(tr("BMP 无损图像"),
                         static_cast<int>(famp::exporting::Format::Bmp));
+    formatCombo.addItem(tr("SVG 矢量文档"),
+                        static_cast<int>(famp::exporting::Format::Svg));
 
     QComboBox paperCombo(&settingsDialog);
     paperCombo.addItem(QStringLiteral("A4"),
                        static_cast<int>(famp::exporting::PaperSize::A4));
     paperCombo.addItem(QStringLiteral("A3"),
                        static_cast<int>(famp::exporting::PaperSize::A3));
+    paperCombo.addItem(tr("自定义"),
+                       static_cast<int>(famp::exporting::PaperSize::Custom));
+
+    QDoubleSpinBox customWidthSpin(&settingsDialog);
+    customWidthSpin.setRange(50.0, 2000.0);
+    customWidthSpin.setDecimals(1);
+    customWidthSpin.setSuffix(tr(" mm"));
+    customWidthSpin.setValue(210.0);
+    customWidthSpin.setEnabled(false);
+    QDoubleSpinBox customHeightSpin(&settingsDialog);
+    customHeightSpin.setRange(50.0, 2000.0);
+    customHeightSpin.setDecimals(1);
+    customHeightSpin.setSuffix(tr(" mm"));
+    customHeightSpin.setValue(297.0);
+    customHeightSpin.setEnabled(false);
+    connect(&paperCombo,
+            qOverload<int>(&QComboBox::currentIndexChanged),
+            &settingsDialog,
+            [&paperCombo, &customWidthSpin, &customHeightSpin](int) {
+                const bool custom = static_cast<famp::exporting::PaperSize>(
+                    paperCombo.currentData().toInt())
+                    == famp::exporting::PaperSize::Custom;
+                customWidthSpin.setEnabled(custom);
+                customHeightSpin.setEnabled(custom);
+            });
 
     QComboBox orientationCombo(&settingsDialog);
     orientationCombo.addItem(tr("横向"),
@@ -1403,6 +1433,8 @@ void MyGraphicsView::slotOn_actSave_triggered()
 
     layout.addRow(tr("格式"), &formatCombo);
     layout.addRow(tr("纸张"), &paperCombo);
+    layout.addRow(tr("自定义宽度"), &customWidthSpin);
+    layout.addRow(tr("自定义高度"), &customHeightSpin);
     layout.addRow(tr("方向"), &orientationCombo);
     layout.addRow(tr("缩放"), &scaleModeCombo);
     layout.addRow(tr("分辨率"), &dpiCombo);
@@ -1411,28 +1443,56 @@ void MyGraphicsView::slotOn_actSave_triggered()
         QDialogButtonBox::Save | QDialogButtonBox::Cancel,
         &settingsDialog);
     buttons.button(QDialogButtonBox::Save)->setText(tr("选择路径…"));
+    QPushButton* previewButton = buttons.addButton(
+        tr("打印预览"), QDialogButtonBox::ActionRole);
     connect(&buttons, &QDialogButtonBox::accepted,
             &settingsDialog, &QDialog::accept);
     connect(&buttons, &QDialogButtonBox::rejected,
             &settingsDialog, &QDialog::reject);
+
+    const auto selectedOptions = [&]() {
+        famp::exporting::Options options;
+        options.format = static_cast<famp::exporting::Format>(
+            formatCombo.currentData().toInt());
+        options.paperSize = static_cast<famp::exporting::PaperSize>(
+            paperCombo.currentData().toInt());
+        options.customPageWidthMillimeters = customWidthSpin.value();
+        options.customPageHeightMillimeters = customHeightSpin.value();
+        options.orientation = static_cast<famp::exporting::Orientation>(
+            orientationCombo.currentData().toInt());
+        options.scaleMode = static_cast<famp::exporting::ScaleMode>(
+            scaleModeCombo.currentData().toInt());
+        options.dotsPerInch = dpiCombo.currentData().toInt();
+        options.sceneUnitsPerMillimeterX = metricPixelsPerMillimeter.x();
+        options.sceneUnitsPerMillimeterY = metricPixelsPerMillimeter.y();
+        options.creator = QStringLiteral("FAMP %1").arg(
+            QString::fromLatin1(famp::Version));
+        options.title = tr("FAMP 专业成果预览");
+        return options;
+    };
+
+    connect(previewButton, &QPushButton::clicked, &settingsDialog, [&]() {
+        QPrinter printer(QPrinter::HighResolution);
+        QPrintPreviewDialog preview(&printer, &settingsDialog);
+        preview.setWindowTitle(tr("打印预览"));
+        QString previewError;
+        const auto options = selectedOptions();
+        connect(&preview, &QPrintPreviewDialog::paintRequested,
+                &preview, [&](QPrinter* device) {
+                    if (previewError.isEmpty())
+                        famp::exporting::printScene(
+                            scene, device, options, &previewError);
+                });
+        preview.exec();
+        if (!previewError.isEmpty())
+            QMessageBox::warning(
+                &settingsDialog, tr("预览失败"), previewError);
+    });
     layout.addRow(&buttons);
     if (settingsDialog.exec() != QDialog::Accepted)
         return;
 
-    famp::exporting::Options options;
-    options.format = static_cast<famp::exporting::Format>(
-        formatCombo.currentData().toInt());
-    options.paperSize = static_cast<famp::exporting::PaperSize>(
-        paperCombo.currentData().toInt());
-    options.orientation = static_cast<famp::exporting::Orientation>(
-        orientationCombo.currentData().toInt());
-    options.scaleMode = static_cast<famp::exporting::ScaleMode>(
-        scaleModeCombo.currentData().toInt());
-    options.dotsPerInch = dpiCombo.currentData().toInt();
-    options.sceneUnitsPerMillimeterX = metricPixelsPerMillimeter.x();
-    options.sceneUnitsPerMillimeterY = metricPixelsPerMillimeter.y();
-    options.creator = QStringLiteral("FAMP %1").arg(
-        QString::fromLatin1(famp::Version));
+    famp::exporting::Options options = selectedOptions();
 
     QString filter;
     switch (options.format)
@@ -1442,6 +1502,9 @@ void MyGraphicsView::slotOn_actSave_triggered()
         break;
     case famp::exporting::Format::Bmp:
         filter = tr("BMP 图像 (*.bmp)");
+        break;
+    case famp::exporting::Format::Svg:
+        filter = tr("SVG 矢量文档 (*.svg)");
         break;
     case famp::exporting::Format::Png:
     default:
