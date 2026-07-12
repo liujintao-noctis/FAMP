@@ -7,6 +7,7 @@
 #include "CloudLoader.h"
 
 #include "Cloud.h"
+#include "AdditionalCloudLoader.h"
 #include "LasLoader.h"
 #include "PcdLoader.h"
 #include "RecentFiles.h"
@@ -61,7 +62,7 @@ bool validatePath(const QString& requestedPath,
     if (!famp::recent::isSupportedCloudFile(path))
     {
         setError(errorMessage,
-                 QStringLiteral("仅支持 PCD 和 LAS 点云文件：\n%1").arg(path));
+                 QStringLiteral("仅支持 PCD、LAS、PLY 和 XYZ 点云文件：\n%1").arg(path));
         return false;
     }
     return true;
@@ -140,7 +141,7 @@ LoadResult load(const QString& requestedPath,
             }
             result.sourceWasPcd = true;
         }
-        else
+        else if (suffix == QStringLiteral("las"))
         {
             if (!loadLasAsRgb(
                     result.path, loadedPoints, &loadError,
@@ -151,6 +152,60 @@ LoadResult load(const QString& requestedPath,
             }
             if (cancel(result, shouldCancel))
                 return result;
+            result.displayCloud = loadedPoints;
+        }
+        else
+        {
+            const bool loaded = suffix == QStringLiteral("ply")
+                ? loadPlyAsRgb(result.path, loadedPoints, &loadError, shouldCancel)
+                : loadXyzTextAsRgb(
+                      result.path, loadedPoints, &loadError, shouldCancel);
+            if (!loaded)
+            {
+                if (famp::tasks::isCancellationRequested(shouldCancel))
+                    cancel(result, shouldCancel);
+                else
+                    result.error = loadError;
+                return result;
+            }
+            if (cancel(result, shouldCancel))
+                return result;
+
+            long double sumX = 0.0;
+            long double sumY = 0.0;
+            long double sumZ = 0.0;
+            std::size_t pointIndex = 0;
+            for (const pcl::PointXYZRGB& point : loadedPoints->points)
+            {
+                if ((pointIndex++ & 0x0fffU) == 0U
+                    && cancel(result, shouldCancel))
+                {
+                    return result;
+                }
+                sumX += point.x;
+                sumY += point.y;
+                sumZ += point.z;
+            }
+            const long double count = static_cast<long double>(loadedPoints->size());
+            result.spatial.origin = {
+                static_cast<double>(sumX / count),
+                static_cast<double>(sumY / count),
+                static_cast<double>(sumZ / count)};
+            pointIndex = 0;
+            for (pcl::PointXYZRGB& point : loadedPoints->points)
+            {
+                if ((pointIndex++ & 0x0fffU) == 0U
+                    && cancel(result, shouldCancel))
+                {
+                    return result;
+                }
+                point.x = static_cast<float>(
+                    static_cast<double>(point.x) - result.spatial.origin[0]);
+                point.y = static_cast<float>(
+                    static_cast<double>(point.y) - result.spatial.origin[1]);
+                point.z = static_cast<float>(
+                    static_cast<double>(point.z) - result.spatial.origin[2]);
+            }
             result.displayCloud = loadedPoints;
         }
 

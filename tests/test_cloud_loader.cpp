@@ -109,3 +109,24 @@ TEST(CloudLoaderTest, CancelsBeforeAllocatingDisplayCloud)
     EXPECT_FALSE(result.sourceCloud);
     EXPECT_FALSE(result.error.isEmpty());
 }
+
+TEST(CloudLoaderTest, LoadsAndRecentersUnicodeXyz)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("探方坐标.xyz"));
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    file.write("10 20 30 1 2 3\n14 24 34 4 5 6\n");
+    file.close();
+
+    const famp::cloud::LoadResult result = famp::cloud::load(path);
+    ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
+    ASSERT_EQ(result.displayCloud->size(), 2U);
+    EXPECT_NEAR(result.spatial.origin[0], 12.0, 1.0e-12);
+    EXPECT_NEAR(result.spatial.origin[1], 22.0, 1.0e-12);
+    EXPECT_NEAR(result.spatial.origin[2], 32.0, 1.0e-12);
+    EXPECT_FLOAT_EQ(result.displayCloud->front().x, -2.0f);
+    EXPECT_FLOAT_EQ(result.displayCloud->back().z, 2.0f);
+    EXPECT_EQ(result.displayCloud->front().r, 1);
+}

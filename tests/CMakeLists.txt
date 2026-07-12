@@ -29,6 +29,8 @@ find_package(PCL REQUIRED COMPONENTS common features filters io)
 find_package(PROJ CONFIG REQUIRED)
 
 add_library(famp_cloud STATIC
+    "${FAMP_SRC_DIR}/AdditionalCloudLoader.cpp"
+    "${FAMP_SRC_DIR}/AdditionalCloudLoader.h"
     "${FAMP_SRC_DIR}/Cloud.cpp"
     "${FAMP_SRC_DIR}/CloudCoordinates.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
@@ -81,6 +83,7 @@ add_executable(famp_tests
     test_cloud.cpp
     test_cloud_coordinates.cpp
     test_cloud_loader.cpp
+    test_additional_cloud_loader.cpp
     test_cloud_display_settings.cpp
     test_cloud_processing.cpp
     test_cloud_crop.cpp

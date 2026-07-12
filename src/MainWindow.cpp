@@ -572,7 +572,7 @@ void MainWindow::relocateMissingProjectClouds(
             this,
             tr("重新定位缺失点云：%1").arg(QFileInfo(reference.path).fileName()),
             QFileInfo(projectPath).absolutePath(),
-            tr("点云文件 (*.pcd *.las);;PCD (*.pcd);;LAS (*.las)"));
+            tr("点云文件 (*.pcd *.las *.ply *.xyz);;PCD (*.pcd);;LAS (*.las);;PLY (*.ply);;XYZ (*.xyz)"));
         if (replacement.isEmpty())
         {
             resolvedFiles.append(reference.path);
@@ -2043,7 +2043,7 @@ void MainWindow::slotOpenCloud()
         this,
         tr("打开点云文件"),
         initialDirectory,
-        tr("点云文件 (*.pcd *.las);;PCD (*.pcd);;LAS (*.las)"));
+        tr("点云文件 (*.pcd *.las *.ply *.xyz);;PCD (*.pcd);;LAS (*.las);;PLY (*.ply);;XYZ (*.xyz)"));
     if (!path.isEmpty())
         openCloudFile(path);
 }
