@@ -143,6 +143,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CompassItem.cpp
     FAMPController.cpp
     FormTabulationItem.cpp
+    GraphicsItemTransform.cpp
     MainWindow.cpp
     MyGraphicsView.cpp
     MyItem.cpp
@@ -158,6 +159,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CompassItem.h
     FAMPController.h
     FormTabulationItem.h
+    GraphicsItemTransform.h
     HelpContent.h
     MainWindow.h
     MetricScale.h

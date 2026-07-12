@@ -30,6 +30,7 @@ inline QString shortcutsHtml()
   <tr><td>Ctrl+F12</td><td>全屏显示</td></tr>
   <tr><td>Delete</td><td>删除选中的二维图元</td></tr>
   <tr><td>方向键</td><td>移动选中的二维图元</td></tr>
+  <tr><td>Ctrl+Shift+Left/Right</td><td>逆时针/顺时针旋转选中的二维图元</td></tr>
   <tr><td>F1</td><td>打开快速入门</td></tr>
 </table>
 <p>双击文字图元可以修改字体。拖动图元边界或控制点可以完成移动和旋转。</p>

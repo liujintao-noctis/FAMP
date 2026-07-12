@@ -98,6 +98,8 @@
     <addaction name="actMoveDown"/>
     <addaction name="actMoveLeft"/>
     <addaction name="actMoveRight"/>
+    <addaction name="actRotateLeft"/>
+    <addaction name="actRotateRight"/>
     <addaction name="separator"/>
     <addaction name="actEditFront"/>
     <addaction name="acEditBack"/>
@@ -298,6 +300,8 @@
    <addaction name="actMoveDown"/>
    <addaction name="actMoveLeft"/>
    <addaction name="actMoveRight"/>
+   <addaction name="actRotateLeft"/>
+   <addaction name="actRotateRight"/>
    <addaction name="separator"/>
    <addaction name="actDeleteItem"/>
    <addaction name="actClearScene"/>
@@ -694,10 +698,16 @@
    <property name="text">
     <string>逆时针旋转</string>
    </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+Left</string>
+   </property>
   </action>
   <action name="actRotateRight">
    <property name="text">
     <string>顺时针旋转</string>
+   </property>
+   <property name="shortcut">
+    <string>Ctrl+Shift+Right</string>
    </property>
   </action>
   <action name="actMoveUp">
