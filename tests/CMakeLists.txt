@@ -76,6 +76,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
+    "${FAMP_SRC_DIR}/ProcessingRecipe.cpp"
     test_main.cpp
     test_cloud.cpp
     test_cloud_coordinates.cpp
@@ -95,6 +96,7 @@ add_executable(famp_tests
     test_measurement.cpp
     test_pcd_loader.cpp
     test_project_document.cpp
+    test_processing_recipe.cpp
     test_recent_files.cpp
     test_string_convert.cpp
 )
