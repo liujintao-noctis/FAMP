@@ -1,6 +1,7 @@
 #include "Measurement.h"
 
 #include <cmath>
+#include <algorithm>
 #include <utility>
 
 namespace famp::measurement
@@ -85,6 +86,56 @@ double polygonArea(const QVector<QPointF>& meterPoints) noexcept
     return std::abs(twiceSignedArea) * 0.5;
 }
 
+double polygonPerimeter(const QVector<QPointF>& meterPoints) noexcept
+{
+    if (meterPoints.size() < 2)
+        return 0.0;
+
+    const QPointF& first = meterPoints.front();
+    const QPointF& last = meterPoints.back();
+    return polylineLength(meterPoints)
+        + std::hypot(first.x() - last.x(), first.y() - last.y());
+}
+
+double angleDegrees(const QVector<QPointF>& meterPoints) noexcept
+{
+    if (meterPoints.size() != 3)
+        return 0.0;
+
+    const QPointF first = meterPoints.at(0) - meterPoints.at(1);
+    const QPointF second = meterPoints.at(2) - meterPoints.at(1);
+    const double firstLength = std::hypot(first.x(), first.y());
+    const double secondLength = std::hypot(second.x(), second.y());
+    if (firstLength <= 1.0e-12 || secondLength <= 1.0e-12)
+        return 0.0;
+
+    const double cosine = std::clamp(
+        (first.x() * second.x() + first.y() * second.y())
+            / (firstLength * secondLength),
+        -1.0,
+        1.0);
+    return std::acos(cosine) * 180.0 / std::acos(-1.0);
+}
+
+int minimumPointCount(Kind kind) noexcept
+{
+    return kind == Kind::Area || kind == Kind::Angle ? 3 : 2;
+}
+
+double value(Kind kind, const QVector<QPointF>& meterPoints) noexcept
+{
+    switch (kind)
+    {
+    case Kind::Distance:
+        return polylineLength(meterPoints);
+    case Kind::Area:
+        return polygonArea(meterPoints);
+    case Kind::Angle:
+        return angleDegrees(meterPoints);
+    }
+    return 0.0;
+}
+
 QString formatValue(Kind kind, double value)
 {
     if (!std::isfinite(value) || value < 0.0)
@@ -97,8 +148,21 @@ QString formatValue(Kind kind, double value)
         return QStringLiteral("%1 m").arg(value, 0, 'f', 3);
     }
 
-    if (value >= 10000.0)
+    if (kind == Kind::Area && value >= 10000.0)
         return QStringLiteral("%1 ha").arg(value / 10000.0, 0, 'f', 3);
-    return QStringLiteral("%1 m²").arg(value, 0, 'f', 3);
+    if (kind == Kind::Area)
+        return QStringLiteral("%1 m²").arg(value, 0, 'f', 3);
+    return QStringLiteral("%1°").arg(value, 0, 'f', 2);
+}
+
+QString formatSummary(Kind kind, const QVector<QPointF>& meterPoints)
+{
+    const QString primary = formatValue(kind, value(kind, meterPoints));
+    if (kind != Kind::Area || primary == QStringLiteral("无效测量"))
+        return primary;
+
+    return QStringLiteral("面积 %1 · 周长 %2")
+        .arg(primary,
+             formatValue(Kind::Distance, polygonPerimeter(meterPoints)));
 }
 }

@@ -257,6 +257,7 @@ public slots:
     void slotOn_actPlotTab_triggered();         //出图模板按钮
     void startDistanceMeasurement();
     void startAreaMeasurement();
+    void startAngleMeasurement();
     void cancelMeasurement();
     void clearMeasurements();
 

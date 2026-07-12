@@ -45,6 +45,31 @@ TEST(MeasurementTest, ComputesPolygonAreaRegardlessOfWinding)
 
     EXPECT_DOUBLE_EQ(famp::measurement::polygonArea(clockwise), 12.0);
     EXPECT_DOUBLE_EQ(famp::measurement::polygonArea(counterClockwise), 12.0);
+    EXPECT_DOUBLE_EQ(famp::measurement::polygonPerimeter(clockwise), 14.0);
+}
+
+TEST(MeasurementTest, ComputesAngleAtMiddlePoint)
+{
+    const QVector<QPointF> rightAngle{
+        QPointF(1.0, 0.0), QPointF(0.0, 0.0), QPointF(0.0, 2.0)};
+    EXPECT_NEAR(famp::measurement::angleDegrees(rightAngle), 90.0, 1.0e-12);
+    EXPECT_DOUBLE_EQ(
+        famp::measurement::value(famp::measurement::Kind::Angle, rightAngle),
+        90.0);
+    EXPECT_EQ(famp::measurement::formatSummary(
+                  famp::measurement::Kind::Angle, rightAngle),
+              QStringLiteral("90.00°"));
+}
+
+TEST(MeasurementTest, AreaSummaryIncludesPerimeter)
+{
+    const QVector<QPointF> rectangle{
+        QPointF(0.0, 0.0), QPointF(3.0, 0.0),
+        QPointF(3.0, 4.0), QPointF(0.0, 4.0)};
+    const QString summary = famp::measurement::formatSummary(
+        famp::measurement::Kind::Area, rectangle);
+    EXPECT_TRUE(summary.contains(QStringLiteral("12.000 m²")));
+    EXPECT_TRUE(summary.contains(QStringLiteral("14.000 m")));
 }
 
 TEST(MeasurementTest, RejectsInvalidScaleWithoutMutatingOutput)
