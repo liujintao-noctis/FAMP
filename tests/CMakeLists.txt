@@ -31,8 +31,14 @@ find_package(PROJ CONFIG REQUIRED)
 add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/Cloud.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
+    "${FAMP_SRC_DIR}/CloudLoader.cpp"
+    "${FAMP_SRC_DIR}/CloudLoader.h"
+    "${FAMP_SRC_DIR}/LasLoader.cpp"
+    "${FAMP_SRC_DIR}/LasLoader.h"
     "${FAMP_SRC_DIR}/PcdLoader.cpp"
     "${FAMP_SRC_DIR}/PcdLoader.h"
+    "${FAMP_SRC_DIR}/RecentFiles.cpp"
+    "${FAMP_SRC_DIR}/RecentFiles.h"
 )
 
 target_include_directories(famp_cloud
@@ -45,6 +51,7 @@ target_link_libraries(famp_cloud
     PUBLIC
         ${PCL_LIBRARIES}
         Qt${QT_VERSION_MAJOR}::Core
+        lastools_compat
 )
 
 target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
@@ -56,11 +63,10 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
     "${FAMP_SRC_DIR}/GraphicsExport.cpp"
     "${FAMP_SRC_DIR}/GraphicsUndoCommands.cpp"
-    "${FAMP_SRC_DIR}/LasLoader.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
-    "${FAMP_SRC_DIR}/RecentFiles.cpp"
     test_main.cpp
     test_cloud.cpp
+    test_cloud_loader.cpp
     test_crs_service.cpp
     test_file_io.cpp
     test_graphics_item_transform.cpp
@@ -80,7 +86,6 @@ target_link_libraries(famp_tests
         famp_cloud
         GTest::gtest
         Qt${QT_VERSION_MAJOR}::Widgets
-        lastools_compat
         PROJ::proj
 )
 

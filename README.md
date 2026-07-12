@@ -10,7 +10,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 
 ## 当前功能
 
-- 打开、查看 PCD/LAS 点云，并进行平面切割、投影和二维绘图。
+- 在后台串行读取、校验并打开 PCD/LAS 点云，加载期间界面仍可响应；随后可进行平面切割、投影和二维绘图。
 - 新建、打开和原子保存 `.famp` 项目，并每 60 秒自动备份未保存更改。
 - 为项目记录经 PROJ 验证的 EPSG 坐标系，并使用单点坐标转换器核对坐标。
 - 将 PCD/LAS 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
@@ -227,7 +227,7 @@ Windows 多配置生成器必须指定 Release：
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-当前 GoogleTest 用例覆盖点云质心与去中心化、OBB、PCD 加载、非 ASCII PCD 路径、字符串转换和物理比例尺计算。首次配置可能需要从 GitHub 下载 GoogleTest。
+当前 GoogleTest 用例覆盖点云质心与去中心化、OBB、统一 PCD/LAS 加载服务、非 ASCII 点云路径、项目文件、坐标系、撤销/重做、专业导出、字符串转换和物理比例尺计算。首次配置可能需要从 GitHub 下载 GoogleTest。
 
 ## 安装
 
