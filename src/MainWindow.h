@@ -22,6 +22,7 @@
 #include <QIcon>
 #include <QStandardItemModel>
 #include <QDebug>
+#include <QStringList>
 
 #include <vtkPlaneWidget.h>
 
@@ -29,6 +30,9 @@
 #include <laswriter.hpp>
 
 class FAMPController;
+class QDragEnterEvent;
+class QDropEvent;
+class QMenu;
 
 struct MyCloudList
 {
@@ -44,6 +48,10 @@ class MainWindow : public QMainWindow
 
 public:
     MainWindow(QWidget *parent = Q_NULLPTR);
+
+protected:
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
 
 private:
     Ui::MainWindowClass ui;
@@ -63,6 +71,8 @@ private:
     QDlgClip * dlgClip;
     MyItem *myItem;
     FAMPController * controller;
+    QMenu * recentFilesMenu;
+    QStringList recentFiles;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局
@@ -73,9 +83,13 @@ private:
     QComboBox * scaleCombox;
     QLabel * scaleLabel;
     void setScaleVisible(bool enable);          //设置比例尺的可见性
-    void las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
+    bool las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
     void showPlaneWidget(vtkPlaneWidget* (MyVTK::*displayFunc)(), const char* consoleMsg); //统一的平面部件显示方法
     void showHelpDialog(const QString& title, const QString& html);
+    bool openCloudFile(const QString& path);
+    void initializeRecentFilesMenu();
+    void addRecentFile(const QString& path);
+    void updateRecentFilesMenu();
 
 private slots:
     //GrapView显示浮动
