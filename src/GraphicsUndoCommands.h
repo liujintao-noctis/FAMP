@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include <memory>
+#include <functional>
 
 class QGraphicsItem;
 class QGraphicsScene;
@@ -65,4 +66,7 @@ QUndoCommand* makeUngroupItemsCommand(
     const ItemHandle& group,
     const QVector<ItemHandle>& children,
     const QString& text);
+QUndoCommand* makeCallbackCommand(std::function<void()> undo,
+                                  std::function<void()> redo,
+                                  const QString& text);
 }

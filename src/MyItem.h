@@ -46,6 +46,7 @@ public:
     ~MyItem();
     const QVector<QPointF>& points() const { return itemPoints; }
     ProjectType projectionType() const { return projectType; }
+    void setPoints(const QVector<QPointF>& points);
 
 public:
     enum ItemOperator       //选择要处理的模式

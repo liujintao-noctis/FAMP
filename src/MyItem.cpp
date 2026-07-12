@@ -55,6 +55,18 @@ MyItem::~MyItem()
 {
 }
 
+void MyItem::setPoints(const QVector<QPointF>& points)
+{
+    if (points.isEmpty())
+        return;
+    prepareGeometryChange();
+    itemPoints = points;
+    getMinMaxQtPoints(itemPoints, minPT, maxPt);
+    AABB = QRectF(minPT, maxPt);
+    customRect = AABB.adjusted(-15, -15, 15, 15);
+    update();
+}
+
 void MyItem::paint(QPainter * painter, const QStyleOptionGraphicsItem * option, QWidget * widget)
 {
     drawCustomRect(painter);        //绘制出边界框
