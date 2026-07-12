@@ -141,7 +141,9 @@ endif()
 
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
+    CloudDisplaySettings.cpp
     CloudLoader.cpp
+    CloudProcessing.cpp
     CompassItem.cpp
     CrsService.cpp
     FAMPController.cpp
@@ -167,7 +169,9 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKProjectionManager.cpp
     main.cpp
     Cloud.h
+    CloudDisplaySettings.h
     CloudLoader.h
+    CloudProcessing.h
     CompassItem.h
     CrsService.h
     FAMPController.h

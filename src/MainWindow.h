@@ -92,6 +92,8 @@ private:
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
     QAction * clearMeasurementsAction;
+    QAction * cloudDisplaySettingsAction;
+    QAction * preprocessCloudAction;
     QAction * undoGraphicsAction;
     QAction * redoGraphicsAction;
     QLabel * crsStatusLabel;
@@ -132,6 +134,8 @@ private:
     void integrateLoadedCloud(const famp::cloud::LoadResult& result);
     void finishCloudLoadBatch();
     void setCloudLoadUiBusy(bool busy);
+    bool selectedCloudData(MyCloudList& cloud, QString* path = nullptr) const;
+    void updateCloudToolActions();
     void initializeRecentFilesMenu();
     void addRecentFile(const QString& path);
     void updateRecentFilesMenu();
@@ -182,6 +186,8 @@ private slots:
 
     void slotOpenCloud();   //打开点云文件
     void slotCloudLoadFinished();
+    void slotCloudDisplaySettings();
+    void slotPreprocessCloud();
     void slotNewProject();
     void slotOpenProject();
     void slotSaveProject();

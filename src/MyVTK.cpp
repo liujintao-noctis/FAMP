@@ -89,6 +89,12 @@ void MyVTK::initCamera()
     this->update();
 }
 
+void MyVTK::refresh()
+{
+    m_renderManager->render();
+    update();
+}
+
 //显示相机垂直面
 vtkPlaneWidget * MyVTK::DisplayVerticalPlane()
 {
