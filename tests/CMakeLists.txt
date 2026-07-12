@@ -73,6 +73,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/Measurement.cpp"
     "${FAMP_SRC_DIR}/MeasurementItem.cpp"
     "${FAMP_SRC_DIR}/CloudProcessing.cpp"
+    "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     test_main.cpp
@@ -81,6 +82,7 @@ add_executable(famp_tests
     test_cloud_loader.cpp
     test_cloud_display_settings.cpp
     test_cloud_processing.cpp
+    test_cloud_crop.cpp
     test_crs_service.cpp
     test_file_io.cpp
     test_graphics_item_transform.cpp

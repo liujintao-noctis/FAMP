@@ -102,6 +102,7 @@ private:
     QAction * clearMeasurementsAction;
     QAction * cloudDisplaySettingsAction;
     QAction * preprocessCloudAction;
+    QAction * cropCloudAction;
     QAction * undoGraphicsAction;
     QAction * redoGraphicsAction;
     QLabel * crsStatusLabel;
@@ -204,6 +205,7 @@ private slots:
     void slotCloudLoadFinished();
     void slotCloudDisplaySettings();
     void slotPreprocessCloud();
+    void slotCropCloud();
     void slotNewProject();
     void slotOpenProject();
     void slotSaveProject();
