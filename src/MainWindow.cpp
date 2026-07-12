@@ -34,12 +34,14 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QInputDialog>
+#include <QKeySequence>
 #include <QLineEdit>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTime>
 #include <QTextBrowser>
 #include <QTimer>
+#include <QUndoStack>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -61,8 +63,11 @@ MainWindow::MainWindow(QWidget *parent)
     , saveProjectAsAction(nullptr)
     , autosaveTimer(nullptr)
     , toolsMenu(nullptr)
+    , editMenu(nullptr)
     , setProjectCrsAction(nullptr)
     , coordinateConverterAction(nullptr)
+    , undoGraphicsAction(nullptr)
+    , redoGraphicsAction(nullptr)
     , crsStatusLabel(nullptr)
     , projectDirty(false)
     , loadingProject(false)
@@ -134,6 +139,7 @@ MainWindow::MainWindow(QWidget *parent)
     initializeProjectActions();
     initializeRecentFilesMenu();
     initializeCrsActions();
+    initializeUndoActions();
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
 
@@ -145,6 +151,28 @@ MainWindow::MainWindow(QWidget *parent)
     updateWindowTitle();
     QTimer::singleShot(0, this, [this]() { checkForRecoveryProject(); });
 
+}
+
+void MainWindow::initializeUndoActions()
+{
+    editMenu = new QMenu(tr("编辑"), this);
+    editMenu->setObjectName(QStringLiteral("menuEdit"));
+    ui.menuBar->insertMenu(ui.menu_5->menuAction(), editMenu);
+
+    undoGraphicsAction = ui.graphicsView->commandStack()->createUndoAction(
+        this, tr("撤销"));
+    undoGraphicsAction->setObjectName(QStringLiteral("actUndoGraphics"));
+    undoGraphicsAction->setShortcuts(
+        QKeySequence::keyBindings(QKeySequence::Undo));
+
+    redoGraphicsAction = ui.graphicsView->commandStack()->createRedoAction(
+        this, tr("重做"));
+    redoGraphicsAction->setObjectName(QStringLiteral("actRedoGraphics"));
+    redoGraphicsAction->setShortcuts(
+        QKeySequence::keyBindings(QKeySequence::Redo));
+
+    editMenu->addAction(undoGraphicsAction);
+    editMenu->addAction(redoGraphicsAction);
 }
 
 void MainWindow::initializeCrsActions()
@@ -385,7 +413,7 @@ void MainWindow::clearWorkspace()
         removeCloudFromWorkspace(pointCloudList.back());
     model->clear();
     model->setHorizontalHeaderLabels(QStringList() << QString());
-    ui.graphicsView->slotOn_actClearScene_triggered();
+    ui.graphicsView->clearSceneAndHistory();
 
     inCloud.reset();
     delete myCloud;

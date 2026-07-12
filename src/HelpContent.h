@@ -33,6 +33,8 @@ inline QString shortcutsHtml()
   <tr><td>Ctrl+Shift+O</td><td>打开项目</td></tr>
   <tr><td>Ctrl+Shift+S</td><td>保存项目</td></tr>
   <tr><td>Ctrl+S</td><td>保存二维制图成果</td></tr>
+  <tr><td>Ctrl+Z</td><td>撤销二维图元操作</td></tr>
+  <tr><td>Ctrl+Shift+Z / Ctrl+Y</td><td>重做二维图元操作</td></tr>
   <tr><td>Ctrl+F12</td><td>全屏显示</td></tr>
   <tr><td>Delete</td><td>删除选中的二维图元</td></tr>
   <tr><td>方向键</td><td>移动选中的二维图元</td></tr>

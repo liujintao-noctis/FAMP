@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "GraphicsUndoCommands.h"
 #include "MyItem.h"
 #include "MyVTK.h"
 #include "QDlgPlotTab.h"
@@ -38,6 +39,7 @@
 #include <QFontDialog>
 #include <QInputDialog>
 #include <QGraphicsSceneEvent>
+#include <QHash>
 
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
@@ -53,11 +55,13 @@
 #include <vtkPlane.h>
 
 #include <queue>
+#include <memory>
 #include <vector>
 
 class QPainter;
 class QScreen;
 class QShowEvent;
+class QUndoStack;
 
 //比例尺类型枚举
 typedef enum _ScaleType
@@ -109,6 +113,8 @@ public:
     void setDlgPlotTabNull();           //设置出图表对话框为空指针
     void drawFormTable();           //绘制出图模板表格
     void getText();                 //获得制图人，比例尺，日期文字
+    QUndoStack* commandStack() const;
+    void clearSceneAndHistory();
 
 private:
     // 绘制投影的配置参数，消除4个draw方法的代码重复
@@ -123,6 +129,9 @@ private:
     };
 
     QGraphicsScene * scene;
+    QUndoStack * history;
+    QHash<QGraphicsItem*, std::weak_ptr<famp::graphics::ItemLifetime>> itemHandles;
+    QVector<famp::graphics::ItemState> mousePressItemStates;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr project_cloud;   //VTK投影后的点云
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr currentItemCloud;    //获得DBtree的点云
     double computeCloudMeanDis(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr & cloud);       //计算点云的平均密度（点与点之间的平均距离）
@@ -168,6 +177,15 @@ private:
     void refreshMetricLayout();
     void ReDraw(QPointF offset);    //比例尺改变后重新绘制
     void rotateSelectedItems(qreal deltaDegrees);
+    famp::graphics::ItemHandle handleForItem(QGraphicsItem* item);
+    QVector<famp::graphics::ItemHandle> handlesForItems(
+        const QList<QGraphicsItem*>& items);
+    QVector<famp::graphics::ItemState> selectedItemStates();
+    void pushTransformChange(const QVector<famp::graphics::ItemState>& before,
+                             const QString& text);
+    void addItemWithHistory(QGraphicsItem* item, const QString& text);
+    void invalidateHistory(const QString& reason);
+    void moveSelectedItemsBy(const QPointF& delta, const QString& text);
 
     QDlgPlotTab  *dlgPlotTab;
     void setDlgPlotTab();           //设置弹出出图模板对话框
@@ -185,6 +203,7 @@ protected:
     void keyPressEvent(QKeyEvent *e) override;
     void mousePressEvent(QMouseEvent *e) override;
     void mouseMoveEvent(QMouseEvent *e) override;
+    void mouseReleaseEvent(QMouseEvent *e) override;
     void mouseDoubleClickEvent(QMouseEvent *e);
 
 public slots:
