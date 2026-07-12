@@ -10,6 +10,7 @@
 #include "FAMPController.h"
 #include "CrsService.h"
 #include "CloudDisplaySettings.h"
+#include "CloudCrop.h"
 #include "CloudProcessing.h"
 #include "FileIO.h"
 #include "HelpContent.h"
@@ -91,6 +92,7 @@ MainWindow::MainWindow(QWidget *parent)
     , clearMeasurementsAction(nullptr)
     , cloudDisplaySettingsAction(nullptr)
     , preprocessCloudAction(nullptr)
+    , cropCloudAction(nullptr)
     , undoGraphicsAction(nullptr)
     , redoGraphicsAction(nullptr)
     , crsStatusLabel(nullptr)
@@ -280,10 +282,15 @@ void MainWindow::initializeCrsActions()
     preprocessCloudAction->setObjectName(
         QStringLiteral("actPreprocessCloud"));
     preprocessCloudAction->setEnabled(false);
+    cropCloudAction = toolsMenu->addAction(tr("按坐标范围裁剪…"));
+    cropCloudAction->setObjectName(QStringLiteral("actCropCloud"));
+    cropCloudAction->setEnabled(false);
     connect(cloudDisplaySettingsAction, &QAction::triggered,
             this, &MainWindow::slotCloudDisplaySettings);
     connect(preprocessCloudAction, &QAction::triggered,
             this, &MainWindow::slotPreprocessCloud);
+    connect(cropCloudAction, &QAction::triggered,
+            this, &MainWindow::slotCropCloud);
 
     toolsMenu->addSeparator();
     measurementActionGroup = new QActionGroup(this);
@@ -674,6 +681,8 @@ void MainWindow::clearWorkspace()
         cloudDisplaySettingsAction->setEnabled(false);
     if (preprocessCloudAction)
         preprocessCloudAction->setEnabled(false);
+    if (cropCloudAction)
+        cropCloudAction->setEnabled(false);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(false);
 }
@@ -999,6 +1008,8 @@ void MainWindow::updateCloudToolActions()
         cloudDisplaySettingsAction->setEnabled(available);
     if (preprocessCloudAction)
         preprocessCloudAction->setEnabled(available && !cloudLoadBusy);
+    if (cropCloudAction)
+        cropCloudAction->setEnabled(available && !cloudLoadBusy);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(available && !cloudLoadBusy);
 }
@@ -1391,6 +1402,151 @@ void MainWindow::slotPreprocessCloud()
     integrateLoadedCloud(loaded);
     emit sendStr2Console(
         tr("点云预处理完成：%1 → %2 个点，已保存到 %3")
+            .arg(result.inputPointCount)
+            .arg(result.outputPointCount)
+            .arg(result.outputPath));
+    updateCloudToolActions();
+}
+
+void MainWindow::slotCropCloud()
+{
+    MyCloudList cloud;
+    QString sourcePath;
+    if (!selectedCloudData(cloud, &sourcePath))
+    {
+        QMessageBox::information(this, tr("点云范围裁剪"),
+                                 tr("请先在内容列表中选择一个点云。"));
+        return;
+    }
+
+    famp::crop::Options options;
+    QString error;
+    if (!famp::crop::dataBounds(cloud.input_cloud, options, &error))
+    {
+        QMessageBox::warning(this, tr("点云范围裁剪"), error);
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("按局部坐标范围裁剪"));
+    QFormLayout layout(&dialog);
+    QDoubleSpinBox minimumX(&dialog), maximumX(&dialog);
+    QDoubleSpinBox minimumY(&dialog), maximumY(&dialog);
+    QDoubleSpinBox minimumZ(&dialog), maximumZ(&dialog);
+    for (QDoubleSpinBox* spinBox : {
+             &minimumX, &maximumX, &minimumY,
+             &maximumY, &minimumZ, &maximumZ})
+    {
+        spinBox->setRange(-1.0e9, 1.0e9);
+        spinBox->setDecimals(6);
+        spinBox->setSuffix(tr(" m"));
+    }
+    minimumX.setValue(options.minimumX);
+    maximumX.setValue(options.maximumX);
+    minimumY.setValue(options.minimumY);
+    maximumY.setValue(options.maximumY);
+    minimumZ.setValue(options.minimumZ);
+    maximumZ.setValue(options.maximumZ);
+    QComboBox keepMode(&dialog);
+    keepMode.addItem(tr("保留范围内部"), true);
+    keepMode.addItem(tr("保留范围外部"), false);
+    QLabel note(tr("范围使用当前点云的局部坐标；结果另存为新 PCD，原始文件不变。"),
+                &dialog);
+    note.setWordWrap(true);
+    layout.addRow(tr("X 最小值"), &minimumX);
+    layout.addRow(tr("X 最大值"), &maximumX);
+    layout.addRow(tr("Y 最小值"), &minimumY);
+    layout.addRow(tr("Y 最大值"), &maximumY);
+    layout.addRow(tr("Z 最小值"), &minimumZ);
+    layout.addRow(tr("Z 最大值"), &maximumZ);
+    layout.addRow(tr("保留模式"), &keepMode);
+    layout.addRow(&note);
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    options.minimumX = minimumX.value();
+    options.maximumX = maximumX.value();
+    options.minimumY = minimumY.value();
+    options.maximumY = maximumY.value();
+    options.minimumZ = minimumZ.value();
+    options.maximumZ = maximumZ.value();
+    options.keepInside = keepMode.currentData().toBool();
+    if (!famp::crop::validateOptions(options, &error))
+    {
+        QMessageBox::warning(this, tr("点云范围裁剪"), error);
+        return;
+    }
+
+    const QFileInfo sourceInfo(sourcePath);
+    const QString initialPath = sourceInfo.absoluteDir().filePath(
+        sourceInfo.completeBaseName() + QStringLiteral("_cropped.pcd"));
+    QString outputPath = QFileDialog::getSaveFileName(
+        this, tr("保存裁剪点云"), initialPath, tr("PCD 点云 (*.pcd)"));
+    if (outputPath.isEmpty())
+        return;
+    outputPath = famp::io::pathWithRequiredSuffix(outputPath, QStringLiteral("pcd"));
+
+    const Qt::CaseSensitivity pathCaseSensitivity =
+#ifdef Q_OS_WIN
+        Qt::CaseInsensitive;
+#else
+        Qt::CaseSensitive;
+#endif
+    if (QFileInfo(outputPath).absoluteFilePath().compare(
+            QFileInfo(sourcePath).absoluteFilePath(), pathCaseSensitivity) == 0)
+    {
+        QMessageBox::warning(this, tr("点云范围裁剪"),
+                             tr("输出文件不能覆盖当前源点云。"));
+        return;
+    }
+
+    QProgressDialog progress(
+        tr("正在后台裁剪并保存点云…"), tr("取消"), 0, 0, this);
+    progress.setWindowTitle(tr("点云范围裁剪"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    const auto cancellation = std::make_shared<std::atomic_bool>(false);
+    connect(&progress, &QProgressDialog::canceled, this, [cancellation]() {
+        cancellation->store(true, std::memory_order_relaxed);
+    });
+    QFutureWatcher<famp::crop::Result> watcher;
+    connect(&watcher, &QFutureWatcher<famp::crop::Result>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
+    watcher.setFuture(QtConcurrent::run(
+        [input, options, outputPath, cancellation]() {
+            return famp::crop::processAndSave(
+                input, options, outputPath, [cancellation]() {
+                    return cancellation->load(std::memory_order_relaxed);
+                });
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const famp::crop::Result result = watcher.result();
+    if (result.cancelled)
+    {
+        statusBar()->showMessage(tr("点云范围裁剪已取消，未写入输出文件。"), 5000);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        QMessageBox::warning(this, tr("点云范围裁剪失败"), result.error);
+        return;
+    }
+
+    famp::cloud::LoadResult loaded;
+    loaded.path = result.outputPath;
+    loaded.displayCloud = result.cloud;
+    loaded.spatial = cloud.spatial;
+    integrateLoadedCloud(loaded);
+    emit sendStr2Console(
+        tr("点云范围裁剪完成：%1 → %2 个点，已保存到 %3")
             .arg(result.inputPointCount)
             .arg(result.outputPointCount)
             .arg(result.outputPath));
@@ -1943,6 +2099,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
     cloudLoadCancelButton->setEnabled(busy);
     if (busy && preprocessCloudAction)
         preprocessCloudAction->setEnabled(false);
+    if (busy && cropCloudAction)
+        cropCloudAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

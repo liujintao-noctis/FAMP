@@ -142,6 +142,7 @@ endif()
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
     CloudCoordinates.cpp
+    CloudCrop.cpp
     CloudDisplaySettings.cpp
     CloudLoader.cpp
     CloudProcessing.cpp
@@ -173,6 +174,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     main.cpp
     Cloud.h
     CloudCoordinates.h
+    CloudCrop.h
     CloudDisplaySettings.h
     CloudLoader.h
     CloudProcessing.h
