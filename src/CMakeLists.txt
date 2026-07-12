@@ -142,8 +142,10 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
     CompassItem.cpp
     FAMPController.cpp
+    FileIO.cpp
     FormTabulationItem.cpp
     GraphicsItemTransform.cpp
+    LasLoader.cpp
     MainWindow.cpp
     MyGraphicsView.cpp
     MyItem.cpp
@@ -159,9 +161,11 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.h
     CompassItem.h
     FAMPController.h
+    FileIO.h
     FormTabulationItem.h
     GraphicsItemTransform.h
     HelpContent.h
+    LasLoader.h
     MainWindow.h
     MetricScale.h
     MyGraphicsView.h
