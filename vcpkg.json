@@ -50,6 +50,10 @@
       "features": [
         "visualization"
       ]
+    },
+    {
+      "name": "proj",
+      "default-features": false
     }
   ]
 }

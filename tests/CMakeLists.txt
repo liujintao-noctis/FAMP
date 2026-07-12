@@ -26,6 +26,7 @@ FetchContent_MakeAvailable(googletest)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
 find_package(PCL REQUIRED COMPONENTS common features io)
+find_package(PROJ CONFIG REQUIRED)
 
 add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/Cloud.cpp"
@@ -50,6 +51,7 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 
 # ── Test executable ───────────────────────────────────────────────────────
 add_executable(famp_tests
+    "${FAMP_SRC_DIR}/CrsService.cpp"
     "${FAMP_SRC_DIR}/FileIO.cpp"
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
     "${FAMP_SRC_DIR}/LasLoader.cpp"
@@ -57,6 +59,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/RecentFiles.cpp"
     test_main.cpp
     test_cloud.cpp
+    test_crs_service.cpp
     test_file_io.cpp
     test_graphics_item_transform.cpp
     test_help_content.cpp
@@ -74,6 +77,7 @@ target_link_libraries(famp_tests
         GTest::gtest
         Qt${QT_VERSION_MAJOR}::Widgets
         lastools_compat
+        PROJ::proj
 )
 
 target_compile_definitions(famp_tests

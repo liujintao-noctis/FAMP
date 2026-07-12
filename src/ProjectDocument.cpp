@@ -1,4 +1,5 @@
 #include "ProjectDocument.h"
+#include "CrsService.h"
 #include "RecentFiles.h"
 
 #include <QDateTime>
@@ -87,6 +88,15 @@ bool save(const QString& projectPath,
         setError(errorMessage, QStringLiteral("项目中的点云文件数量超过上限。"));
         return false;
     }
+    const QString projectCrs = document.projectCrs.trimmed().isEmpty()
+        ? QString()
+        : famp::crs::normalizedEpsg(document.projectCrs);
+    if (!document.projectCrs.trimmed().isEmpty() && projectCrs.isEmpty())
+    {
+        setError(errorMessage,
+                 QStringLiteral("无效的项目坐标系：%1").arg(document.projectCrs));
+        return false;
+    }
 
     const QDir projectDirectory(QFileInfo(normalizedProjectPath).absolutePath());
     QJsonArray cloudFiles;
@@ -116,6 +126,7 @@ bool save(const QString& projectPath,
     root.insert(QStringLiteral("savedAtUtc"),
                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
     root.insert(QStringLiteral("mapScale"), document.mapScale);
+    root.insert(QStringLiteral("projectCrs"), projectCrs);
     root.insert(QStringLiteral("cloudFiles"), cloudFiles);
 
     QSaveFile file(normalizedProjectPath);
@@ -183,6 +194,15 @@ bool load(const QString& projectPath,
         setError(errorMessage, QStringLiteral("项目中的比例尺无效。"));
         return false;
     }
+    const QString storedCrs = root.value(QStringLiteral("projectCrs")).toString();
+    const QString projectCrs = storedCrs.trimmed().isEmpty()
+        ? QString()
+        : famp::crs::normalizedEpsg(storedCrs);
+    if (!storedCrs.trimmed().isEmpty() && projectCrs.isEmpty())
+    {
+        setError(errorMessage, QStringLiteral("项目中的坐标系无效。"));
+        return false;
+    }
 
     const QJsonValue cloudValue = root.value(QStringLiteral("cloudFiles"));
     if (!cloudValue.isArray() || cloudValue.toArray().size() > MaxCloudFiles)
@@ -219,6 +239,7 @@ bool load(const QString& projectPath,
     Document loaded;
     loaded.cloudFiles = cloudFiles;
     loaded.mapScale = mapScale;
+    loaded.projectCrs = projectCrs;
     document = loaded;
     return true;
 }

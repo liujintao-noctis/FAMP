@@ -11,6 +11,7 @@ struct Document
 {
     QStringList cloudFiles;
     QString mapScale = QStringLiteral("1:50");
+    QString projectCrs;
 };
 
 QString pathWithProjectSuffix(const QString& path);

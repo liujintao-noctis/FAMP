@@ -11,6 +11,8 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 ## 当前功能
 
 - 打开、查看 PCD/LAS 点云，并进行平面切割、投影和二维绘图。
+- 新建、打开和原子保存 `.famp` 项目，并每 60 秒自动备份未保存更改。
+- 为项目记录经 PROJ 验证的 EPSG 坐标系，并使用单点坐标转换器核对坐标。
 - 将 PCD/LAS 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
 - 使用 `Ctrl+Shift+Left/Right` 将选中的二维图元绕中心每次旋转 5°。
 - 通过“帮助”菜单查看离线快速入门、快捷键和 Qt/VTK/PCL 版本。
@@ -85,7 +87,7 @@ timeout 6 ./build/bin/FAMP
 
 退出码 `124` 表示 FAMP 正常保持运行，随后被 `timeout` 主动结束；它不表示程序崩溃。
 
-首次配置需要从网络下载并编译 Qt、VTK、PCL 以及 GoogleTest，耗时会明显长于后续构建。不要因为 vcpkg 长时间编译依赖而重复中断配置。
+首次配置需要从网络下载并编译 Qt、VTK、PCL、PROJ 以及 GoogleTest，耗时会明显长于后续构建。不要因为 vcpkg 长时间编译依赖而重复中断配置。
 
 ### 不使用 `/opt/vcpkg`
 
@@ -147,7 +149,7 @@ ctest --test-dir build -C Release --output-on-failure
 
 `x64-win-rel` 是仓库提供的 Release-only triplet，只生成 Release 依赖，不创建 vcpkg Debug 库。短 triplet 名称也能降低 Qt 生成文件触及 Windows `MAX_PATH` 的风险。
 
-`PATH` 用于查找 Qt、VTK、PCL 等 DLL，`QT_PLUGIN_PATH` 用于查找 `qwindows.dll`。如果只想使用程序而不开发，优先下载 CI 生成的 Windows 压缩包，不需要自行配置这些变量。
+`PATH` 用于查找 Qt、VTK、PCL、PROJ 等 DLL，`QT_PLUGIN_PATH` 用于查找 `qwindows.dll`。如果只想使用程序而不开发，优先下载 CI 生成的 Windows 压缩包，不需要自行配置这些变量。
 
 ## CMake 入口与缓存
 

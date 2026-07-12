@@ -9,6 +9,8 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("打开点云")));
     EXPECT_TRUE(content.contains(QStringLiteral(".famp")));
     EXPECT_TRUE(content.contains(QStringLiteral("60 秒")));
+    EXPECT_TRUE(content.contains(QStringLiteral("EPSG")));
+    EXPECT_TRUE(content.contains(QStringLiteral("PROJ")));
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
@@ -33,10 +35,12 @@ TEST(HelpContentTest, AboutContentIncludesAllVersions)
         QStringLiteral("1.2.3"),
         QStringLiteral("Qt-test"),
         QStringLiteral("VTK-test"),
-        QStringLiteral("PCL-test"));
+        QStringLiteral("PCL-test"),
+        QStringLiteral("PROJ-test"));
 
     EXPECT_TRUE(content.contains(QStringLiteral("FAMP 1.2.3")));
     EXPECT_TRUE(content.contains(QStringLiteral("Qt-test")));
     EXPECT_TRUE(content.contains(QStringLiteral("VTK-test")));
     EXPECT_TRUE(content.contains(QStringLiteral("PCL-test")));
+    EXPECT_TRUE(content.contains(QStringLiteral("PROJ-test")));
 }

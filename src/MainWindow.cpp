@@ -8,6 +8,7 @@
 
 #include "MainWindow.h"
 #include "FAMPController.h"
+#include "CrsService.h"
 #include "HelpContent.h"
 #include "LasLoader.h"
 #include "PcdLoader.h"
@@ -20,15 +21,20 @@
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileDialog>
 #include <QFontMetrics>
+#include <QFormLayout>
 #include <QPixmap>
+#include <QPushButton>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QMenu>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QTime>
@@ -54,6 +60,10 @@ MainWindow::MainWindow(QWidget *parent)
     , saveProjectAction(nullptr)
     , saveProjectAsAction(nullptr)
     , autosaveTimer(nullptr)
+    , toolsMenu(nullptr)
+    , setProjectCrsAction(nullptr)
+    , coordinateConverterAction(nullptr)
+    , crsStatusLabel(nullptr)
     , projectDirty(false)
     , loadingProject(false)
 {
@@ -123,6 +133,7 @@ MainWindow::MainWindow(QWidget *parent)
     controller->initializeConnections(ui, model, centerDock, scaleCombox);
     initializeProjectActions();
     initializeRecentFilesMenu();
+    initializeCrsActions();
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
 
@@ -134,6 +145,27 @@ MainWindow::MainWindow(QWidget *parent)
     updateWindowTitle();
     QTimer::singleShot(0, this, [this]() { checkForRecoveryProject(); });
 
+}
+
+void MainWindow::initializeCrsActions()
+{
+    toolsMenu = new QMenu(tr("工具"), this);
+    toolsMenu->setObjectName(QStringLiteral("menuTools"));
+    ui.menuBar->insertMenu(ui.menu_8->menuAction(), toolsMenu);
+
+    setProjectCrsAction = toolsMenu->addAction(tr("项目坐标系…"));
+    setProjectCrsAction->setObjectName(QStringLiteral("actSetProjectCrs"));
+    coordinateConverterAction = toolsMenu->addAction(tr("坐标转换器…"));
+    coordinateConverterAction->setObjectName(QStringLiteral("actCoordinateConverter"));
+    connect(setProjectCrsAction, &QAction::triggered,
+            this, &MainWindow::slotSetProjectCrs);
+    connect(coordinateConverterAction, &QAction::triggered,
+            this, &MainWindow::slotOpenCoordinateConverter);
+
+    crsStatusLabel = new QLabel(this);
+    crsStatusLabel->setMinimumWidth(150);
+    statusBar()->addPermanentWidget(crsStatusLabel);
+    updateCrsStatus();
 }
 
 void MainWindow::initializeProjectActions()
@@ -171,6 +203,7 @@ famp::project::Document MainWindow::currentProjectDocument() const
 {
     famp::project::Document document;
     document.mapScale = scaleCombox->currentText();
+    document.projectCrs = projectCrs;
     for (int row = 0; row < model->rowCount(); ++row)
     {
         const QStandardItem* projectItem = model->item(row);
@@ -243,12 +276,23 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
         QMessageBox::warning(this, tr("打开项目失败"), error);
         return false;
     }
+    if (!document.projectCrs.isEmpty())
+    {
+        famp::crs::Info crsInfo;
+        if (!famp::crs::inspect(document.projectCrs, crsInfo, &error))
+        {
+            QMessageBox::warning(this, tr("打开项目失败"), error);
+            return false;
+        }
+    }
 
     loadingProject = true;
     clearWorkspace();
     const int scaleIndex = scaleCombox->findText(document.mapScale);
     if (scaleIndex >= 0)
         scaleCombox->setCurrentIndex(scaleIndex);
+    projectCrs = document.projectCrs;
+    updateCrsStatus();
 
     QStringList failedFiles;
     for (const QString& cloudPath : document.cloudFiles)
@@ -348,6 +392,8 @@ void MainWindow::clearWorkspace()
     myCloud = nullptr;
     itemCloud = nullptr;
     itemProject = nullptr;
+    projectCrs.clear();
+    updateCrsStatus();
     isAABB = false;
     ui.actDelete->setEnabled(false);
     ui.actAABB->setEnabled(false);
@@ -376,6 +422,34 @@ void MainWindow::updateWindowTitle()
     if (projectDirty)
         title += QStringLiteral(" *");
     setWindowTitle(title);
+}
+
+void MainWindow::updateCrsStatus()
+{
+    if (!crsStatusLabel)
+        return;
+    if (projectCrs.isEmpty())
+    {
+        crsStatusLabel->setText(tr("CRS: 未设置"));
+        crsStatusLabel->setToolTip(
+            tr("未为当前项目声明坐标参考系。"));
+        return;
+    }
+
+    famp::crs::Info info;
+    QString error;
+    if (famp::crs::inspect(projectCrs, info, &error))
+    {
+        crsStatusLabel->setText(QStringLiteral("CRS: %1").arg(info.identifier));
+        crsStatusLabel->setToolTip(
+            QStringLiteral("%1 — %2 (%3)")
+                .arg(info.identifier, info.name, info.type));
+    }
+    else
+    {
+        crsStatusLabel->setText(QStringLiteral("CRS: %1").arg(projectCrs));
+        crsStatusLabel->setToolTip(error);
+    }
 }
 
 void MainWindow::removeRecoveryProject()
@@ -485,6 +559,110 @@ void MainWindow::slotAutosaveProject()
     settings.setValue(QStringLiteral("MainWindow/recoveryOriginalProject"),
                       currentProjectPath);
     statusBar()->showMessage(tr("项目已自动保存"), 3000);
+}
+
+void MainWindow::slotSetProjectCrs()
+{
+    bool accepted = false;
+    const QString input = QInputDialog::getText(
+        this,
+        tr("项目坐标参考系"),
+        tr("输入 EPSG 编码（留空可清除）："),
+        QLineEdit::Normal,
+        projectCrs.isEmpty() ? QStringLiteral("EPSG:4490") : projectCrs,
+        &accepted);
+    if (!accepted)
+        return;
+
+    if (input.trimmed().isEmpty())
+    {
+        if (!projectCrs.isEmpty())
+        {
+            projectCrs.clear();
+            updateCrsStatus();
+            markProjectDirty();
+        }
+        return;
+    }
+
+    famp::crs::Info info;
+    QString error;
+    if (!famp::crs::inspect(input, info, &error))
+    {
+        QMessageBox::warning(this, tr("坐标系无效"), error);
+        return;
+    }
+
+    if (projectCrs == info.identifier)
+        return;
+    projectCrs = info.identifier;
+    updateCrsStatus();
+    markProjectDirty();
+    statusBar()->showMessage(
+        tr("项目 CRS 已设置为 %1 — %2；已加载点云坐标未被修改。")
+            .arg(info.identifier, info.name),
+        8000);
+}
+
+void MainWindow::slotOpenCoordinateConverter()
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("坐标转换器"));
+    dialog.resize(560, 330);
+
+    QFormLayout layout(&dialog);
+    QLineEdit sourceCrsEdit(
+        projectCrs.isEmpty() ? QStringLiteral("EPSG:4326") : projectCrs,
+        &dialog);
+    QLineEdit targetCrsEdit(QStringLiteral("EPSG:3857"), &dialog);
+    QDoubleSpinBox xInput(&dialog);
+    QDoubleSpinBox yInput(&dialog);
+    QDoubleSpinBox zInput(&dialog);
+    for (QDoubleSpinBox* input : {&xInput, &yInput, &zInput})
+    {
+        input->setDecimals(10);
+        input->setRange(-1.0e12, 1.0e12);
+    }
+    xInput.setValue(118.0);
+    yInput.setValue(32.0);
+
+    QLabel hint(tr("地理坐标系按 X=经度、Y=纬度输入。该工具只转换单点，不修改已加载点云。"), &dialog);
+    hint.setWordWrap(true);
+    QLabel result(tr("输入坐标后点击“转换”。"), &dialog);
+    result.setTextInteractionFlags(Qt::TextSelectableByMouse);
+    result.setWordWrap(true);
+
+    layout.addRow(tr("源 CRS"), &sourceCrsEdit);
+    layout.addRow(tr("目标 CRS"), &targetCrsEdit);
+    layout.addRow(tr("X"), &xInput);
+    layout.addRow(tr("Y"), &yInput);
+    layout.addRow(tr("Z"), &zInput);
+    layout.addRow(&hint);
+    layout.addRow(tr("结果"), &result);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Close, &dialog);
+    QPushButton* transformButton = buttons.addButton(
+        tr("转换"), QDialogButtonBox::ActionRole);
+    layout.addRow(&buttons);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(transformButton, &QPushButton::clicked, &dialog, [&]() {
+        const famp::crs::Coordinate source{
+            xInput.value(), yInput.value(), zInput.value()};
+        famp::crs::Coordinate target;
+        QString error;
+        if (!famp::crs::transform(
+                sourceCrsEdit.text(), targetCrsEdit.text(), source, target, &error))
+        {
+            result.setText(tr("转换失败：%1").arg(error));
+            return;
+        }
+        result.setText(
+            QStringLiteral("X = %1\nY = %2\nZ = %3")
+                .arg(QString::number(target.x, 'g', 15),
+                     QString::number(target.y, 'g', 15),
+                     QString::number(target.z, 'g', 15)));
+    });
+    dialog.exec();
 }
 
 void MainWindow::initializeRecentFilesMenu()
@@ -629,7 +807,8 @@ void MainWindow::slotShowAbout()
             version,
             QString::fromLatin1(qVersion()),
             QString::fromLatin1(VTK_VERSION),
-            QString::fromLatin1(PCL_VERSION_PRETTY)));
+            QString::fromLatin1(PCL_VERSION_PRETTY),
+            famp::crs::runtimeVersion()));
 }
 
 void MainWindow::slotOn_actGraViewVisible_triggered(bool checked)

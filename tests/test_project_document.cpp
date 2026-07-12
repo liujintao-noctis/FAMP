@@ -24,6 +24,7 @@ TEST(ProjectDocumentTest, RoundTripsRelativeCloudPathsAndScale)
     famp::project::Document source;
     source.cloudFiles = {cloudPath, cloudPath};
     source.mapScale = QStringLiteral("1:100");
+    source.projectCrs = QStringLiteral("epsg:4490");
     QString error;
     ASSERT_TRUE(famp::project::save(projectPath, source, QStringLiteral("0.2.0"), &error))
         << error.toStdString();
@@ -42,6 +43,7 @@ TEST(ProjectDocumentTest, RoundTripsRelativeCloudPathsAndScale)
         << error.toStdString();
     EXPECT_EQ(loaded.cloudFiles, QStringList{QFileInfo(cloudPath).canonicalFilePath()});
     EXPECT_EQ(loaded.mapScale, source.mapScale);
+    EXPECT_EQ(loaded.projectCrs, QStringLiteral("EPSG:4490"));
 }
 
 TEST(ProjectDocumentTest, RejectsInvalidJsonWithoutMutatingOutput)
@@ -101,6 +103,21 @@ TEST(ProjectDocumentTest, RejectsUnsupportedScaleWithoutCreatingFile)
     const QString projectPath = directory.filePath(QStringLiteral("invalid.famp"));
     famp::project::Document document;
     document.mapScale = QStringLiteral("1:25");
+    QString error;
+
+    EXPECT_FALSE(famp::project::save(
+        projectPath, document, QStringLiteral("0.2.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(QFileInfo::exists(projectPath));
+}
+
+TEST(ProjectDocumentTest, RejectsMalformedProjectCrs)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString projectPath = directory.filePath(QStringLiteral("invalid-crs.famp"));
+    famp::project::Document document;
+    document.projectCrs = QStringLiteral("not-an-epsg-code");
     QString error;
 
     EXPECT_FALSE(famp::project::save(

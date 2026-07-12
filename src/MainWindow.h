@@ -80,6 +80,11 @@ private:
     QAction * saveProjectAsAction;
     QTimer * autosaveTimer;
     QString currentProjectPath;
+    QMenu * toolsMenu;
+    QAction * setProjectCrsAction;
+    QAction * coordinateConverterAction;
+    QLabel * crsStatusLabel;
+    QString projectCrs;
     bool projectDirty;
     bool loadingProject;
 
@@ -99,6 +104,7 @@ private:
     void addRecentFile(const QString& path);
     void updateRecentFilesMenu();
     void initializeProjectActions();
+    void initializeCrsActions();
     famp::project::Document currentProjectDocument() const;
     QString recoveryProjectPath() const;
     bool saveProject(bool forceSaveAs);
@@ -109,6 +115,7 @@ private:
     void clearWorkspace();
     void markProjectDirty();
     void updateWindowTitle();
+    void updateCrsStatus();
     void removeRecoveryProject();
     void checkForRecoveryProject();
 
@@ -146,6 +153,8 @@ private slots:
     void slotSaveProject();
     void slotSaveProjectAs();
     void slotAutosaveProject();
+    void slotSetProjectCrs();
+    void slotOpenCoordinateConverter();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();

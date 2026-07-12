@@ -131,6 +131,10 @@ jobs:
           if [ -d "${triplet_dir}/Qt6/plugins" ]; then
             cp -a "${triplet_dir}/Qt6/plugins" "${package_dir}/Qt6/"
           fi
+          if [ -d "${triplet_dir}/share/proj" ]; then
+            cp -a "${triplet_dir}/share/proj" "${package_dir}/share/"
+          fi
+          test -f "${package_dir}/share/proj/proj.db"
 
           cat > "${package_dir}/run-famp.sh" <<'EOF'
           #!/usr/bin/env bash
@@ -171,6 +175,14 @@ jobs:
             Copy-Item "$vcpkgBin/*.dll" $packageDir -Force
             $env:PATH = "$vcpkgBin;$env:PATH"
           }
+
+          $projData = Join-Path $tripletDir 'share/proj'
+          if (-not (Test-Path (Join-Path $projData 'proj.db'))) {
+            throw 'PROJ data directory is missing proj.db.'
+          }
+          $packagedProjData = Join-Path $packageDir 'share/proj'
+          New-Item -ItemType Directory -Force $packagedProjData | Out-Null
+          Copy-Item (Join-Path $projData '*') $packagedProjData -Recurse -Force
 
           $qtToolCandidates = @(
             "$tripletDir/tools/Qt6/bin/windeployqt.exe",
@@ -219,7 +231,8 @@ jobs:
 
           $requiredFiles = @(
             (Join-Path $packageDir 'FAMP.exe'),
-            (Join-Path $packageDir 'platforms/qwindows.dll')
+            (Join-Path $packageDir 'platforms/qwindows.dll'),
+            (Join-Path $packageDir 'share/proj/proj.db')
           )
           foreach ($requiredFile in $requiredFiles) {
             if (-not (Test-Path $requiredFile)) {
