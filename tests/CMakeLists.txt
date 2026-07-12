@@ -30,6 +30,7 @@ find_package(PROJ CONFIG REQUIRED)
 
 add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/Cloud.cpp"
+    "${FAMP_SRC_DIR}/CloudCoordinates.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
     "${FAMP_SRC_DIR}/CloudCoordinates.h"
     "${FAMP_SRC_DIR}/CloudLoader.cpp"
@@ -75,6 +76,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     test_main.cpp
     test_cloud.cpp
+    test_cloud_coordinates.cpp
     test_cloud_loader.cpp
     test_cloud_display_settings.cpp
     test_cloud_processing.cpp

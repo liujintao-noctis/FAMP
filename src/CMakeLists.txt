@@ -141,6 +141,7 @@ endif()
 
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
+    CloudCoordinates.cpp
     CloudDisplaySettings.cpp
     CloudLoader.cpp
     CloudProcessing.cpp
