@@ -23,8 +23,8 @@ FetchContent_MakeAvailable(googletest)
 # ── Cloud library (standalone, no GUI deps) ──────────────────────────────
 # Cloud.h has a residual #include <qdebug.h>; we pull Qt::Core for its
 # headers only, so no Widgets / GUI linkage is needed.
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
 find_package(PCL REQUIRED COMPONENTS common features io)
 
 add_library(famp_cloud STATIC
@@ -50,8 +50,10 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 
 # ── Test executable ───────────────────────────────────────────────────────
 add_executable(famp_tests
+    ../src/GraphicsItemTransform.cpp
     test_main.cpp
     test_cloud.cpp
+    test_graphics_item_transform.cpp
     test_help_content.cpp
     test_metric_scale.cpp
     test_pcd_loader.cpp
@@ -62,6 +64,7 @@ target_link_libraries(famp_tests
     PRIVATE
         famp_cloud
         GTest::gtest
+        Qt${QT_VERSION_MAJOR}::Widgets
 )
 
 target_include_directories(famp_tests

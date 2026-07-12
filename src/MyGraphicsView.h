@@ -167,6 +167,7 @@ private:
     void setMetricScreen(QScreen *screen);
     void refreshMetricLayout();
     void ReDraw(QPointF offset);    //比例尺改变后重新绘制
+    void rotateSelectedItems(qreal deltaDegrees);
 
     QDlgPlotTab  *dlgPlotTab;
     void setDlgPlotTab();           //设置弹出出图模板对话框
@@ -201,6 +202,8 @@ public slots:
     void slotOn_actMoveDown_triggered();            //向下移动
     void slotOn_actMoveLeft_triggered();            //向左移动
     void slotOn_actMoveRight_triggered();           //向右移动
+    void slotOn_actRotateLeft_triggered();           //逆时针旋转
+    void slotOn_actRotateRight_triggered();          //顺时针旋转
     void slotOn_actEditFront_triggered();           //前置按钮
     void slotOn_actEditBack_triggered();            //后置按钮
     void slotOn_actSave_triggered();            //保存按钮
@@ -224,5 +227,6 @@ signals:
     void sendReDraw(ScaleType scale);           //发送改变比例尺时重新画图
     void sendScaleOffset(QPointF offset);       //比例尺变化后坐标的偏移量
     void sendGetCurrentScale();         //发送获得当前比例尺信号
+    void selectionAvailabilityChanged(bool available);
     //void sendGetText();                   //发送获得制图人，比例尺，日期的信号
 };

@@ -11,6 +11,8 @@
 #include "MyVTK.h"
 #include "MyGraphicsView.h"
 
+#include <QAction>
+
 #include <vtkActor.h>
 #include <vtkPlaneWidget.h>
 #include <pcl/point_cloud.h>
@@ -149,6 +151,14 @@ void FAMPController::initializeConnections(const Ui::MainWindowClass& ui, QStand
     connect(ui.actMoveDown, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actMoveDown_triggered()));
     connect(ui.actMoveLeft, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actMoveLeft_triggered()));
     connect(ui.actMoveRight, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actMoveRight_triggered()));
+    connect(ui.actRotateLeft, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actRotateLeft_triggered()));
+    connect(ui.actRotateRight, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actRotateRight_triggered()));
+    connect(m_graphicsView, &MyGraphicsView::selectionAvailabilityChanged,
+            ui.actRotateLeft, &QAction::setEnabled);
+    connect(m_graphicsView, &MyGraphicsView::selectionAvailabilityChanged,
+            ui.actRotateRight, &QAction::setEnabled);
+    ui.actRotateLeft->setEnabled(false);
+    ui.actRotateRight->setEnabled(false);
     connect(ui.actEditFront, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actEditFront_triggered()));
     connect(ui.acEditBack, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actEditBack_triggered()));
     connect(ui.actSave, SIGNAL(triggered()), m_graphicsView, SLOT(slotOn_actSave_triggered()));

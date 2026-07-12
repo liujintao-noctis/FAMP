@@ -7,6 +7,7 @@
  *****************************************************************/
 
 #include "MyGraphicsView.h"
+#include "GraphicsItemTransform.h"
 #include "MainWindow.h"
 #include "MetricScale.h"
 
@@ -66,6 +67,9 @@ MyGraphicsView::MyGraphicsView(QWidget *parent)
 
     scene = new QGraphicsScene(-1500, -1500, 3000, 3000);
     this->setScene(scene);
+    connect(scene, &QGraphicsScene::selectionChanged, this, [this]() {
+        emit selectionAvailabilityChanged(!scene->selectedItems().isEmpty());
+    });
 
     setMetricScreen(QGuiApplication::primaryScreen());
 
@@ -1218,6 +1222,29 @@ void MyGraphicsView::slotOn_actMoveRight_triggered()
             item->setPos(itemPos.x() + 10, itemPos.y());
         }
     }
+}
+
+void MyGraphicsView::rotateSelectedItems(qreal deltaDegrees)
+{
+    const int rotatedCount = famp::graphics::rotateItems(
+        scene->selectedItems(), deltaDegrees);
+    if (rotatedCount > 0)
+    {
+        emit sendStrFromGraphicView2Console(
+            QStringLiteral("已旋转 %1 个图元 %2°")
+                .arg(rotatedCount)
+                .arg(deltaDegrees));
+    }
+}
+
+void MyGraphicsView::slotOn_actRotateLeft_triggered()
+{
+    rotateSelectedItems(-famp::graphics::RotationStepDegrees);
+}
+
+void MyGraphicsView::slotOn_actRotateRight_triggered()
+{
+    rotateSelectedItems(famp::graphics::RotationStepDegrees);
 }
 
 //前置按钮
