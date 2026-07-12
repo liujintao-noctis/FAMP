@@ -27,6 +27,9 @@
 #include <QHash>
 #include <QStringList>
 
+#include <atomic>
+#include <memory>
+
 #include <vtkPlaneWidget.h>
 
 class FAMPController;
@@ -38,6 +41,7 @@ class QDropEvent;
 class QMenu;
 class QProgressBar;
 class QTimer;
+class QToolButton;
 
 struct MyCloudList
 {
@@ -105,6 +109,8 @@ private:
     bool loadingProject;
     QFutureWatcher<famp::cloud::LoadResult> * cloudLoadWatcher;
     QProgressBar * cloudLoadProgress;
+    QToolButton * cloudLoadCancelButton;
+    std::shared_ptr<std::atomic_bool> cloudLoadCancellation;
     QStringList pendingCloudFiles;
     QStringList cloudLoadFailurePaths;
     QStringList cloudLoadFailureMessages;
@@ -116,6 +122,7 @@ private:
     bool cloudLoadBusy;
     bool cloudLoadProjectBatch;
     bool cloudLoadProjectRecovery;
+    bool cloudLoadCancelled;
     QHash<QString, famp::project::CloudReference> projectCloudReferences;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片

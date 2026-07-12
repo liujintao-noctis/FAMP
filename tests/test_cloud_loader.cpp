@@ -96,3 +96,16 @@ TEST(CloudLoaderTest, RejectsMissingAndUnsupportedFiles)
     EXPECT_FALSE(result.error.isEmpty());
     EXPECT_FALSE(result.displayCloud);
 }
+
+TEST(CloudLoaderTest, CancelsBeforeAllocatingDisplayCloud)
+{
+    const QString path = QStringLiteral(FAMP_SAMPLE_DIR "/projectPointCloud.pcd");
+    const famp::cloud::LoadResult result =
+        famp::cloud::load(path, []() { return true; });
+
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_FALSE(result.displayCloud);
+    EXPECT_FALSE(result.sourceCloud);
+    EXPECT_FALSE(result.error.isEmpty());
+}

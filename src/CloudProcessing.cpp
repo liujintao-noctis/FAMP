@@ -18,6 +18,19 @@ void setError(QString* errorMessage, const QString& message)
     if (errorMessage)
         *errorMessage = message;
 }
+
+bool cancel(Result& result,
+            const famp::tasks::CancellationCheck& shouldCancel)
+{
+    if (!famp::tasks::isCancellationRequested(shouldCancel))
+        return false;
+
+    result.cloud.reset();
+    result.outputPointCount = 0;
+    result.cancelled = true;
+    result.error = QStringLiteral("点云预处理已取消。");
+    return true;
+}
 }
 
 bool validateOptions(const Options& options,
@@ -72,7 +85,8 @@ bool validateOptions(const Options& options,
 }
 
 Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
-               const Options& options)
+               const Options& options,
+               const famp::tasks::CancellationCheck& shouldCancel)
 {
     Result result;
     result.inputPointCount = input ? input->size() : 0;
@@ -81,12 +95,20 @@ Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
         result.error = QStringLiteral("点云指针为空，无法预处理。");
         return result;
     }
+    if (cancel(result, shouldCancel))
+        return result;
 
     auto finiteCloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
         new pcl::PointCloud<pcl::PointXYZRGB>);
     finiteCloud->reserve(input->size());
+    std::size_t pointIndex = 0;
     for (const pcl::PointXYZRGB& point : input->points)
     {
+        if ((pointIndex++ & 0x0fffU) == 0U
+            && cancel(result, shouldCancel))
+        {
+            return result;
+        }
         if (pcl::isFinite(point))
             finiteCloud->push_back(point);
     }
@@ -96,6 +118,8 @@ Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
     result.finitePointCount = finiteCloud->size();
 
     if (!validateOptions(options, finiteCloud->size(), &result.error))
+        return result;
+    if (cancel(result, shouldCancel))
         return result;
 
     try
@@ -118,6 +142,9 @@ Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
             filter.setStddevMulThresh(options.standardDeviationMultiplier);
             filter.filter(*result.cloud);
         }
+
+        if (cancel(result, shouldCancel))
+            return result;
 
         if (!result.cloud || result.cloud->empty())
         {
@@ -147,10 +174,13 @@ Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
 Result processAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
     const Options& options,
-    const QString& requestedOutputPath)
+    const QString& requestedOutputPath,
+    const famp::tasks::CancellationCheck& shouldCancel)
 {
-    Result result = process(input, options);
+    Result result = process(input, options, shouldCancel);
     if (!result.succeeded())
+        return result;
+    if (cancel(result, shouldCancel))
         return result;
 
     result.outputPath = famp::io::pathWithRequiredSuffix(

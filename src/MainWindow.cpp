@@ -55,6 +55,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <QtConcurrentRun>
+#include <QToolButton>
 
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
@@ -95,12 +96,14 @@ MainWindow::MainWindow(QWidget *parent)
     , loadingProject(false)
     , cloudLoadWatcher(nullptr)
     , cloudLoadProgress(nullptr)
+    , cloudLoadCancelButton(nullptr)
     , cloudLoadTotal(0)
     , cloudLoadCompleted(0)
     , cloudLoadSucceeded(0)
     , cloudLoadBusy(false)
     , cloudLoadProjectBatch(false)
     , cloudLoadProjectRecovery(false)
+    , cloudLoadCancelled(false)
 {
     ui.setupUi(this);
 
@@ -183,6 +186,20 @@ MainWindow::MainWindow(QWidget *parent)
     cloudLoadProgress->setTextVisible(true);
     cloudLoadProgress->hide();
     statusBar()->addPermanentWidget(cloudLoadProgress);
+    cloudLoadCancelButton = new QToolButton(this);
+    cloudLoadCancelButton->setText(tr("取消加载"));
+    cloudLoadCancelButton->setToolTip(tr("安全取消当前点云及剩余队列"));
+    cloudLoadCancelButton->hide();
+    statusBar()->addPermanentWidget(cloudLoadCancelButton);
+    connect(cloudLoadCancelButton, &QToolButton::clicked, this, [this]() {
+        if (!cloudLoadBusy || !cloudLoadCancellation)
+            return;
+        cloudLoadCancelled = true;
+        cloudLoadCancellation->store(true, std::memory_order_relaxed);
+        pendingCloudFiles.clear();
+        cloudLoadCancelButton->setEnabled(false);
+        statusBar()->showMessage(tr("正在安全取消点云加载…"));
+    });
     connect(scaleCombox, &QComboBox::currentTextChanged,
             this, [this]() { markProjectDirty(); });
     connect(ui.graphicsView, &MyGraphicsView::scaleIndexChangedByHistory,
@@ -1270,24 +1287,36 @@ void MainWindow::slotPreprocessCloud()
     }
 
     QProgressDialog progress(
-        tr("正在后台预处理并保存点云…"), QString(), 0, 0, this);
+        tr("正在后台预处理并保存点云…"), tr("取消"), 0, 0, this);
     progress.setWindowTitle(tr("点云预处理"));
-    progress.setCancelButton(nullptr);
-    progress.setWindowFlag(Qt::WindowCloseButtonHint, false);
     progress.setWindowModality(Qt::ApplicationModal);
     progress.setMinimumDuration(0);
 
+    const auto cancellation = std::make_shared<std::atomic_bool>(false);
+    connect(&progress, &QProgressDialog::canceled, this, [cancellation]() {
+        cancellation->store(true, std::memory_order_relaxed);
+    });
     QFutureWatcher<famp::processing::Result> watcher;
     connect(&watcher, &QFutureWatcher<famp::processing::Result>::finished,
             &progress, &QProgressDialog::accept);
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
-    watcher.setFuture(QtConcurrent::run([input, options, outputPath]() {
-        return famp::processing::processAndSave(input, options, outputPath);
+    watcher.setFuture(QtConcurrent::run(
+        [input, options, outputPath, cancellation]() {
+        return famp::processing::processAndSave(
+            input, options, outputPath, [cancellation]() {
+                return cancellation->load(std::memory_order_relaxed);
+            });
     }));
     if (!watcher.isFinished())
         progress.exec();
 
     const famp::processing::Result result = watcher.result();
+    if (result.cancelled)
+    {
+        statusBar()->showMessage(tr("点云预处理已取消，未写入输出文件。"), 5000);
+        emit sendStr2Console(tr("点云预处理已取消  %1").arg(sourcePath));
+        return;
+    }
     if (!result.succeeded())
     {
         QMessageBox::warning(this, tr("点云预处理失败"), result.error);
@@ -1656,6 +1685,8 @@ bool MainWindow::beginCloudLoadBatch(const QStringList& paths,
     cloudLoadSucceeded = 0;
     cloudLoadProjectBatch = projectBatch;
     cloudLoadProjectRecovery = projectRecovery;
+    cloudLoadCancelled = false;
+    cloudLoadCancellation = std::make_shared<std::atomic_bool>(false);
 
     for (const QString& requestedPath : paths)
     {
@@ -1704,8 +1735,11 @@ void MainWindow::startNextCloudLoad()
     emit sendStr2Console(tr("后台读取点云  %1").arg(currentCloudLoadPath));
 
     const QString path = currentCloudLoadPath;
-    cloudLoadWatcher->setFuture(QtConcurrent::run([path]() {
-        return famp::cloud::load(path);
+    const auto cancellation = cloudLoadCancellation;
+    cloudLoadWatcher->setFuture(QtConcurrent::run([path, cancellation]() {
+        return famp::cloud::load(path, [cancellation]() {
+            return cancellation->load(std::memory_order_relaxed);
+        });
     }));
 }
 
@@ -1721,7 +1755,7 @@ void MainWindow::slotCloudLoadFinished()
         integrateLoadedCloud(result);
         ++cloudLoadSucceeded;
     }
-    else
+    else if (!result.cancelled)
     {
         cloudLoadFailurePaths.append(
             result.path.isEmpty() ? currentCloudLoadPath : result.path);
@@ -1844,6 +1878,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         recentFilesMenu->setEnabled(!busy);
     setAcceptDrops(!busy);
     cloudLoadProgress->setVisible(busy);
+    cloudLoadCancelButton->setVisible(busy);
+    cloudLoadCancelButton->setEnabled(busy);
     if (busy && preprocessCloudAction)
         preprocessCloudAction->setEnabled(false);
     else if (!busy)
@@ -1862,10 +1898,13 @@ void MainWindow::finishCloudLoadBatch()
     const int succeeded = cloudLoadSucceeded;
     const QStringList failurePaths = cloudLoadFailurePaths;
     const QStringList failureMessages = cloudLoadFailureMessages;
+    const bool cancelled = cloudLoadCancelled;
 
     cloudLoadBusy = false;
     cloudLoadProjectBatch = false;
     cloudLoadProjectRecovery = false;
+    cloudLoadCancelled = false;
+    cloudLoadCancellation.reset();
     projectCloudReferences.clear();
     pendingCloudFiles.clear();
     currentCloudLoadPath.clear();
@@ -1874,12 +1913,18 @@ void MainWindow::finishCloudLoadBatch()
     if (projectBatch)
     {
         loadingProject = false;
-        projectDirty = projectRecovery || !failurePaths.isEmpty();
+        projectDirty = projectRecovery || cancelled || !failurePaths.isEmpty();
         updateWindowTitle();
-        emit sendStr2Console(tr("已打开项目  %1（点云 %2/%3）")
-                                 .arg(projectPath)
-                                 .arg(succeeded)
-                                 .arg(total));
+        emit sendStr2Console(
+            cancelled
+                ? tr("项目加载已取消  %1（点云 %2/%3）")
+                      .arg(projectPath)
+                      .arg(succeeded)
+                      .arg(total)
+                : tr("已打开项目  %1（点云 %2/%3）")
+                      .arg(projectPath)
+                      .arg(succeeded)
+                      .arg(total));
     }
     else
     {
@@ -1889,9 +1934,11 @@ void MainWindow::finishCloudLoadBatch()
     }
 
     statusBar()->showMessage(
-        tr("点云加载完成：成功 %1，失败 %2")
-            .arg(succeeded)
-            .arg(failurePaths.size()),
+        cancelled
+            ? tr("点云加载已取消：已成功加载 %1 个").arg(succeeded)
+            : tr("点云加载完成：成功 %1，失败 %2")
+                  .arg(succeeded)
+                  .arg(failurePaths.size()),
         6000);
 
     if (!failurePaths.isEmpty())

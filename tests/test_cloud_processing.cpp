@@ -107,3 +107,20 @@ TEST(CloudProcessingTest, ProcessesAndAtomicallySavesUnicodePcd)
         << loadError.toStdString();
     EXPECT_EQ(loaded->size(), result.outputPointCount);
 }
+
+TEST(CloudProcessingTest, CancelsWithoutProducingAResultOrFile)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString output = directory.filePath(QStringLiteral("cancelled.pcd"));
+    famp::processing::Options options;
+
+    const famp::processing::Result result = famp::processing::processAndSave(
+        clusteredCloud(), options, output, []() { return true; });
+
+    EXPECT_TRUE(result.cancelled);
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_FALSE(result.cloud);
+    EXPECT_FALSE(QFileInfo::exists(output));
+    EXPECT_FALSE(result.error.isEmpty());
+}

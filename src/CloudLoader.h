@@ -7,6 +7,7 @@
 #pragma once
 
 #include "CloudCoordinates.h"
+#include "TaskCancellation.h"
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -22,6 +23,7 @@ struct LoadResult
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr sourceCloud;
     QString error;
     bool sourceWasPcd = false;
+    bool cancelled = false;
     SpatialReference spatial;
 
     bool succeeded() const
@@ -34,5 +36,7 @@ bool validatePath(const QString& requestedPath,
                   QString* normalizedPath,
                   QString* errorMessage = nullptr);
 
-LoadResult load(const QString& requestedPath);
+LoadResult load(
+    const QString& requestedPath,
+    const famp::tasks::CancellationCheck& shouldCancel = {});
 }
