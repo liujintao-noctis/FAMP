@@ -147,6 +147,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     FileIO.cpp
     FormTabulationItem.cpp
     GraphicsItemTransform.cpp
+    GraphicsExport.cpp
     GraphicsUndoCommands.cpp
     LasLoader.cpp
     MainWindow.cpp
@@ -169,6 +170,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     FileIO.h
     FormTabulationItem.h
     GraphicsItemTransform.h
+    GraphicsExport.h
     GraphicsUndoCommands.h
     HelpContent.h
     LasLoader.h

@@ -14,7 +14,9 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
-    EXPECT_TRUE(content.contains(QStringLiteral("保存成果")));
+    EXPECT_TRUE(content.contains(QStringLiteral("导出成果")));
+    EXPECT_TRUE(content.contains(QStringLiteral("PDF")));
+    EXPECT_TRUE(content.contains(QStringLiteral("300")));
 }
 
 TEST(HelpContentTest, ShortcutsListCoreActions)

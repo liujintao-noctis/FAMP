@@ -8,10 +8,19 @@
 
 #include "MyGraphicsView.h"
 #include "FileIO.h"
+#include "GraphicsExport.h"
 #include "GraphicsItemTransform.h"
 #include "MainWindow.h"
 #include "MetricScale.h"
+#include "Version.h"
 
+#include <QComboBox>
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDir>
+#include <QFileInfo>
+#include <QFormLayout>
+#include <QPushButton>
 #include <QGuiApplication>
 #include <QMessageBox>
 #include <QPainter>
@@ -1348,42 +1357,114 @@ void MyGraphicsView::slotOn_actEditBack_triggered()
 //保存按钮
 void MyGraphicsView::slotOn_actSave_triggered()
 {
-    const Qt::ScrollBarPolicy previousHorizontalPolicy = horizontalScrollBarPolicy();
-    const Qt::ScrollBarPolicy previousVerticalPolicy = verticalScrollBarPolicy();
-    sendClosedXOYLabel(false);  //关闭坐标轴图标
-    sendClosedScale(false);     //关闭比例尺
-    this->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); //关闭滚条
-    this->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    QDialog settingsDialog(this);
+    settingsDialog.setWindowTitle(tr("专业成果导出"));
+    QFormLayout layout(&settingsDialog);
 
-    QPixmap pix = this->grab();
+    QComboBox formatCombo(&settingsDialog);
+    formatCombo.addItem(tr("PDF 矢量文档"),
+                        static_cast<int>(famp::exporting::Format::Pdf));
+    formatCombo.addItem(tr("PNG 高分辨率图像"),
+                        static_cast<int>(famp::exporting::Format::Png));
+    formatCombo.addItem(tr("BMP 无损图像"),
+                        static_cast<int>(famp::exporting::Format::Bmp));
 
-    const auto restoreView = [this, previousHorizontalPolicy, previousVerticalPolicy]() {
-        sendClosedXOYLabel(true);
-        sendClosedScale(true);
-        setHorizontalScrollBarPolicy(previousHorizontalPolicy);
-        setVerticalScrollBarPolicy(previousVerticalPolicy);
-    };
-    restoreView();
+    QComboBox paperCombo(&settingsDialog);
+    paperCombo.addItem(QStringLiteral("A4"),
+                       static_cast<int>(famp::exporting::PaperSize::A4));
+    paperCombo.addItem(QStringLiteral("A3"),
+                       static_cast<int>(famp::exporting::PaperSize::A3));
+
+    QComboBox orientationCombo(&settingsDialog);
+    orientationCombo.addItem(tr("横向"),
+                             static_cast<int>(famp::exporting::Orientation::Landscape));
+    orientationCombo.addItem(tr("纵向"),
+                             static_cast<int>(famp::exporting::Orientation::Portrait));
+
+    QComboBox dpiCombo(&settingsDialog);
+    dpiCombo.addItem(QStringLiteral("150 DPI"), 150);
+    dpiCombo.addItem(QStringLiteral("300 DPI"), 300);
+    dpiCombo.addItem(QStringLiteral("600 DPI"), 600);
+    dpiCombo.setCurrentIndex(1);
+
+    QComboBox scaleModeCombo(&settingsDialog);
+    scaleModeCombo.addItem(
+        tr("保持当前制图比例尺"),
+        static_cast<int>(famp::exporting::ScaleMode::PreservePhysicalScale));
+    scaleModeCombo.addItem(
+        tr("自动适合页面"),
+        static_cast<int>(famp::exporting::ScaleMode::FitToPage));
+
+    layout.addRow(tr("格式"), &formatCombo);
+    layout.addRow(tr("纸张"), &paperCombo);
+    layout.addRow(tr("方向"), &orientationCombo);
+    layout.addRow(tr("缩放"), &scaleModeCombo);
+    layout.addRow(tr("分辨率"), &dpiCombo);
+
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Save | QDialogButtonBox::Cancel,
+        &settingsDialog);
+    buttons.button(QDialogButtonBox::Save)->setText(tr("选择路径…"));
+    connect(&buttons, &QDialogButtonBox::accepted,
+            &settingsDialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected,
+            &settingsDialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (settingsDialog.exec() != QDialog::Accepted)
+        return;
+
+    famp::exporting::Options options;
+    options.format = static_cast<famp::exporting::Format>(
+        formatCombo.currentData().toInt());
+    options.paperSize = static_cast<famp::exporting::PaperSize>(
+        paperCombo.currentData().toInt());
+    options.orientation = static_cast<famp::exporting::Orientation>(
+        orientationCombo.currentData().toInt());
+    options.scaleMode = static_cast<famp::exporting::ScaleMode>(
+        scaleModeCombo.currentData().toInt());
+    options.dotsPerInch = dpiCombo.currentData().toInt();
+    options.sceneUnitsPerMillimeterX = metricPixelsPerMillimeter.x();
+    options.sceneUnitsPerMillimeterY = metricPixelsPerMillimeter.y();
+    options.creator = QStringLiteral("FAMP %1").arg(
+        QString::fromLatin1(famp::Version));
+
+    QString filter;
+    switch (options.format)
+    {
+    case famp::exporting::Format::Pdf:
+        filter = tr("PDF 文档 (*.pdf)");
+        break;
+    case famp::exporting::Format::Bmp:
+        filter = tr("BMP 图像 (*.bmp)");
+        break;
+    case famp::exporting::Format::Png:
+    default:
+        filter = tr("PNG 图像 (*.png)");
+        break;
+    }
 
     QString filePath = QFileDialog::getSaveFileName(
         this,
-        "保存平面图",
-        QCoreApplication::applicationDirPath(),
-        "BMP 图像 (*.bmp)");
+        tr("导出专业成果"),
+        QDir(QCoreApplication::applicationDirPath())
+            .filePath(QStringLiteral("FAMP-export")),
+        filter);
     if (filePath.isEmpty())
         return;
 
-    filePath = famp::io::pathWithRequiredSuffix(filePath, QStringLiteral("bmp"));
+    filePath = famp::exporting::pathWithFormatSuffix(filePath, options.format);
+    options.title = QFileInfo(filePath).completeBaseName();
     QString saveError;
-    if (!famp::io::saveImageAtomically(
-            filePath, pix.toImage(), "BMP", 100, &saveError))
+    if (!famp::exporting::exportScene(
+            scene, filePath, options, &saveError))
     {
-        QMessageBox::warning(this, tr("保存失败"), saveError);
-        emit sendStrFromGraphicView2Console("保存图片失败：" + saveError);
+        QMessageBox::warning(this, tr("导出失败"), saveError);
+        emit sendStrFromGraphicView2Console(tr("导出失败：") + saveError);
         return;
     }
 
-    emit sendStrFromGraphicView2Console("保存图片到路径" + filePath + "成功！");
+    emit sendStrFromGraphicView2Console(
+        tr("专业成果已导出到：") + filePath);
 }
 
 //指北针按钮

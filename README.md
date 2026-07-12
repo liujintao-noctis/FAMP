@@ -17,7 +17,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 - 使用 `Ctrl+Shift+Left/Right` 将选中的二维图元绕中心每次旋转 5°。
 - 使用 `Ctrl+Z` 和 `Ctrl+Shift+Z`/`Ctrl+Y` 撤销或重做最近 100 步二维图元编辑。
 - 通过“帮助”菜单查看离线快速入门、快捷键和 Qt/VTK/PCL 版本。
-- 以原子写入方式保存 BMP 平面图和 PCD 切割点云，并明确报告无效输入或写入失败。
+- 将完整二维画布按 A4/A3、横向/纵向和 150/300/600 DPI 原子导出为 PDF、PNG 或 BMP，可保持当前制图比例尺或自动适合页面。
 
 完整版本变更见 [`CHANGELOG.md`](CHANGELOG.md)。
 
