@@ -20,8 +20,11 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QGraphicsPathItem>
+#include <QGraphicsSimpleTextItem>
 #include <QPushButton>
 #include <QGuiApplication>
+#include <QLineF>
 #include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
@@ -178,6 +181,7 @@ void MyGraphicsView::invalidateHistory(const QString& reason)
 
 void MyGraphicsView::clearSceneAndHistory()
 {
+    resetMeasurementInteraction(true);
     mousePressItemStates.clear();
     history->clear();
     itemHandles.clear();
@@ -975,6 +979,8 @@ void MyGraphicsView::ReDraw(QPointF offset)
         }
     }
 
+    rescaleMeasurementItems();
+
 }
 
 //弹出出图模板对话框
@@ -1627,6 +1633,11 @@ void MyGraphicsView::refreshMetricLayout()
         return;
     }
 
+    if (measurementActive)
+    {
+        resetMeasurementInteraction(true);
+        emit measurementStatus(tr("显示比例发生变化，已取消当前测量。"));
+    }
     metricPixelsPerMillimeter = newPixelsPerMillimeter;
     deltaOffset = scaleOffsetFor(scaleType);
     emit sendScaleOffset(deltaOffset);
@@ -1640,6 +1651,11 @@ void MyGraphicsView::refreshMetricLayout()
 //接受改变比例尺时重新画图
 void MyGraphicsView::getReDraw(ScaleType scale)
 {
+    if (measurementActive)
+    {
+        resetMeasurementInteraction(true);
+        emit measurementStatus(tr("制图比例尺发生变化，已取消当前测量。"));
+    }
     scaleType = scale;
     deltaOffset = scaleOffsetFor(scaleType);
     qDebug() << "重新作图1:" << scaleDenominator(scaleType)
@@ -1757,14 +1773,271 @@ void MyGraphicsView::showEvent(QShowEvent *event)
     setMetricScreen(windowHandle->screen());
 }
 
+void MyGraphicsView::beginMeasurement(famp::measurement::Kind kind)
+{
+    resetMeasurementInteraction(false);
+    measurementActive = true;
+    measurementKind = kind;
+    measurementScenePoints.clear();
+    measurementHasHoverPoint = false;
+    scene->clearSelection();
+    setDragMode(QGraphicsView::NoDrag);
+    viewport()->setCursor(Qt::CrossCursor);
+
+    const QString instructions = kind == famp::measurement::Kind::Distance
+        ? tr("距离测量：依次点击起点和终点，Esc 取消。")
+        : tr("面积测量：依次点击边界点，右键或双击闭合，Esc 取消。");
+    emit measurementStatus(instructions);
+}
+
+void MyGraphicsView::startDistanceMeasurement()
+{
+    beginMeasurement(famp::measurement::Kind::Distance);
+}
+
+void MyGraphicsView::startAreaMeasurement()
+{
+    beginMeasurement(famp::measurement::Kind::Area);
+}
+
+void MyGraphicsView::cancelMeasurement()
+{
+    if (!measurementActive)
+        return;
+    resetMeasurementInteraction(true);
+    emit measurementStatus(tr("已取消测量。"));
+}
+
+void MyGraphicsView::resetMeasurementInteraction(bool notify)
+{
+    if (measurementPreviewPath)
+    {
+        if (measurementPreviewPath->scene())
+            scene->removeItem(measurementPreviewPath);
+        delete measurementPreviewPath;
+        measurementPreviewPath = nullptr;
+    }
+    if (measurementPreviewLabel)
+    {
+        if (measurementPreviewLabel->scene())
+            scene->removeItem(measurementPreviewLabel);
+        delete measurementPreviewLabel;
+        measurementPreviewLabel = nullptr;
+    }
+
+    const bool wasActive = measurementActive;
+    measurementActive = false;
+    measurementScenePoints.clear();
+    measurementHasHoverPoint = false;
+    setDragMode(QGraphicsView::RubberBandDrag);
+    viewport()->setCursor(Qt::CrossCursor);
+    if (notify && wasActive)
+        emit measurementModeEnded();
+}
+
+void MyGraphicsView::updateMeasurementPreview()
+{
+    if (!measurementActive)
+        return;
+
+    QVector<QPointF> previewPoints = measurementScenePoints;
+    if (measurementHasHoverPoint
+        && (previewPoints.isEmpty()
+            || QLineF(previewPoints.back(), measurementHoverPoint).length() > 0.01))
+    {
+        previewPoints.append(measurementHoverPoint);
+    }
+
+    if (!measurementPreviewPath)
+    {
+        measurementPreviewPath = scene->addPath(QPainterPath());
+        QPen previewPen(QColor(0, 102, 204));
+        previewPen.setWidthF(2.0);
+        previewPen.setStyle(Qt::DashLine);
+        measurementPreviewPath->setPen(previewPen);
+        measurementPreviewPath->setBrush(
+            measurementKind == famp::measurement::Kind::Area
+                ? QBrush(QColor(0, 102, 204, 30))
+                : Qt::NoBrush);
+        measurementPreviewPath->setZValue(9999.0);
+    }
+
+    QPainterPath previewPath;
+    if (!previewPoints.isEmpty())
+    {
+        previewPath.moveTo(previewPoints.front());
+        for (int index = 1; index < previewPoints.size(); ++index)
+            previewPath.lineTo(previewPoints.at(index));
+        if (measurementKind == famp::measurement::Kind::Area
+            && previewPoints.size() >= 3)
+        {
+            previewPath.closeSubpath();
+        }
+    }
+    measurementPreviewPath->setPath(previewPath);
+
+    QString label;
+    QVector<QPointF> meterPoints;
+    if (famp::measurement::sceneToMeters(
+            previewPoints, deltaOffset, meterPoints, nullptr))
+    {
+        if (measurementKind == famp::measurement::Kind::Distance
+            && meterPoints.size() >= 2)
+        {
+            label = famp::measurement::formatValue(
+                measurementKind,
+                famp::measurement::polylineLength(meterPoints));
+        }
+        else if (measurementKind == famp::measurement::Kind::Area
+                 && meterPoints.size() >= 3)
+        {
+            label = famp::measurement::formatValue(
+                measurementKind,
+                famp::measurement::polygonArea(meterPoints));
+        }
+    }
+
+    if (label.isEmpty())
+    {
+        if (measurementPreviewLabel)
+            measurementPreviewLabel->hide();
+        return;
+    }
+    if (!measurementPreviewLabel)
+    {
+        measurementPreviewLabel = scene->addSimpleText(QString());
+        measurementPreviewLabel->setBrush(QColor(0, 70, 140));
+        measurementPreviewLabel->setZValue(10000.0);
+    }
+    measurementPreviewLabel->setText(label);
+    measurementPreviewLabel->setPos(
+        previewPoints.back() + QPointF(8.0, -22.0));
+    measurementPreviewLabel->show();
+}
+
+void MyGraphicsView::finishMeasurement()
+{
+    if (!measurementActive)
+        return;
+
+    const int minimumPointCount = measurementKind == famp::measurement::Kind::Area
+        ? 3
+        : 2;
+    if (measurementScenePoints.size() < minimumPointCount)
+    {
+        emit measurementStatus(
+            tr("测量点不足：距离至少需要 2 点，面积至少需要 3 点。"));
+        return;
+    }
+
+    QVector<QPointF> meterPoints;
+    QString error;
+    if (!famp::measurement::sceneToMeters(
+            measurementScenePoints, deltaOffset, meterPoints, &error))
+    {
+        emit measurementStatus(error);
+        return;
+    }
+
+    const double value = measurementKind == famp::measurement::Kind::Distance
+        ? famp::measurement::polylineLength(meterPoints)
+        : famp::measurement::polygonArea(meterPoints);
+    if (!std::isfinite(value) || value <= 1.0e-9)
+    {
+        emit measurementStatus(tr("测量结果为零，请重新选择不同的点。"));
+        return;
+    }
+
+    auto* item = new MeasurementItem(
+        measurementKind, meterPoints, deltaOffset);
+    addItemWithHistory(item,
+                       measurementKind == famp::measurement::Kind::Distance
+                           ? tr("添加距离测量")
+                           : tr("添加面积测量"));
+    const QString resultText = famp::measurement::formatValue(
+        measurementKind, value);
+    resetMeasurementInteraction(true);
+    emit measurementStatus(tr("测量完成：%1").arg(resultText));
+}
+
+void MyGraphicsView::clearMeasurements()
+{
+    if (measurementActive)
+        resetMeasurementInteraction(true);
+
+    QVector<famp::graphics::ItemHandle> handles;
+    for (QGraphicsItem* item : scene->items())
+    {
+        if (item && item->type() == MeasurementItem::Type)
+            handles.append(handleForItem(item));
+    }
+    if (handles.isEmpty())
+    {
+        emit measurementStatus(tr("当前画布没有测量结果。"));
+        return;
+    }
+
+    const int count = handles.size();
+    history->push(famp::graphics::makeRemoveItemsCommand(
+        scene, handles, tr("清除测量结果")));
+    emit measurementStatus(tr("已清除 %1 个测量结果，可通过撤销恢复。")
+                               .arg(count));
+}
+
+void MyGraphicsView::rescaleMeasurementItems()
+{
+    for (QGraphicsItem* item : scene->items())
+    {
+        if (auto* measurementItem = dynamic_cast<MeasurementItem*>(item))
+            measurementItem->setSceneUnitsPerMeter(deltaOffset);
+    }
+}
+
 void MyGraphicsView::keyPressEvent(QKeyEvent *e)
 {
+    if (measurementActive && e->key() == Qt::Key_Escape)
+    {
+        cancelMeasurement();
+        e->accept();
+        return;
+    }
     emit this->keyPress(e);
     QGraphicsView::keyPressEvent(e);
 }
 
 void MyGraphicsView::mousePressEvent(QMouseEvent *e)
 {
+    if (measurementActive)
+    {
+        if (e->button() == Qt::RightButton)
+        {
+            if (measurementKind == famp::measurement::Kind::Area)
+                finishMeasurement();
+            else
+                cancelMeasurement();
+            e->accept();
+            return;
+        }
+        if (e->button() == Qt::LeftButton)
+        {
+            const QPointF scenePoint = mapToScene(e->pos());
+            if (measurementScenePoints.isEmpty()
+                || QLineF(measurementScenePoints.back(), scenePoint).length() > 0.01)
+            {
+                measurementScenePoints.append(scenePoint);
+            }
+            measurementHasHoverPoint = false;
+            updateMeasurementPreview();
+            if (measurementKind == famp::measurement::Kind::Distance
+                && measurementScenePoints.size() >= 2)
+            {
+                finishMeasurement();
+            }
+            e->accept();
+            return;
+        }
+    }
+
     if (e->button() == Qt::LeftButton)
     {
         QPoint point = e->pos();
@@ -1782,11 +2055,25 @@ void MyGraphicsView::mouseMoveEvent(QMouseEvent *e)
     gvScenePos = this->mapToScene(point);
     emit this->mouseMovePoint(point);
 
+    if (measurementActive)
+    {
+        measurementHoverPoint = gvScenePos;
+        measurementHasHoverPoint = true;
+        updateMeasurementPreview();
+        e->accept();
+        return;
+    }
+
     return QGraphicsView::mouseMoveEvent(e);
 }
 
 void MyGraphicsView::mouseReleaseEvent(QMouseEvent *e)
 {
+    if (measurementActive)
+    {
+        e->accept();
+        return;
+    }
     QGraphicsView::mouseReleaseEvent(e);
     if (e->button() == Qt::LeftButton && !mousePressItemStates.isEmpty())
         pushTransformChange(mousePressItemStates, tr("拖动图元"));
@@ -1795,6 +2082,23 @@ void MyGraphicsView::mouseReleaseEvent(QMouseEvent *e)
 
 void MyGraphicsView::mouseDoubleClickEvent(QMouseEvent * e)
 {
+    if (measurementActive)
+    {
+        if (measurementKind == famp::measurement::Kind::Area
+            && e->button() == Qt::LeftButton)
+        {
+            const QPointF scenePoint = mapToScene(e->pos());
+            if (measurementScenePoints.isEmpty()
+                || QLineF(measurementScenePoints.back(), scenePoint).length() > 0.01)
+            {
+                measurementScenePoints.append(scenePoint);
+            }
+            finishMeasurement();
+        }
+        e->accept();
+        return;
+    }
+
     QPoint point = e->pos();
     QPointF pointScene = this->mapToScene(point);       //转换到Scene坐标
 

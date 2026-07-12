@@ -14,6 +14,7 @@
 #include "QDlgPlotTab.h"
 #include "CompassItem.h"
 #include "FormTabulationItem.h"
+#include "MeasurementItem.h"
 
 #include <QObject>
 #include <QWidget>
@@ -59,6 +60,8 @@
 #include <vector>
 
 class QPainter;
+class QGraphicsPathItem;
+class QGraphicsSimpleTextItem;
 class QScreen;
 class QShowEvent;
 class QUndoStack;
@@ -132,6 +135,13 @@ private:
     QUndoStack * history;
     QHash<QGraphicsItem*, std::weak_ptr<famp::graphics::ItemLifetime>> itemHandles;
     QVector<famp::graphics::ItemState> mousePressItemStates;
+    bool measurementActive = false;
+    famp::measurement::Kind measurementKind = famp::measurement::Kind::Distance;
+    QVector<QPointF> measurementScenePoints;
+    QPointF measurementHoverPoint;
+    bool measurementHasHoverPoint = false;
+    QGraphicsPathItem* measurementPreviewPath = nullptr;
+    QGraphicsSimpleTextItem* measurementPreviewLabel = nullptr;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr project_cloud;   //VTK投影后的点云
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr currentItemCloud;    //获得DBtree的点云
     double computeCloudMeanDis(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr & cloud);       //计算点云的平均密度（点与点之间的平均距离）
@@ -186,6 +196,11 @@ private:
     void addItemWithHistory(QGraphicsItem* item, const QString& text);
     void invalidateHistory(const QString& reason);
     void moveSelectedItemsBy(const QPointF& delta, const QString& text);
+    void beginMeasurement(famp::measurement::Kind kind);
+    void updateMeasurementPreview();
+    void finishMeasurement();
+    void resetMeasurementInteraction(bool notify);
+    void rescaleMeasurementItems();
 
     QDlgPlotTab  *dlgPlotTab;
     void setDlgPlotTab();           //设置弹出出图模板对话框
@@ -204,7 +219,7 @@ protected:
     void mousePressEvent(QMouseEvent *e) override;
     void mouseMoveEvent(QMouseEvent *e) override;
     void mouseReleaseEvent(QMouseEvent *e) override;
-    void mouseDoubleClickEvent(QMouseEvent *e);
+    void mouseDoubleClickEvent(QMouseEvent *e) override;
 
 public slots:
     void slotOn_actMiGe_triggered(bool checked);        //显示米格纸
@@ -233,6 +248,10 @@ public slots:
     void getReDraw(ScaleType scale);                //接受改变比例尺时重新画图
     void getScaleOffset(QPointF offset);        //得到比例尺变化后坐标的偏移量
     void slotOn_actPlotTab_triggered();         //出图模板按钮
+    void startDistanceMeasurement();
+    void startAreaMeasurement();
+    void cancelMeasurement();
+    void clearMeasurements();
 
 signals:
     void keyPress(QKeyEvent *e);
@@ -247,5 +266,7 @@ signals:
     void sendScaleOffset(QPointF offset);       //比例尺变化后坐标的偏移量
     void sendGetCurrentScale();         //发送获得当前比例尺信号
     void selectionAvailabilityChanged(bool available);
+    void measurementModeEnded();
+    void measurementStatus(QString message);
     //void sendGetText();                   //发送获得制图人，比例尺，日期的信号
 };

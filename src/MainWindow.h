@@ -30,6 +30,7 @@
 
 class FAMPController;
 class QAction;
+class QActionGroup;
 class QCloseEvent;
 class QDragEnterEvent;
 class QDropEvent;
@@ -87,6 +88,10 @@ private:
     QMenu * editMenu;
     QAction * setProjectCrsAction;
     QAction * coordinateConverterAction;
+    QActionGroup * measurementActionGroup;
+    QAction * distanceMeasureAction;
+    QAction * areaMeasureAction;
+    QAction * clearMeasurementsAction;
     QAction * undoGraphicsAction;
     QAction * redoGraphicsAction;
     QLabel * crsStatusLabel;

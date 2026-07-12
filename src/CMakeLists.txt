@@ -152,6 +152,8 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     GraphicsUndoCommands.cpp
     LasLoader.cpp
     MainWindow.cpp
+    Measurement.cpp
+    MeasurementItem.cpp
     MyGraphicsView.cpp
     MyItem.cpp
     MyVTK.cpp
@@ -177,6 +179,8 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     HelpContent.h
     LasLoader.h
     MainWindow.h
+    Measurement.h
+    MeasurementItem.h
     MetricScale.h
     MyGraphicsView.h
     MyItem.h
