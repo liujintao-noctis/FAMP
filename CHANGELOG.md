@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-12
+
 ### Added
 
 - 新增点云后台加载队列，PCD/LAS 读取和去中心化不再阻塞主界面；拖放批量文件和 `.famp` 项目恢复会显示逐文件进度并汇总失败原因。
@@ -58,6 +60,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/liujintao-noctis/FAMP/releases/tag/v0.1.0
