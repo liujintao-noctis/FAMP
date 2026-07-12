@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/liujintao-noctis/FAMP/actions/workflows/ci.yml/badge.svg)](https://github.com/liujintao-noctis/FAMP/actions/workflows/ci.yml)
 
-FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 PCL 的田野考古制图桌面程序，支持 PCD/LAS 点云查看、平面切割、投影、二维绘图和成果图片保存。
+FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 PCL 的田野考古制图桌面程序，支持 PCD/LAS/PLY/XYZ 点云查看、平面切割、投影、二维绘图和成果图片保存。
 
 项目使用 CMake 和 vcpkg 管理跨平台构建。规范的本地 CMake 入口是 `src/CMakeLists.txt`，构建产物统一放在仓库根目录的 `build/`。根目录 `CMakeLists.txt` 仍可使用，但它只负责设置工程并转发到 `src/`。
 
@@ -10,13 +10,13 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 
 ## 当前功能
 
-- 在后台串行读取、校验并打开 PCD/LAS 点云，加载期间界面仍可响应，也可安全取消当前文件和剩余队列；随后可进行平面切割、投影和二维绘图。
+- 在后台串行读取、校验并打开 PCD/LAS/PLY/XYZ 点云，加载期间界面仍可响应，也可安全取消当前文件和剩余队列；PLY 支持有色或无色顶点，XYZ 支持 `x y z` 或 `x y z r g b` 及空格/逗号/分号分隔。
 - 为选中点云调整点大小和透明度，并使用 RGB、统一颜色或局部高程 Z 渐变着色；高程色带支持自动数据范围和手动范围。在后台执行可取消的体素降采样或统计离群点去噪，仅在成功完成后原子保存为新的 PCD，原始文件不被修改。
 - 按当前点云的局部 X/Y/Z 包围范围保留内部或外部点，裁剪任务可取消，成功结果原子另存为新 PCD 并加入项目。
 - 点云预处理和范围裁剪参数可保存、载入为 `.famp-process.json` 方案；每个成功输出会自动生成带源文件路径、大小和修改时间的方案旁车文件，便于复核并重复执行相同参数。
 - 新建、打开和原子保存 `.famp` 项目，并每 60 秒自动备份未保存更改；项目格式 v2 保存点云原始坐标/双精度变换、可见性、二维图元、测量成果、比例尺和窗口布局，兼容读取 v1 项目，源点云移动后可交互重新定位。
 - 为项目记录经 PROJ 验证的 EPSG 坐标系，并使用通用坐标转换器核对 CRS；选择点云后可使用“点云局部/真实坐标”按保存的双精度原点和变换矩阵双向换算坐标。
-- 将 PCD/LAS 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
+- 将 PCD/LAS/PLY/XYZ 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
 - 使用 `Ctrl+Shift+Left/Right` 将选中的二维图元绕中心每次旋转 5°。
 - 使用 `Ctrl+Z` 和 `Ctrl+Shift+Z`/`Ctrl+Y` 撤销或重做最近 100 步编辑，包括二维图元新增/删除/变换/组合、文字字体、制图比例尺和项目 CRS。
 - 在二维画布按当前制图比例尺测量多段线距离、多边形面积/周长和三点夹角，结果可随成果一起导出，并支持撤销、重做和集中清除。
@@ -231,7 +231,7 @@ Windows 多配置生成器必须指定 Release：
 ctest --test-dir build -C Release --output-on-failure
 ```
 
-当前 GoogleTest 用例覆盖点云质心与去中心化、原始坐标、OBB、统一 PCD/LAS 加载服务、非 ASCII 点云路径、项目文件 v1/v2、二维场景完整往返、坐标系、撤销/重做、专业导出、字符串转换和物理比例尺计算。首次配置可能需要从 GitHub 下载 GoogleTest。
+当前 GoogleTest 用例覆盖点云质心与去中心化、原始坐标、OBB、统一 PCD/LAS/PLY/XYZ 加载服务、非 ASCII 点云路径、项目文件 v1/v2、二维场景完整往返、坐标系、撤销/重做、专业导出、字符串转换和物理比例尺计算。首次配置可能需要从 GitHub 下载 GoogleTest。
 
 ## 安装
 
