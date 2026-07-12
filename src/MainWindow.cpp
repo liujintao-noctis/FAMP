@@ -80,6 +80,7 @@ MainWindow::MainWindow(QWidget *parent)
     , editMenu(nullptr)
     , setProjectCrsAction(nullptr)
     , coordinateConverterAction(nullptr)
+    , cloudCoordinateAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -231,10 +232,16 @@ void MainWindow::initializeCrsActions()
     setProjectCrsAction->setObjectName(QStringLiteral("actSetProjectCrs"));
     coordinateConverterAction = toolsMenu->addAction(tr("坐标转换器…"));
     coordinateConverterAction->setObjectName(QStringLiteral("actCoordinateConverter"));
+    cloudCoordinateAction = toolsMenu->addAction(tr("点云局部/真实坐标…"));
+    cloudCoordinateAction->setObjectName(
+        QStringLiteral("actCloudCoordinateViewer"));
+    cloudCoordinateAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
             this, &MainWindow::slotOpenCoordinateConverter);
+    connect(cloudCoordinateAction, &QAction::triggered,
+            this, &MainWindow::slotOpenCloudCoordinateViewer);
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -628,6 +635,8 @@ void MainWindow::clearWorkspace()
         cloudDisplaySettingsAction->setEnabled(false);
     if (preprocessCloudAction)
         preprocessCloudAction->setEnabled(false);
+    if (cloudCoordinateAction)
+        cloudCoordinateAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -937,6 +946,98 @@ void MainWindow::updateCloudToolActions()
         cloudDisplaySettingsAction->setEnabled(available);
     if (preprocessCloudAction)
         preprocessCloudAction->setEnabled(available && !cloudLoadBusy);
+    if (cloudCoordinateAction)
+        cloudCoordinateAction->setEnabled(available && !cloudLoadBusy);
+}
+
+void MainWindow::slotOpenCloudCoordinateViewer()
+{
+    MyCloudList cloud;
+    QString path;
+    if (!selectedCloudData(cloud, &path))
+    {
+        QMessageBox::information(
+            this, tr("点云坐标"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("点云局部/真实坐标"));
+    QFormLayout layout(&dialog);
+    QLabel sourceLabel(QFileInfo(path).fileName(), &dialog);
+    sourceLabel.setToolTip(path);
+    QLabel originLabel(
+        QStringLiteral("X=%1, Y=%2, Z=%3")
+            .arg(cloud.spatial.origin[0], 0, 'g', 15)
+            .arg(cloud.spatial.origin[1], 0, 'g', 15)
+            .arg(cloud.spatial.origin[2], 0, 'g', 15),
+        &dialog);
+    QLabel crsLabel(projectCrs.isEmpty() ? tr("未声明") : projectCrs, &dialog);
+    layout.addRow(tr("点云"), &sourceLabel);
+    layout.addRow(tr("原始坐标原点"), &originLabel);
+    layout.addRow(tr("项目 CRS"), &crsLabel);
+
+    QDoubleSpinBox localX(&dialog), localY(&dialog), localZ(&dialog);
+    QDoubleSpinBox realX(&dialog), realY(&dialog), realZ(&dialog);
+    const auto configureCoordinate = [](QDoubleSpinBox& spin) {
+        spin.setRange(-1.0e12, 1.0e12);
+        spin.setDecimals(8);
+        spin.setSingleStep(0.1);
+    };
+    configureCoordinate(localX);
+    configureCoordinate(localY);
+    configureCoordinate(localZ);
+    configureCoordinate(realX);
+    configureCoordinate(realY);
+    configureCoordinate(realZ);
+    layout.addRow(tr("局部 X"), &localX);
+    layout.addRow(tr("局部 Y"), &localY);
+    layout.addRow(tr("局部 Z"), &localZ);
+    layout.addRow(tr("真实 X"), &realX);
+    layout.addRow(tr("真实 Y"), &realY);
+    layout.addRow(tr("真实 Z"), &realZ);
+
+    QDialogButtonBox buttons(QDialogButtonBox::Close, &dialog);
+    QPushButton* toReal = buttons.addButton(
+        tr("局部 → 真实"), QDialogButtonBox::ActionRole);
+    QPushButton* toLocal = buttons.addButton(
+        tr("真实 → 局部"), QDialogButtonBox::ActionRole);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    connect(toReal, &QPushButton::clicked, &dialog, [&]() {
+        famp::cloud::Point3d output{};
+        QString error;
+        if (!famp::cloud::localToReal(
+                cloud.spatial,
+                {localX.value(), localY.value(), localZ.value()},
+                output,
+                &error))
+        {
+            QMessageBox::warning(&dialog, tr("坐标转换失败"), error);
+            return;
+        }
+        realX.setValue(output[0]);
+        realY.setValue(output[1]);
+        realZ.setValue(output[2]);
+    });
+    connect(toLocal, &QPushButton::clicked, &dialog, [&]() {
+        famp::cloud::Point3d output{};
+        QString error;
+        if (!famp::cloud::realToLocal(
+                cloud.spatial,
+                {realX.value(), realY.value(), realZ.value()},
+                output,
+                &error))
+        {
+            QMessageBox::warning(&dialog, tr("坐标转换失败"), error);
+            return;
+        }
+        localX.setValue(output[0]);
+        localY.setValue(output[1]);
+        localZ.setValue(output[2]);
+    });
+    layout.addRow(&buttons);
+    toReal->click();
+    dialog.exec();
 }
 
 void MainWindow::slotCloudDisplaySettings()

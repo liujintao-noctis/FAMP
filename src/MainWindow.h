@@ -90,6 +90,7 @@ private:
     QMenu * editMenu;
     QAction * setProjectCrsAction;
     QAction * coordinateConverterAction;
+    QAction * cloudCoordinateAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -201,6 +202,7 @@ private slots:
     void slotAutosaveProject();
     void slotSetProjectCrs();
     void slotOpenCoordinateConverter();
+    void slotOpenCloudCoordinateViewer();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();
