@@ -35,6 +35,7 @@ int main(int argc, char *argv[])
     QSurfaceFormat::setDefaultFormat(QVTKOpenGLNativeWidget::defaultFormat());
 #endif
     QApplication a(argc, argv);
+    a.setOrganizationName(QStringLiteral("FAMP Project"));
     a.setApplicationName(QStringLiteral("FAMP"));
     a.setApplicationDisplayName(QStringLiteral("FAMP"));
     a.setApplicationVersion(QString::fromLatin1(famp::Version));

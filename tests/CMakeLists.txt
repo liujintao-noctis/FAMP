@@ -50,13 +50,15 @@ target_compile_definitions(famp_cloud PUBLIC ${PCL_DEFINITIONS})
 
 # ── Test executable ───────────────────────────────────────────────────────
 add_executable(famp_tests
-    ../src/GraphicsItemTransform.cpp
+    "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
+    "${FAMP_SRC_DIR}/RecentFiles.cpp"
     test_main.cpp
     test_cloud.cpp
     test_graphics_item_transform.cpp
     test_help_content.cpp
     test_metric_scale.cpp
     test_pcd_loader.cpp
+    test_recent_files.cpp
     test_string_convert.cpp
 )
 

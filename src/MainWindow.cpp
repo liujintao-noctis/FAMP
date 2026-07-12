@@ -10,16 +10,27 @@
 #include "FAMPController.h"
 #include "HelpContent.h"
 #include "PcdLoader.h"
+#include "RecentFiles.h"
 
+#include <QAction>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDir>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFileDialog>
+#include <QFontMetrics>
 #include <QPixmap>
 #include <QFileInfo>
 #include <QCoreApplication>
+#include <QMenu>
 #include <QMessageBox>
+#include <QMimeData>
+#include <QSettings>
 #include <QTime>
 #include <QTextBrowser>
+#include <QTimer>
+#include <QUrl>
 #include <QVBoxLayout>
 
 #include <pcl/pcl_config.h>
@@ -33,10 +44,12 @@ Q_DECLARE_METATYPE(MyCloudList)
 static int iCount = 0;      //记录点云的ID号
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
+    , recentFilesMenu(nullptr)
 {
     ui.setupUi(this);
 
     this->resize(1920, 1080);
+    setAcceptDrops(true);
 
     myCloud = NULL;
     inCloud = NULL;
@@ -97,7 +110,111 @@ MainWindow::MainWindow(QWidget *parent)
     // FAMPController 中介者：统一管理所有信号/槽连接
     controller = new FAMPController(this, myVTK, ui.graphicsView, this);
     controller->initializeConnections(ui, model, centerDock, scaleCombox);
+    initializeRecentFilesMenu();
 
+}
+
+void MainWindow::initializeRecentFilesMenu()
+{
+    recentFilesMenu = new QMenu(tr("最近打开"), ui.menu_4);
+    ui.menu_4->insertMenu(ui.actSave, recentFilesMenu);
+    ui.menu_4->insertSeparator(ui.actSave);
+
+    QSettings settings;
+    const QStringList storedFiles = settings.value(
+        QStringLiteral("MainWindow/recentCloudFiles")).toStringList();
+    recentFiles = famp::recent::availableFiles(storedFiles);
+    if (recentFiles != storedFiles)
+        settings.setValue(QStringLiteral("MainWindow/recentCloudFiles"), recentFiles);
+    updateRecentFilesMenu();
+}
+
+void MainWindow::addRecentFile(const QString& path)
+{
+    recentFiles = famp::recent::updatedFiles(recentFiles, path);
+    QSettings settings;
+    settings.setValue(QStringLiteral("MainWindow/recentCloudFiles"), recentFiles);
+    updateRecentFilesMenu();
+}
+
+void MainWindow::updateRecentFilesMenu()
+{
+    recentFilesMenu->clear();
+    if (recentFiles.isEmpty())
+    {
+        QAction* emptyAction = recentFilesMenu->addAction(tr("暂无最近文件"));
+        emptyAction->setEnabled(false);
+        return;
+    }
+
+    for (int index = 0; index < recentFiles.size(); ++index)
+    {
+        const QString path = recentFiles.at(index);
+        QString displayPath = QDir::toNativeSeparators(path);
+        displayPath.replace(QLatin1Char('&'), QStringLiteral("&&"));
+        displayPath = QFontMetrics(recentFilesMenu->font()).elidedText(
+            displayPath, Qt::ElideMiddle, 520);
+        QAction* action = recentFilesMenu->addAction(
+            QStringLiteral("&%1 %2").arg(index + 1).arg(displayPath));
+        action->setData(path);
+        action->setToolTip(path);
+        connect(action, &QAction::triggered, this, [this, action]() {
+            const QString selectedPath = action->data().toString();
+            const bool fileIsMissing = !QFileInfo::exists(selectedPath);
+            openCloudFile(selectedPath);
+            if (fileIsMissing)
+            {
+                recentFiles = famp::recent::availableFiles(recentFiles);
+                QSettings settings;
+                settings.setValue(QStringLiteral("MainWindow/recentCloudFiles"), recentFiles);
+                QTimer::singleShot(0, this, [this]() { updateRecentFilesMenu(); });
+            }
+        });
+    }
+}
+
+void MainWindow::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (!event->mimeData()->hasUrls())
+        return;
+
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (url.isLocalFile()
+            && famp::recent::isSupportedCloudFile(url.toLocalFile()))
+        {
+            event->acceptProposedAction();
+            return;
+        }
+    }
+}
+
+void MainWindow::dropEvent(QDropEvent* event)
+{
+    QStringList paths;
+    for (const QUrl& url : event->mimeData()->urls())
+    {
+        if (!url.isLocalFile())
+            continue;
+
+        const QString path = famp::recent::normalizedPath(url.toLocalFile());
+        if (famp::recent::isSupportedCloudFile(path) && !paths.contains(path))
+            paths.append(path);
+    }
+
+    if (paths.isEmpty())
+        return;
+
+    event->acceptProposedAction();
+    int openedCount = 0;
+    for (const QString& path : paths)
+    {
+        if (openCloudFile(path))
+            ++openedCount;
+    }
+    emit sendStr2Console(tr("拖放打开 %1/%2 个点云文件")
+                             .arg(openedCount)
+                             .arg(paths.size()));
 }
 
 void MainWindow::showHelpDialog(const QString& title, const QString& html)
@@ -195,7 +312,7 @@ void MainWindow::setScaleVisible(bool enable)
 }
 
 //将LAS格式转为PCD格式
-void MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud)
+bool MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud)
 {
     //-------------------------- 加载las点云 --------------------------
     LASreadOpener lasLoad;
@@ -213,7 +330,7 @@ void MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZR
     if (!lasReader)
     {
         QMessageBox::warning(this, tr("Error"), tr("Failed to open LAS file: %1").arg(QString::fromStdString(path)));
-        return;
+        return false;
     }
     uint32_t ptCount = lasReader->header.number_of_point_records;
     outCloud->points.reserve(static_cast<std::size_t>(ptCount));
@@ -251,6 +368,7 @@ void MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZR
 
     // 调试用：保存转换结果，生产环境需移除
     // pcl::io::savePCDFileBinary("PCD2Las.pcd", *outCloud);
+    return true;
 }
 
 void MainWindow::slotOn_actGraViewVisible_visibilityChanged(bool visible)
@@ -362,35 +480,89 @@ void MainWindow::slotBackView()
 //打开文件
 void MainWindow::slotOpenCloud()
 {
-    QString filter = "PCD(*.pcd);;LAS(*.las);;所有(*.*)";
-    QString path = QFileDialog::getOpenFileName(this, "打开点云文件", QCoreApplication::applicationDirPath(), filter);    //文件路径
-    QString dir = QFileInfo(path).fileName();    //文件名
-    QFileInfo fileInfo = QFileInfo(path);
-    QString fileSuffix = fileInfo.suffix().toLower(); //文件后缀
-    //qDebug() << "fileSuffix:" << fileSuffix;
+    const QString initialDirectory = recentFiles.isEmpty()
+        ? QCoreApplication::applicationDirPath()
+        : QFileInfo(recentFiles.front()).absolutePath();
+    const QString path = QFileDialog::getOpenFileName(
+        this,
+        tr("打开点云文件"),
+        initialDirectory,
+        tr("点云文件 (*.pcd *.las);;PCD (*.pcd);;LAS (*.las)"));
+    if (!path.isEmpty())
+        openCloudFile(path);
+}
 
-    if (path.isEmpty())     return;
+bool MainWindow::openCloudFile(const QString& requestedPath)
+{
+    const QString path = famp::recent::normalizedPath(requestedPath);
+    const QFileInfo fileInfo(path);
+    if (!fileInfo.exists() || !fileInfo.isFile())
+    {
+        QMessageBox::warning(
+            this, tr("无法打开点云"), tr("文件不存在：\n%1").arg(path));
+        return false;
+    }
+    if (!fileInfo.isReadable())
+    {
+        QMessageBox::warning(
+            this, tr("无法打开点云"), tr("文件不可读：\n%1").arg(path));
+        return false;
+    }
+    if (!famp::recent::isSupportedCloudFile(path))
+    {
+        QMessageBox::warning(
+            this,
+            tr("不支持的文件"),
+            tr("仅支持 PCD 和 LAS 点云文件：\n%1").arg(path));
+        return false;
+    }
 
-    inCloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    std::string pathPCD = qstr2str(path);   //将Qstring转为String
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadedPoints(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    const QString fileSuffix = fileInfo.suffix().toLower();
 
     //读取点云
     if (fileSuffix == "pcd")
     {
         QString loadError;
-        if (!loadPcdAsRgb(path, inCloud, &loadError))
+        if (!loadPcdAsRgb(path, loadedPoints, &loadError))
         {
-            QMessageBox::warning(this, tr("Error"), loadError);
-            return;
+            QMessageBox::warning(this, tr("无法打开点云"), loadError);
+            return false;
         }
+        if (loadedPoints->empty())
+        {
+            QMessageBox::warning(
+                this, tr("无法打开点云"), tr("点云不包含可用点：\n%1").arg(path));
+            return false;
+        }
+
+        std::unique_ptr<Cloud> loadedCloud(new Cloud(loadedPoints));
+        loadedPoints = loadedCloud->computeDecentrationCloud();
+        if (!loadedPoints || loadedPoints->empty())
+        {
+            QMessageBox::warning(
+                this, tr("无法打开点云"), tr("点云不包含可用点：\n%1").arg(path));
+            return false;
+        }
+
         delete myCloud;
-        myCloud = new Cloud(inCloud);
-        inCloud = myCloud->computeDecentrationCloud();
+        myCloud = loadedCloud.release();
     }
     else if (fileSuffix == "las")
     {
-        las2PCD(pathPCD, inCloud);
+        if (!las2PCD(qstr2str(path), loadedPoints))
+            return false;
+        if (loadedPoints->empty())
+        {
+            QMessageBox::warning(
+                this, tr("无法打开点云"), tr("LAS 文件不包含可用点：\n%1").arg(path));
+            return false;
+        }
     }
+
+    inCloud = loadedPoints;
+    const QString dir = fileInfo.fileName();
 
     emit sendOrignalCloud(inCloud);
 
@@ -413,11 +585,9 @@ void MainWindow::slotOpenCloud()
     pointCloudList.push_back(pointCloud);
 
     //发送给Console消息
-    emit sendStr2Console(QString::asprintf("打开点云  %s", path.toStdString().c_str()));
+    emit sendStr2Console(tr("打开点云  %1").arg(path));
 
     /////-------------------DB tree---------------------
-    QModelIndex index = ui.treeView->currentIndex();
-    QStandardItem * currentItem = model->itemFromIndex(index);
     QString str = dir + "(" + path + ")";
 
     //点云文件夹
@@ -449,6 +619,8 @@ void MainWindow::slotOpenCloud()
     ui.actAABB->setEnabled(true);
     ui.actAABB->setChecked(false);
     ui.actAABB->setText("关闭包围盒");
+    addRecentFile(path);
+    return true;
 }
 
 //点击DB Tree项目
