@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-07-12
+
 ### Added
 
 - 新增 PDF/HTML 考古项目报告，自动汇总项目 CRS、比例尺、点云文件/点数/原点/可见性和二维测量成果，并使用原子文件写入。
@@ -88,7 +90,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.2.0...v0.3.0
