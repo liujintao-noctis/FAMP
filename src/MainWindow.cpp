@@ -16,6 +16,7 @@
 #include "HelpContent.h"
 #include "LasLoader.h"
 #include "PcdLoader.h"
+#include "ProcessingRecipe.h"
 #include "RecentFiles.h"
 
 #include <QAction>
@@ -1290,10 +1291,17 @@ void MainWindow::slotPreprocessCloud()
         &dialog);
     note.setWordWrap(true);
 
+    QPushButton loadRecipeButton(tr("载入处理方案…"), &dialog);
+    QPushButton saveRecipeButton(tr("保存处理方案…"), &dialog);
+    QHBoxLayout recipeButtons;
+    recipeButtons.addWidget(&loadRecipeButton);
+    recipeButtons.addWidget(&saveRecipeButton);
+
     layout.addRow(tr("方法"), &method);
     layout.addRow(tr("体素边长"), &leafSize);
     layout.addRow(tr("邻域点数"), &meanNeighbors);
     layout.addRow(tr("标准差倍数"), &deviationMultiplier);
+    layout.addRow(tr("可复现方案"), &recipeButtons);
     layout.addRow(&note);
     auto updateParameterAvailability = [&]() {
         const bool voxel = static_cast<famp::processing::Method>(
@@ -1307,6 +1315,77 @@ void MainWindow::slotPreprocessCloud()
             &dialog, [&](int) { updateParameterAvailability(); });
     updateParameterAvailability();
 
+    auto currentOptions = [&]() {
+        famp::processing::Options current;
+        current.method = static_cast<famp::processing::Method>(
+            method.currentData().toInt());
+        current.voxelLeafSizeMeters = leafSize.value();
+        current.meanNeighbors = meanNeighbors.value();
+        current.standardDeviationMultiplier = deviationMultiplier.value();
+        return current;
+    };
+    connect(&loadRecipeButton, &QPushButton::clicked, &dialog, [&]() {
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, tr("载入处理方案"), QFileInfo(sourcePath).absolutePath(),
+            tr("FAMP 处理方案 (*.famp-process.json *.json)"));
+        if (path.isEmpty())
+            return;
+        famp::recipe::Recipe recipe;
+        QString recipeError;
+        if (!famp::recipe::load(path, recipe, &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("处理方案无效"), recipeError);
+            return;
+        }
+        if (recipe.operation == famp::recipe::Operation::RangeCrop)
+        {
+            QMessageBox::warning(
+                &dialog, tr("处理方案不兼容"),
+                tr("该方案用于范围裁剪，请在“按坐标范围裁剪”中载入。"));
+            return;
+        }
+        if (!famp::processing::validateOptions(
+                recipe.processing, cloud.input_cloud->size(), &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("处理方案不适用"), recipeError);
+            return;
+        }
+        QString sourceWarning;
+        if (!famp::recipe::sourceMatches(recipe, sourcePath, &sourceWarning))
+            QMessageBox::warning(&dialog, tr("处理方案来源不同"), sourceWarning);
+        method.setCurrentIndex(method.findData(
+            static_cast<int>(recipe.processing.method)));
+        leafSize.setValue(recipe.processing.voxelLeafSizeMeters);
+        meanNeighbors.setValue(recipe.processing.meanNeighbors);
+        deviationMultiplier.setValue(
+            recipe.processing.standardDeviationMultiplier);
+        updateParameterAvailability();
+    });
+    connect(&saveRecipeButton, &QPushButton::clicked, &dialog, [&]() {
+        const auto current = currentOptions();
+        QString recipeError;
+        if (!famp::processing::validateOptions(
+                current, cloud.input_cloud->size(), &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("处理参数无效"), recipeError);
+            return;
+        }
+        const QFileInfo sourceInfo(sourcePath);
+        const QString initialRecipePath = sourceInfo.absoluteDir().filePath(
+            sourceInfo.completeBaseName() + QStringLiteral(".famp-process.json"));
+        const QString path = QFileDialog::getSaveFileName(
+            &dialog, tr("保存处理方案"), initialRecipePath,
+            tr("FAMP 处理方案 (*.famp-process.json *.json)"));
+        if (path.isEmpty())
+            return;
+        if (!famp::recipe::save(
+                path, famp::recipe::forProcessing(current, sourcePath),
+                nullptr, &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("保存处理方案失败"), recipeError);
+        }
+    });
+
     QDialogButtonBox buttons(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
@@ -1316,12 +1395,7 @@ void MainWindow::slotPreprocessCloud()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    famp::processing::Options options;
-    options.method = static_cast<famp::processing::Method>(
-        method.currentData().toInt());
-    options.voxelLeafSizeMeters = leafSize.value();
-    options.meanNeighbors = meanNeighbors.value();
-    options.standardDeviationMultiplier = deviationMultiplier.value();
+    const famp::processing::Options options = currentOptions();
     QString validationError;
     if (!famp::processing::validateOptions(
             options, cloud.input_cloud->size(), &validationError))
@@ -1395,6 +1469,24 @@ void MainWindow::slotPreprocessCloud()
         return;
     }
 
+    QString recipePath;
+    QString recipeError;
+    const QString automaticRecipePath =
+        famp::recipe::automaticSidecarPath(result.outputPath);
+    if (!famp::recipe::save(
+            automaticRecipePath,
+            famp::recipe::forProcessing(options, sourcePath),
+            &recipePath,
+            &recipeError))
+    {
+        emit sendStr2Console(
+            tr("点云处理完成，但自动方案保存失败：%1").arg(recipeError));
+    }
+    else
+    {
+        emit sendStr2Console(tr("已保存可复现处理方案  %1").arg(recipePath));
+    }
+
     famp::cloud::LoadResult loaded;
     loaded.path = result.outputPath;
     loaded.displayCloud = result.cloud;
@@ -1450,6 +1542,11 @@ void MainWindow::slotCropCloud()
     QComboBox keepMode(&dialog);
     keepMode.addItem(tr("保留范围内部"), true);
     keepMode.addItem(tr("保留范围外部"), false);
+    QPushButton loadRecipeButton(tr("载入处理方案…"), &dialog);
+    QPushButton saveRecipeButton(tr("保存处理方案…"), &dialog);
+    QHBoxLayout recipeButtons;
+    recipeButtons.addWidget(&loadRecipeButton);
+    recipeButtons.addWidget(&saveRecipeButton);
     QLabel note(tr("范围使用当前点云的局部坐标；结果另存为新 PCD，原始文件不变。"),
                 &dialog);
     note.setWordWrap(true);
@@ -1460,7 +1557,74 @@ void MainWindow::slotCropCloud()
     layout.addRow(tr("Z 最小值"), &minimumZ);
     layout.addRow(tr("Z 最大值"), &maximumZ);
     layout.addRow(tr("保留模式"), &keepMode);
+    layout.addRow(tr("可复现方案"), &recipeButtons);
     layout.addRow(&note);
+    auto currentCropOptions = [&]() {
+        famp::crop::Options current;
+        current.minimumX = minimumX.value();
+        current.maximumX = maximumX.value();
+        current.minimumY = minimumY.value();
+        current.maximumY = maximumY.value();
+        current.minimumZ = minimumZ.value();
+        current.maximumZ = maximumZ.value();
+        current.keepInside = keepMode.currentData().toBool();
+        return current;
+    };
+    connect(&loadRecipeButton, &QPushButton::clicked, &dialog, [&]() {
+        const QString path = QFileDialog::getOpenFileName(
+            &dialog, tr("载入处理方案"), QFileInfo(sourcePath).absolutePath(),
+            tr("FAMP 处理方案 (*.famp-process.json *.json)"));
+        if (path.isEmpty())
+            return;
+        famp::recipe::Recipe recipe;
+        QString recipeError;
+        if (!famp::recipe::load(path, recipe, &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("处理方案无效"), recipeError);
+            return;
+        }
+        if (recipe.operation != famp::recipe::Operation::RangeCrop)
+        {
+            QMessageBox::warning(
+                &dialog, tr("处理方案不兼容"),
+                tr("该方案用于点云预处理，请在“点云预处理”中载入。"));
+            return;
+        }
+        QString sourceWarning;
+        if (!famp::recipe::sourceMatches(recipe, sourcePath, &sourceWarning))
+            QMessageBox::warning(&dialog, tr("处理方案来源不同"), sourceWarning);
+        minimumX.setValue(recipe.crop.minimumX);
+        maximumX.setValue(recipe.crop.maximumX);
+        minimumY.setValue(recipe.crop.minimumY);
+        maximumY.setValue(recipe.crop.maximumY);
+        minimumZ.setValue(recipe.crop.minimumZ);
+        maximumZ.setValue(recipe.crop.maximumZ);
+        keepMode.setCurrentIndex(recipe.crop.keepInside ? 0 : 1);
+    });
+    connect(&saveRecipeButton, &QPushButton::clicked, &dialog, [&]() {
+        const auto current = currentCropOptions();
+        QString recipeError;
+        if (!famp::crop::validateOptions(current, &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("裁剪参数无效"), recipeError);
+            return;
+        }
+        const QFileInfo sourceInfo(sourcePath);
+        const QString initialRecipePath = sourceInfo.absoluteDir().filePath(
+            sourceInfo.completeBaseName()
+            + QStringLiteral("_crop.famp-process.json"));
+        const QString path = QFileDialog::getSaveFileName(
+            &dialog, tr("保存处理方案"), initialRecipePath,
+            tr("FAMP 处理方案 (*.famp-process.json *.json)"));
+        if (path.isEmpty())
+            return;
+        if (!famp::recipe::save(
+                path, famp::recipe::forCrop(current, sourcePath),
+                nullptr, &recipeError))
+        {
+            QMessageBox::warning(&dialog, tr("保存处理方案失败"), recipeError);
+        }
+    });
     QDialogButtonBox buttons(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
@@ -1470,13 +1634,7 @@ void MainWindow::slotCropCloud()
     if (dialog.exec() != QDialog::Accepted)
         return;
 
-    options.minimumX = minimumX.value();
-    options.maximumX = maximumX.value();
-    options.minimumY = minimumY.value();
-    options.maximumY = maximumY.value();
-    options.minimumZ = minimumZ.value();
-    options.maximumZ = maximumZ.value();
-    options.keepInside = keepMode.currentData().toBool();
+    options = currentCropOptions();
     if (!famp::crop::validateOptions(options, &error))
     {
         QMessageBox::warning(this, tr("点云范围裁剪"), error);
@@ -1538,6 +1696,22 @@ void MainWindow::slotCropCloud()
     {
         QMessageBox::warning(this, tr("点云范围裁剪失败"), result.error);
         return;
+    }
+
+    QString recipePath;
+    QString recipeError;
+    if (!famp::recipe::save(
+            famp::recipe::automaticSidecarPath(result.outputPath),
+            famp::recipe::forCrop(options, sourcePath),
+            &recipePath,
+            &recipeError))
+    {
+        emit sendStr2Console(
+            tr("范围裁剪完成，但自动方案保存失败：%1").arg(recipeError));
+    }
+    else
+    {
+        emit sendStr2Console(tr("已保存可复现处理方案  %1").arg(recipePath));
     }
 
     famp::cloud::LoadResult loaded;
