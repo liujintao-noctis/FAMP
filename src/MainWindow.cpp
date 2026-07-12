@@ -7,6 +7,7 @@
  *****************************************************************/
 
 #include "MainWindow.h"
+#include "ArchaeologyReport.h"
 #include "FAMPController.h"
 #include "CrsService.h"
 #include "CloudDisplaySettings.h"
@@ -81,6 +82,7 @@ MainWindow::MainWindow(QWidget *parent)
     , openProjectAction(nullptr)
     , saveProjectAction(nullptr)
     , saveProjectAsAction(nullptr)
+    , exportReportAction(nullptr)
     , autosaveTimer(nullptr)
     , toolsMenu(nullptr)
     , editMenu(nullptr)
@@ -372,11 +374,14 @@ void MainWindow::initializeProjectActions()
     saveProjectAction->setShortcut(QKeySequence(QStringLiteral("Ctrl+Shift+S")));
     saveProjectAsAction = new QAction(tr("项目另存为…"), this);
     saveProjectAsAction->setObjectName(QStringLiteral("actSaveProjectAs"));
+    exportReportAction = new QAction(tr("导出考古项目报告…"), this);
+    exportReportAction->setObjectName(QStringLiteral("actExportArchaeologyReport"));
 
     ui.menu_4->insertAction(ui.actOpenCloud, newProjectAction);
     ui.menu_4->insertAction(ui.actOpenCloud, openProjectAction);
     ui.menu_4->insertAction(ui.actOpenCloud, saveProjectAction);
     ui.menu_4->insertAction(ui.actOpenCloud, saveProjectAsAction);
+    ui.menu_4->insertAction(ui.actOpenCloud, exportReportAction);
     ui.menu_4->insertSeparator(ui.actOpenCloud);
     ui.actSave->setText(tr("导出平面图…"));
 
@@ -388,6 +393,72 @@ void MainWindow::initializeProjectActions()
             this, &MainWindow::slotSaveProject);
     connect(saveProjectAsAction, &QAction::triggered,
             this, &MainWindow::slotSaveProjectAs);
+    connect(exportReportAction, &QAction::triggered,
+            this, &MainWindow::slotExportArchaeologyReport);
+}
+
+void MainWindow::slotExportArchaeologyReport()
+{
+    famp::project::Document project;
+    QString error;
+    if (!currentProjectDocument(project, &error))
+    {
+        QMessageBox::warning(this, tr("导出考古项目报告"), error);
+        return;
+    }
+
+    famp::report::Data report;
+    report.projectPath = currentProjectPath;
+    report.projectName = currentProjectPath.isEmpty()
+        ? tr("未命名项目")
+        : QFileInfo(currentProjectPath).completeBaseName();
+    report.projectCrs = project.projectCrs;
+    report.mapScale = project.mapScale;
+    report.applicationVersion = QCoreApplication::applicationVersion();
+    report.generatedAt = QDateTime::currentDateTime();
+    report.graphicsState = project.graphicsState;
+    for (int row = 0; row < model->rowCount(); ++row)
+    {
+        const QStandardItem* projectItem = model->item(row);
+        if (!projectItem || projectItem->rowCount() == 0)
+            continue;
+        const QStandardItem* cloudItem = projectItem->child(0);
+        const MyCloudList cloud = cloudItem->data(Qt::UserRole + 2)
+                                      .value<MyCloudList>();
+        famp::report::CloudEntry entry;
+        entry.path = cloudItem->data(Qt::UserRole).toString();
+        entry.pointCount = cloud.input_cloud ? cloud.input_cloud->size() : 0;
+        entry.visible = cloudItem->checkState() == Qt::Checked;
+        entry.spatial = cloud.spatial;
+        report.clouds.append(entry);
+    }
+
+    const QString initialDirectory = currentProjectPath.isEmpty()
+        ? QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation)
+        : QFileInfo(currentProjectPath).absolutePath();
+    const QString initialPath = QDir(initialDirectory).filePath(
+        report.projectName + QStringLiteral("_考古项目报告.pdf"));
+    QString selectedFilter;
+    QString outputPath = QFileDialog::getSaveFileName(
+        this, tr("导出考古项目报告"), initialPath,
+        tr("PDF 报告 (*.pdf);;HTML 报告 (*.html)"), &selectedFilter);
+    if (outputPath.isEmpty())
+        return;
+    const bool html = selectedFilter.contains(QStringLiteral("HTML"),
+                                               Qt::CaseInsensitive)
+        || outputPath.endsWith(QStringLiteral(".html"), Qt::CaseInsensitive);
+    outputPath = famp::io::pathWithRequiredSuffix(
+        outputPath, html ? QStringLiteral("html") : QStringLiteral("pdf"));
+    const bool saved = html
+        ? famp::report::saveHtml(outputPath, report, &error)
+        : famp::report::savePdf(outputPath, report, &error);
+    if (!saved)
+    {
+        QMessageBox::warning(this, tr("导出考古项目报告失败"), error);
+        return;
+    }
+    statusBar()->showMessage(tr("考古项目报告已保存"), 5000);
+    emit sendStr2Console(tr("已导出考古项目报告  %1").arg(outputPath));
 }
 
 bool MainWindow::currentProjectDocument(
@@ -2476,6 +2547,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         saveProjectAction->setEnabled(!busy);
     if (saveProjectAsAction)
         saveProjectAsAction->setEnabled(!busy);
+    if (exportReportAction)
+        exportReportAction->setEnabled(!busy);
     if (recentFilesMenu)
         recentFilesMenu->setEnabled(!busy);
     setAcceptDrops(!busy);

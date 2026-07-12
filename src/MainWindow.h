@@ -88,6 +88,7 @@ private:
     QAction * openProjectAction;
     QAction * saveProjectAction;
     QAction * saveProjectAsAction;
+    QAction * exportReportAction;
     QTimer * autosaveTimer;
     QString currentProjectPath;
     QMenu * toolsMenu;
@@ -212,6 +213,7 @@ private slots:
     void slotOpenProject();
     void slotSaveProject();
     void slotSaveProjectAs();
+    void slotExportArchaeologyReport();
     void slotAutosaveProject();
     void slotSetProjectCrs();
     void slotOpenCoordinateConverter();

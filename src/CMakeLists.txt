@@ -140,6 +140,7 @@ else()
 endif()
 
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
+    ArchaeologyReport.cpp
     AdditionalCloudLoader.cpp
     Cloud.cpp
     CloudCoordinates.cpp
@@ -176,6 +177,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKProjectionManager.cpp
     main.cpp
     Cloud.h
+    ArchaeologyReport.h
     AdditionalCloudLoader.h
     CloudCoordinates.h
     CloudCrop.h
