@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-07-12
+
 ### Added
 
 - 点云批量加载和后台预处理新增安全取消：加载可停止当前文件及剩余队列，预处理取消后不会集成结果或写入目标文件，并保留已成功加载的点云。
@@ -79,7 +81,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.1.1...v0.2.0
