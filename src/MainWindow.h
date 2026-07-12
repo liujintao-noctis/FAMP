@@ -11,7 +11,6 @@
 #include "ui_MainWindow.h"
 #include "MyVTK.h"
 #include "Cloud.h"
-#include "QstringAndStringConvert.h"
 #include "QDlgClip.h"
 #include "MyGraphicsView.h"
 
@@ -25,9 +24,6 @@
 #include <QStringList>
 
 #include <vtkPlaneWidget.h>
-
-#include <lasreader.hpp>
-#include <laswriter.hpp>
 
 class FAMPController;
 class QDragEnterEvent;
@@ -83,7 +79,6 @@ private:
     QComboBox * scaleCombox;
     QLabel * scaleLabel;
     void setScaleVisible(bool enable);          //设置比例尺的可见性
-    bool las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud);            //将LAS格式转为PCD格式
     void showPlaneWidget(vtkPlaneWidget* (MyVTK::*displayFunc)(), const char* consoleMsg); //统一的平面部件显示方法
     void showHelpDialog(const QString& title, const QString& html);
     bool openCloudFile(const QString& path);

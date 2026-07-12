@@ -7,7 +7,7 @@
  *****************************************************************/
 
 #include "VTKProjectionManager.h"
-#include "QstringAndStringConvert.h"
+#include "FileIO.h"
 #include <vtkNew.h>
 
 #include <QFileDialog>
@@ -232,11 +232,20 @@ bool VTKProjectionManager::saveDlgCloudFile(pcl::PointCloud<pcl::PointXYZRGB>::P
         return false;
     }
 
-    outFilePath = QFileDialog::getSaveFileName(parent, "保存文件", QCoreApplication::applicationDirPath(), "(*pcd);;所有文件(*.*)");
+    outFilePath = QFileDialog::getSaveFileName(
+        parent,
+        "保存切割点云",
+        QCoreApplication::applicationDirPath(),
+        "PCD 点云 (*.pcd)");
     if (outFilePath.isEmpty())
         return false;
 
-    std::string pathPCD = qstr2str(outFilePath);
-    pcl::io::savePCDFileASCII(pathPCD, *cloud_cut_plane);
+    outFilePath = famp::io::pathWithRequiredSuffix(outFilePath, QStringLiteral("pcd"));
+    QString saveError;
+    if (!famp::io::savePcdAsciiAtomically(outFilePath, *cloud_cut_plane, &saveError))
+    {
+        QMessageBox::warning(parent, "保存失败", saveError);
+        return false;
+    }
     return true;
 }

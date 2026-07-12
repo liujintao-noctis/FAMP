@@ -9,6 +9,7 @@
 #include "MainWindow.h"
 #include "FAMPController.h"
 #include "HelpContent.h"
+#include "LasLoader.h"
 #include "PcdLoader.h"
 #include "RecentFiles.h"
 
@@ -36,7 +37,6 @@
 #include <pcl/pcl_config.h>
 #include <vtkVersion.h>
 
-#include <cstdint>
 #include <memory>
 
 Q_DECLARE_METATYPE(MyCloudList)
@@ -311,66 +311,6 @@ void MainWindow::setScaleVisible(bool enable)
     this->scaleLabel->setVisible(enable);
 }
 
-//将LAS格式转为PCD格式
-bool MainWindow::las2PCD(const std::string& path, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &outCloud)
-{
-    //-------------------------- 加载las点云 --------------------------
-    LASreadOpener lasLoad;
-    std::vector<char> pathBuf(path.begin(), path.end());
-    pathBuf.push_back('\0');
-    lasLoad.set_file_name(pathBuf.data());
-    auto closeLasReader = [](LASreader* reader) {
-        if (reader)
-        {
-            reader->close();
-            delete reader;
-        }
-    };
-    std::unique_ptr<LASreader, decltype(closeLasReader)> lasReader(lasLoad.open(), closeLasReader);
-    if (!lasReader)
-    {
-        QMessageBox::warning(this, tr("Error"), tr("Failed to open LAS file: %1").arg(QString::fromStdString(path)));
-        return false;
-    }
-    uint32_t ptCount = lasReader->header.number_of_point_records;
-    outCloud->points.reserve(static_cast<std::size_t>(ptCount));
-
-    //点云中心
-    double center[3];
-    center[0] = lasReader->get_min_x() + (lasReader->get_max_x() - lasReader->get_min_x()) / 2.0;
-    center[1] = lasReader->get_min_y() + (lasReader->get_max_y() - lasReader->get_min_y()) / 2.0;
-    center[2] = lasReader->get_min_z() + (lasReader->get_max_z() - lasReader->get_min_z()) / 2.0;
-
-    //cout << setprecision(16) << "center" << center[0] << "    " << center[1] << " " << center[2] << " " << endl;
-    //去中心化
-
-    while (lasReader->read_point())
-    {
-        double x = lasReader->point.get_x() - center[0];
-        double y = lasReader->point.get_y() - center[1];
-        double z = lasReader->point.get_z() - center[2];
-
-        pcl::PointXYZRGB point;
-        point.x = x;
-        point.y = y;
-        point.z = z;
-        point.r = static_cast<std::uint8_t>(lasReader->point.get_R() * 255 / 65535);
-        point.g = static_cast<std::uint8_t>(lasReader->point.get_G() * 255 / 65535);
-        point.b = static_cast<std::uint8_t>(lasReader->point.get_B() * 255 / 65535);
-
-        //cout <<setprecision(16)<< x << "  " << y << " " << z << endl;
-        //cout << point << endl;
-        outCloud->points.push_back(point);
-    }
-    outCloud->width = static_cast<std::uint32_t>(outCloud->points.size());
-    outCloud->height = 1;
-    outCloud->is_dense = false;
-
-    // 调试用：保存转换结果，生产环境需移除
-    // pcl::io::savePCDFileBinary("PCD2Las.pcd", *outCloud);
-    return true;
-}
-
 void MainWindow::slotOn_actGraViewVisible_visibilityChanged(bool visible)
 {
     ui.acGraViewVisible->setChecked(visible);
@@ -551,12 +491,10 @@ bool MainWindow::openCloudFile(const QString& requestedPath)
     }
     else if (fileSuffix == "las")
     {
-        if (!las2PCD(qstr2str(path), loadedPoints))
-            return false;
-        if (loadedPoints->empty())
+        QString loadError;
+        if (!loadLasAsRgb(path, loadedPoints, &loadError))
         {
-            QMessageBox::warning(
-                this, tr("无法打开点云"), tr("LAS 文件不包含可用点：\n%1").arg(path));
+            QMessageBox::warning(this, tr("无法打开点云"), loadError);
             return false;
         }
     }

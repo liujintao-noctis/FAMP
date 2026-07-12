@@ -7,12 +7,13 @@
  *****************************************************************/
 
 #include "MyGraphicsView.h"
+#include "FileIO.h"
 #include "GraphicsItemTransform.h"
 #include "MainWindow.h"
 #include "MetricScale.h"
 
-#include <QFileInfo>
 #include <QGuiApplication>
+#include <QMessageBox>
 #include <QPainter>
 #include <QPainterPath>
 #include <QScreen>
@@ -1274,6 +1275,8 @@ void MyGraphicsView::slotOn_actEditBack_triggered()
 //保存按钮
 void MyGraphicsView::slotOn_actSave_triggered()
 {
+    const Qt::ScrollBarPolicy previousHorizontalPolicy = horizontalScrollBarPolicy();
+    const Qt::ScrollBarPolicy previousVerticalPolicy = verticalScrollBarPolicy();
     sendClosedXOYLabel(false);  //关闭坐标轴图标
     sendClosedScale(false);     //关闭比例尺
     this->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff); //关闭滚条
@@ -1281,25 +1284,33 @@ void MyGraphicsView::slotOn_actSave_triggered()
 
     QPixmap pix = this->grab();
 
-    QString filePath = QFileDialog::getSaveFileName(this, "保存文件", QCoreApplication::applicationDirPath(), "(*bmp)");
+    const auto restoreView = [this, previousHorizontalPolicy, previousVerticalPolicy]() {
+        sendClosedXOYLabel(true);
+        sendClosedScale(true);
+        setHorizontalScrollBarPolicy(previousHorizontalPolicy);
+        setVerticalScrollBarPolicy(previousVerticalPolicy);
+    };
+    restoreView();
+
+    QString filePath = QFileDialog::getSaveFileName(
+        this,
+        "保存平面图",
+        QCoreApplication::applicationDirPath(),
+        "BMP 图像 (*.bmp)");
     if (filePath.isEmpty())
+        return;
+
+    filePath = famp::io::pathWithRequiredSuffix(filePath, QStringLiteral("bmp"));
+    QString saveError;
+    if (!famp::io::saveImageAtomically(
+            filePath, pix.toImage(), "BMP", 100, &saveError))
     {
-        sendClosedXOYLabel(true);   //显示坐标轴图标
-        sendClosedScale(true);      //显示比例尺
-        this->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);  //显示滚条
-        this->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
+        QMessageBox::warning(this, tr("保存失败"), saveError);
+        emit sendStrFromGraphicView2Console("保存图片失败：" + saveError);
         return;
     }
 
-    QString dir = QFileInfo(filePath).fileName();    //文件名
-    pix.save(filePath,nullptr,99);
-
     emit sendStrFromGraphicView2Console("保存图片到路径" + filePath + "成功！");
-
-    sendClosedXOYLabel(true);   //显示坐标轴图标
-    sendClosedScale(true);      //显示比例尺
-    this->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOn);  //显示滚条
-    this->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOn);
 }
 
 //指北针按钮
