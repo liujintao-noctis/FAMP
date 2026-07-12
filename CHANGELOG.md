@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-07-12
+
 ### Added
 
 - 专业成果导出新增 SVG、自定义纸张尺寸和保存前打印预览；SVG 与现有 PDF/PNG/BMP 一样使用完整画布、物理比例尺校验和原子写入。
@@ -69,7 +71,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.1.0...v0.1.1
