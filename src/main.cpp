@@ -44,7 +44,6 @@ int main(int argc, char *argv[])
     QApplication::setDesktopFileName("famp");
 #endif
     MainWindow w;
-    w.setWindowTitle(QStringLiteral("FAMP %1").arg(a.applicationVersion()));
     w.show();
     return a.exec();
 }

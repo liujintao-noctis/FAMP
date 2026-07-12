@@ -53,6 +53,7 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/FileIO.cpp"
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
     "${FAMP_SRC_DIR}/LasLoader.cpp"
+    "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     "${FAMP_SRC_DIR}/RecentFiles.cpp"
     test_main.cpp
     test_cloud.cpp
@@ -62,6 +63,7 @@ add_executable(famp_tests
     test_las_loader.cpp
     test_metric_scale.cpp
     test_pcd_loader.cpp
+    test_project_document.cpp
     test_recent_files.cpp
     test_string_convert.cpp
 )
