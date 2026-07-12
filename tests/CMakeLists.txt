@@ -63,6 +63,8 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/GraphicsItemTransform.cpp"
     "${FAMP_SRC_DIR}/GraphicsExport.cpp"
     "${FAMP_SRC_DIR}/GraphicsUndoCommands.cpp"
+    "${FAMP_SRC_DIR}/Measurement.cpp"
+    "${FAMP_SRC_DIR}/MeasurementItem.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     test_main.cpp
     test_cloud.cpp
@@ -75,6 +77,7 @@ add_executable(famp_tests
     test_help_content.cpp
     test_las_loader.cpp
     test_metric_scale.cpp
+    test_measurement.cpp
     test_pcd_loader.cpp
     test_project_document.cpp
     test_recent_files.cpp

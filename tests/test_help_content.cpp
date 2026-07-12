@@ -15,6 +15,7 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
     EXPECT_TRUE(content.contains(QStringLiteral("导出成果")));
+    EXPECT_TRUE(content.contains(QStringLiteral("测量面积")));
     EXPECT_TRUE(content.contains(QStringLiteral("PDF")));
     EXPECT_TRUE(content.contains(QStringLiteral("300")));
 }
@@ -30,6 +31,7 @@ TEST(HelpContentTest, ShortcutsListCoreActions)
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Z")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+Z")));
     EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Shift+Left/Right")));
+    EXPECT_TRUE(content.contains(QStringLiteral("Ctrl+Alt+D")));
     EXPECT_TRUE(content.contains(QStringLiteral("F1")));
 }
 

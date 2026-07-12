@@ -15,6 +15,7 @@
 #include "RecentFiles.h"
 
 #include <QAction>
+#include <QActionGroup>
 #include <QCloseEvent>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -69,6 +70,10 @@ MainWindow::MainWindow(QWidget *parent)
     , editMenu(nullptr)
     , setProjectCrsAction(nullptr)
     , coordinateConverterAction(nullptr)
+    , measurementActionGroup(nullptr)
+    , distanceMeasureAction(nullptr)
+    , areaMeasureAction(nullptr)
+    , clearMeasurementsAction(nullptr)
     , undoGraphicsAction(nullptr)
     , redoGraphicsAction(nullptr)
     , crsStatusLabel(nullptr)
@@ -213,6 +218,48 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
             this, &MainWindow::slotOpenCoordinateConverter);
+
+    toolsMenu->addSeparator();
+    measurementActionGroup = new QActionGroup(this);
+    measurementActionGroup->setExclusive(true);
+    distanceMeasureAction = toolsMenu->addAction(tr("测量距离"));
+    distanceMeasureAction->setObjectName(QStringLiteral("actMeasureDistance"));
+    distanceMeasureAction->setCheckable(true);
+    distanceMeasureAction->setShortcut(
+        QKeySequence(QStringLiteral("Ctrl+Alt+D")));
+    areaMeasureAction = toolsMenu->addAction(tr("测量面积"));
+    areaMeasureAction->setObjectName(QStringLiteral("actMeasureArea"));
+    areaMeasureAction->setCheckable(true);
+    areaMeasureAction->setShortcut(
+        QKeySequence(QStringLiteral("Ctrl+Alt+A")));
+    measurementActionGroup->addAction(distanceMeasureAction);
+    measurementActionGroup->addAction(areaMeasureAction);
+    clearMeasurementsAction = toolsMenu->addAction(tr("清除测量结果"));
+    clearMeasurementsAction->setObjectName(
+        QStringLiteral("actClearMeasurements"));
+
+    connect(distanceMeasureAction, &QAction::triggered,
+            ui.graphicsView, [this](bool checked) {
+                if (checked)
+                    ui.graphicsView->startDistanceMeasurement();
+            });
+    connect(areaMeasureAction, &QAction::triggered,
+            ui.graphicsView, [this](bool checked) {
+                if (checked)
+                    ui.graphicsView->startAreaMeasurement();
+            });
+    connect(clearMeasurementsAction, &QAction::triggered,
+            ui.graphicsView, &MyGraphicsView::clearMeasurements);
+    connect(ui.graphicsView, &MyGraphicsView::measurementModeEnded,
+            this, [this]() {
+                if (QAction* checked = measurementActionGroup->checkedAction())
+                    checked->setChecked(false);
+            });
+    connect(ui.graphicsView, &MyGraphicsView::measurementStatus,
+            this, [this](const QString& message) {
+                statusBar()->showMessage(message, 8000);
+                emit sendStr2Console(message);
+            });
 
     crsStatusLabel = new QLabel(this);
     crsStatusLabel->setMinimumWidth(150);
