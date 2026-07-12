@@ -12,6 +12,7 @@
 #include "CloudDisplaySettings.h"
 #include "CloudCrop.h"
 #include "CloudProcessing.h"
+#include "CloudRegistration.h"
 #include "FileIO.h"
 #include "HelpContent.h"
 #include "LasLoader.h"
@@ -94,6 +95,7 @@ MainWindow::MainWindow(QWidget *parent)
     , cloudDisplaySettingsAction(nullptr)
     , preprocessCloudAction(nullptr)
     , cropCloudAction(nullptr)
+    , registerCloudAction(nullptr)
     , undoGraphicsAction(nullptr)
     , redoGraphicsAction(nullptr)
     , crsStatusLabel(nullptr)
@@ -286,12 +288,17 @@ void MainWindow::initializeCrsActions()
     cropCloudAction = toolsMenu->addAction(tr("按坐标范围裁剪…"));
     cropCloudAction->setObjectName(QStringLiteral("actCropCloud"));
     cropCloudAction->setEnabled(false);
+    registerCloudAction = toolsMenu->addAction(tr("点云 ICP 配准…"));
+    registerCloudAction->setObjectName(QStringLiteral("actRegisterCloud"));
+    registerCloudAction->setEnabled(false);
     connect(cloudDisplaySettingsAction, &QAction::triggered,
             this, &MainWindow::slotCloudDisplaySettings);
     connect(preprocessCloudAction, &QAction::triggered,
             this, &MainWindow::slotPreprocessCloud);
     connect(cropCloudAction, &QAction::triggered,
             this, &MainWindow::slotCropCloud);
+    connect(registerCloudAction, &QAction::triggered,
+            this, &MainWindow::slotRegisterCloud);
 
     toolsMenu->addSeparator();
     measurementActionGroup = new QActionGroup(this);
@@ -684,6 +691,8 @@ void MainWindow::clearWorkspace()
         preprocessCloudAction->setEnabled(false);
     if (cropCloudAction)
         cropCloudAction->setEnabled(false);
+    if (registerCloudAction)
+        registerCloudAction->setEnabled(false);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(false);
 }
@@ -1011,6 +1020,8 @@ void MainWindow::updateCloudToolActions()
         preprocessCloudAction->setEnabled(available && !cloudLoadBusy);
     if (cropCloudAction)
         cropCloudAction->setEnabled(available && !cloudLoadBusy);
+    if (registerCloudAction)
+        registerCloudAction->setEnabled(pointCloudList.size() >= 2 && !cloudLoadBusy);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(available && !cloudLoadBusy);
 }
@@ -1727,6 +1738,206 @@ void MainWindow::slotCropCloud()
     updateCloudToolActions();
 }
 
+void MainWindow::slotRegisterCloud()
+{
+    if (pointCloudList.size() < 2)
+    {
+        QMessageBox::information(this, tr("点云 ICP 配准"),
+                                 tr("请先加载至少两个点云。"));
+        return;
+    }
+
+    struct Entry
+    {
+        MyCloudList cloud;
+        QString path;
+        QString label;
+    };
+    std::vector<Entry> entries;
+    for (int row = 0; row < model->rowCount(); ++row)
+    {
+        QStandardItem* projectItem = model->item(row);
+        if (!projectItem || projectItem->rowCount() == 0)
+            continue;
+        QStandardItem* cloudItem = projectItem->child(0);
+        const QVariant data = cloudItem->data(Qt::UserRole + 2);
+        if (!data.isValid())
+            continue;
+        const MyCloudList candidate = data.value<MyCloudList>();
+        if (!candidate.input_cloud || candidate.input_cloud->empty())
+            continue;
+        Entry entry;
+        entry.cloud = candidate;
+        entry.path = cloudItem->data(Qt::UserRole).toString();
+        entry.label = QFileInfo(entry.path).fileName();
+        if (entry.label.isEmpty())
+            entry.label = tr("点云 %1").arg(candidate.id);
+        entries.push_back(entry);
+    }
+    if (entries.size() < 2)
+    {
+        QMessageBox::information(this, tr("点云 ICP 配准"),
+                                 tr("当前没有两个可用点云。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("点云 ICP 配准"));
+    QFormLayout layout(&dialog);
+    QComboBox sourceCombo(&dialog);
+    QComboBox targetCombo(&dialog);
+    for (std::size_t index = 0; index < entries.size(); ++index)
+    {
+        sourceCombo.addItem(entries[index].label, static_cast<int>(index));
+        targetCombo.addItem(entries[index].label, static_cast<int>(index));
+    }
+    MyCloudList selected;
+    if (selectedCloudData(selected))
+    {
+        for (std::size_t index = 0; index < entries.size(); ++index)
+        {
+            if (entries[index].cloud.id == selected.id)
+            {
+                sourceCombo.setCurrentIndex(static_cast<int>(index));
+                break;
+            }
+        }
+    }
+    targetCombo.setCurrentIndex(sourceCombo.currentIndex() == 0 ? 1 : 0);
+
+    QSpinBox iterations(&dialog);
+    iterations.setRange(1, 10000);
+    iterations.setValue(60);
+    QDoubleSpinBox correspondenceDistance(&dialog);
+    correspondenceDistance.setDecimals(6);
+    correspondenceDistance.setRange(0.000001, 100000.0);
+    correspondenceDistance.setValue(1.0);
+    correspondenceDistance.setSuffix(tr(" m"));
+    QDoubleSpinBox transformationEpsilon(&dialog);
+    transformationEpsilon.setDecimals(12);
+    transformationEpsilon.setRange(1.0e-12, 1.0);
+    transformationEpsilon.setValue(1.0e-8);
+    QDoubleSpinBox fitnessEpsilon(&dialog);
+    fitnessEpsilon.setDecimals(12);
+    fitnessEpsilon.setRange(1.0e-12, 1.0);
+    fitnessEpsilon.setValue(1.0e-8);
+    QLabel note(tr("将源点云刚性配准到目标点云，结果保存为新的 PCD 并沿用目标点云坐标参考；原始点云不会被修改。ICP 需要两者初始位置足够接近。"), &dialog);
+    note.setWordWrap(true);
+    layout.addRow(tr("源点云（移动）"), &sourceCombo);
+    layout.addRow(tr("目标点云（固定）"), &targetCombo);
+    layout.addRow(tr("最大迭代次数"), &iterations);
+    layout.addRow(tr("最大对应距离"), &correspondenceDistance);
+    layout.addRow(tr("变换收敛阈值"), &transformationEpsilon);
+    layout.addRow(tr("适应度收敛阈值"), &fitnessEpsilon);
+    layout.addRow(&note);
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    if (sourceCombo.currentIndex() == targetCombo.currentIndex())
+    {
+        QMessageBox::warning(this, tr("点云 ICP 配准"),
+                             tr("源点云和目标点云必须不同。"));
+        return;
+    }
+
+    const Entry source = entries[static_cast<std::size_t>(sourceCombo.currentIndex())];
+    const Entry target = entries[static_cast<std::size_t>(targetCombo.currentIndex())];
+    famp::registration::Options options;
+    options.maximumIterations = iterations.value();
+    options.maximumCorrespondenceDistance = correspondenceDistance.value();
+    options.transformationEpsilon = transformationEpsilon.value();
+    options.fitnessEpsilon = fitnessEpsilon.value();
+    QString validationError;
+    if (!famp::registration::validateOptions(options, &validationError))
+    {
+        QMessageBox::warning(this, tr("点云 ICP 配准"), validationError);
+        return;
+    }
+    const QFileInfo sourceInfo(source.path);
+    QString outputPath = QFileDialog::getSaveFileName(
+        this, tr("保存配准点云"),
+        sourceInfo.absoluteDir().filePath(
+            sourceInfo.completeBaseName() + QStringLiteral("_registered.pcd")),
+        tr("PCD 点云 (*.pcd)"));
+    if (outputPath.isEmpty())
+        return;
+    outputPath = famp::io::pathWithRequiredSuffix(outputPath, QStringLiteral("pcd"));
+    const Qt::CaseSensitivity pathCaseSensitivity =
+#ifdef Q_OS_WIN
+        Qt::CaseInsensitive;
+#else
+        Qt::CaseSensitive;
+#endif
+    if (QFileInfo(outputPath).absoluteFilePath().compare(
+            QFileInfo(source.path).absoluteFilePath(), pathCaseSensitivity) == 0
+        || QFileInfo(outputPath).absoluteFilePath().compare(
+            QFileInfo(target.path).absoluteFilePath(), pathCaseSensitivity) == 0)
+    {
+        QMessageBox::warning(this, tr("点云 ICP 配准"),
+                             tr("输出文件不能覆盖源点云或目标点云。"));
+        return;
+    }
+
+    QProgressDialog progress(tr("正在后台配准并保存点云…"), tr("取消"), 0, 0, this);
+    progress.setWindowTitle(tr("点云 ICP 配准"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    const auto cancellation = std::make_shared<std::atomic_bool>(false);
+    connect(&progress, &QProgressDialog::canceled, this, [cancellation]() {
+        cancellation->store(true, std::memory_order_relaxed);
+    });
+    QFutureWatcher<famp::registration::Result> watcher;
+    connect(&watcher, &QFutureWatcher<famp::registration::Result>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr sourceCloud = source.cloud.input_cloud;
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr targetCloud = target.cloud.input_cloud;
+    watcher.setFuture(QtConcurrent::run(
+        [sourceCloud, targetCloud, options, outputPath, cancellation]() {
+            return famp::registration::alignAndSave(
+                sourceCloud, targetCloud, options, outputPath, [cancellation]() {
+                    return cancellation->load(std::memory_order_relaxed);
+                });
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const famp::registration::Result result = watcher.result();
+    if (result.cancelled)
+    {
+        statusBar()->showMessage(tr("点云配准已取消，未写入输出文件。"), 5000);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        QMessageBox::warning(this, tr("点云配准失败"), result.error);
+        return;
+    }
+
+    famp::cloud::LoadResult loaded;
+    loaded.path = result.outputPath;
+    loaded.displayCloud = result.cloud;
+    loaded.spatial = target.cloud.spatial;
+    integrateLoadedCloud(loaded);
+    QStringList matrixRows;
+    for (int row = 0; row < 4; ++row)
+    {
+        matrixRows << QStringLiteral("[%1 %2 %3 %4]")
+            .arg(result.transform(row, 0), 0, 'g', 9)
+            .arg(result.transform(row, 1), 0, 'g', 9)
+            .arg(result.transform(row, 2), 0, 'g', 9)
+            .arg(result.transform(row, 3), 0, 'g', 9);
+    }
+    emit sendStr2Console(
+        tr("ICP 配准完成：适应度 %1，输出 %2\n变换矩阵：\n%3")
+            .arg(result.fitnessScore, 0, 'g', 10)
+            .arg(result.outputPath, matrixRows.join(QLatin1Char('\n'))));
+    updateCloudToolActions();
+}
+
 void MainWindow::initializeRecentFilesMenu()
 {
     recentFilesMenu = new QMenu(tr("最近打开"), ui.menu_4);
@@ -2275,6 +2486,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         preprocessCloudAction->setEnabled(false);
     if (busy && cropCloudAction)
         cropCloudAction->setEnabled(false);
+    if (busy && registerCloudAction)
+        registerCloudAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

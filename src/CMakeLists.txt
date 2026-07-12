@@ -41,7 +41,7 @@ if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     find_package(Qt6 REQUIRED COMPONENTS OpenGLWidgets)
 endif()
 
-find_package(PCL REQUIRED COMPONENTS common io filters features keypoints visualization)
+find_package(PCL REQUIRED COMPONENTS common io filters features keypoints registration visualization)
 find_package(PROJ CONFIG REQUIRED)
 find_package(VTK REQUIRED COMPONENTS
     CommonColor
@@ -147,6 +147,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudDisplaySettings.cpp
     CloudLoader.cpp
     CloudProcessing.cpp
+    CloudRegistration.cpp
     TaskCancellation.h
     CompassItem.cpp
     CrsService.cpp
@@ -181,6 +182,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudDisplaySettings.h
     CloudLoader.h
     CloudProcessing.h
+    CloudRegistration.h
     CompassItem.h
     CrsService.h
     FAMPController.h
