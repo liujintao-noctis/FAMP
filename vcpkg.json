@@ -37,6 +37,10 @@
       "platform": "windows"
     },
     {
+      "name": "qtsvg",
+      "default-features": false
+    },
+    {
       "name": "vtk",
       "default-features": false,
       "features": [

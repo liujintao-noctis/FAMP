@@ -35,8 +35,8 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS "${FAMP_ROOT_DIR}/ui")
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Gui Widgets)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Concurrent Gui Widgets)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Concurrent Gui PrintSupport Svg Widgets)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Concurrent Gui PrintSupport Svg Widgets)
 if(QT_VERSION_MAJOR GREATER_EQUAL 6)
     find_package(Qt6 REQUIRED COMPONENTS OpenGLWidgets)
 endif()
@@ -235,6 +235,8 @@ target_link_libraries(FAMP
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Concurrent
         Qt${QT_VERSION_MAJOR}::Gui
+        Qt${QT_VERSION_MAJOR}::PrintSupport
+        Qt${QT_VERSION_MAJOR}::Svg
         Qt${QT_VERSION_MAJOR}::Widgets
         PROJ::proj
         ${PCL_LIBRARIES}

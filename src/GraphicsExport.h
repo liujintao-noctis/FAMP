@@ -3,6 +3,7 @@
 #include <QString>
 
 class QGraphicsScene;
+class QPrinter;
 
 namespace famp::exporting
 {
@@ -10,13 +11,15 @@ enum class Format
 {
     Pdf,
     Png,
-    Bmp
+    Bmp,
+    Svg
 };
 
 enum class PaperSize
 {
     A4,
-    A3
+    A3,
+    Custom
 };
 
 enum class Orientation
@@ -35,6 +38,8 @@ struct Options
 {
     Format format = Format::Pdf;
     PaperSize paperSize = PaperSize::A4;
+    qreal customPageWidthMillimeters = 210.0;
+    qreal customPageHeightMillimeters = 297.0;
     Orientation orientation = Orientation::Landscape;
     ScaleMode scaleMode = ScaleMode::PreservePhysicalScale;
     int dotsPerInch = 300;
@@ -51,4 +56,8 @@ bool exportScene(QGraphicsScene* scene,
                  const QString& path,
                  const Options& options,
                  QString* errorMessage = nullptr);
+bool printScene(QGraphicsScene* scene,
+                QPrinter* printer,
+                const Options& options,
+                QString* errorMessage = nullptr);
 }

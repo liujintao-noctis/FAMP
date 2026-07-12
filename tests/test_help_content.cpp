@@ -19,6 +19,9 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("导出成果")));
     EXPECT_TRUE(content.contains(QStringLiteral("测量面积")));
     EXPECT_TRUE(content.contains(QStringLiteral("PDF")));
+    EXPECT_TRUE(content.contains(QStringLiteral("SVG")));
+    EXPECT_TRUE(content.contains(QStringLiteral("自定义纸张")));
+    EXPECT_TRUE(content.contains(QStringLiteral("打印预览")));
     EXPECT_TRUE(content.contains(QStringLiteral("300")));
 }
 

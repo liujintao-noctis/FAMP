@@ -22,6 +22,57 @@ TEST(GraphicsExportTest, EnforcesFormatSuffixCaseInsensitively)
     EXPECT_EQ(famp::exporting::pathWithFormatSuffix(
                   QStringLiteral("map."), famp::exporting::Format::Bmp),
               QStringLiteral("map.bmp"));
+    EXPECT_EQ(famp::exporting::pathWithFormatSuffix(
+                  QStringLiteral("map.SVG"), famp::exporting::Format::Svg),
+              QStringLiteral("map.SVG"));
+}
+
+TEST(GraphicsExportTest, ExportsCustomPaperSvgAtomically)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 240.0, 120.0),
+                  QPen(Qt::black), QBrush(Qt::green));
+
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Svg;
+    options.paperSize = famp::exporting::PaperSize::Custom;
+    options.customPageWidthMillimeters = 180.0;
+    options.customPageHeightMillimeters = 120.0;
+    options.orientation = famp::exporting::Orientation::Landscape;
+    options.scaleMode = famp::exporting::ScaleMode::FitToPage;
+    options.dotsPerInch = 150;
+    const QString path = directory.filePath(QStringLiteral("自定义成果.svg"));
+    QString error;
+
+    ASSERT_TRUE(famp::exporting::exportScene(
+        &scene, path, options, &error)) << error.toStdString();
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const QByteArray contents = file.readAll();
+    EXPECT_TRUE(contents.contains("<svg"));
+    EXPECT_TRUE(contents.contains("viewBox"));
+    EXPECT_GT(contents.size(), 200);
+}
+
+TEST(GraphicsExportTest, RejectsInvalidCustomPaperWithoutCreatingFile)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addText(QStringLiteral("map"));
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Svg;
+    options.paperSize = famp::exporting::PaperSize::Custom;
+    options.customPageWidthMillimeters = 20.0;
+    const QString path = directory.filePath(QStringLiteral("invalid.svg"));
+    QString error;
+
+    EXPECT_FALSE(famp::exporting::exportScene(
+        &scene, path, options, &error));
+    EXPECT_TRUE(error.contains(QStringLiteral("50")));
+    EXPECT_FALSE(QFile::exists(path));
 }
 
 TEST(GraphicsExportTest, ExportsA4LandscapePngWithPhysicalResolution)
