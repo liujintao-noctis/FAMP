@@ -93,10 +93,8 @@ void MeasurementItem::rebuildGeometry()
             path_.closeSubpath();
     }
 
-    value_ = kind_ == famp::measurement::Kind::Distance
-        ? famp::measurement::polylineLength(meterPoints_)
-        : famp::measurement::polygonArea(meterPoints_);
-    label_ = famp::measurement::formatValue(kind_, value_);
+    value_ = famp::measurement::value(kind_, meterPoints_);
+    label_ = famp::measurement::formatSummary(kind_, meterPoints_);
 
     QRectF pathBounds = path_.boundingRect();
     if (pathBounds.isNull() && !scenePoints_.isEmpty())

@@ -101,6 +101,27 @@ TEST(GraphicsSceneDocumentTest, RoundTripsSupportedItemsAndTransforms)
     EXPECT_EQ(restoredGroup->pos(), QPointF(-25.0, 40.0));
 }
 
+TEST(GraphicsSceneDocumentTest, RoundTripsAngleMeasurement)
+{
+    QGraphicsScene source;
+    source.addItem(new MeasurementItem(
+        famp::measurement::Kind::Angle,
+        {QPointF(1.0, 0.0), QPointF(0.0, 0.0), QPointF(0.0, 1.0)},
+        QPointF(10.0, 10.0)));
+
+    QString error;
+    const QJsonObject document = famp::graphicsdoc::saveScene(&source, &error);
+    QGraphicsScene restored;
+    QList<QGraphicsItem*> roots;
+    ASSERT_TRUE(famp::graphicsdoc::restoreScene(
+        &restored, document, &roots, &error)) << error.toStdString();
+    ASSERT_EQ(roots.size(), 1);
+    const auto* measurement = dynamic_cast<MeasurementItem*>(roots.front());
+    ASSERT_NE(measurement, nullptr);
+    EXPECT_EQ(measurement->kind(), famp::measurement::Kind::Angle);
+    EXPECT_NEAR(measurement->value(), 90.0, 1.0e-12);
+}
+
 TEST(GraphicsSceneDocumentTest, RejectsInvalidItemWithoutMutatingScene)
 {
     QGraphicsScene source(QRectF(-100.0, -100.0, 200.0, 200.0));

@@ -199,9 +199,12 @@ bool serializeItem(const QGraphicsItem* item,
     if (const auto* measurement = dynamic_cast<const MeasurementItem*>(item))
     {
         result.insert(QStringLiteral("type"), QStringLiteral("measurement"));
-        result.insert(QStringLiteral("kind"),
-                      measurement->kind() == famp::measurement::Kind::Area
-                          ? QStringLiteral("area") : QStringLiteral("distance"));
+        QString kind = QStringLiteral("distance");
+        if (measurement->kind() == famp::measurement::Kind::Area)
+            kind = QStringLiteral("area");
+        else if (measurement->kind() == famp::measurement::Kind::Angle)
+            kind = QStringLiteral("angle");
+        result.insert(QStringLiteral("kind"), kind);
         result.insert(QStringLiteral("meterPoints"),
                       points(measurement->meterPoints()));
         result.insert(QStringLiteral("sceneUnitsPerMeter"),
@@ -285,20 +288,25 @@ QGraphicsItem* deserializeItem(const QJsonValue& value,
     else if (type == QStringLiteral("measurement"))
     {
         const QString kindValue = object.value(QStringLiteral("kind")).toString();
-        const auto kind = kindValue == QStringLiteral("area")
-            ? famp::measurement::Kind::Area
-            : famp::measurement::Kind::Distance;
+        auto kind = famp::measurement::Kind::Distance;
+        if (kindValue == QStringLiteral("area"))
+            kind = famp::measurement::Kind::Area;
+        else if (kindValue == QStringLiteral("angle"))
+            kind = famp::measurement::Kind::Angle;
         if (kindValue != QStringLiteral("area")
-            && kindValue != QStringLiteral("distance"))
+            && kindValue != QStringLiteral("distance")
+            && kindValue != QStringLiteral("angle"))
         {
             setError(errorMessage, QStringLiteral("测量图元类型无效。"));
             return nullptr;
         }
         QVector<QPointF> meterPoints;
         QPointF sceneUnitsPerMeter;
-        const int minimum = kind == famp::measurement::Kind::Area ? 3 : 2;
+        const int minimum = famp::measurement::minimumPointCount(kind);
         if (!readPoints(object.value(QStringLiteral("meterPoints")),
                         minimum, meterPoints)
+            || (kind == famp::measurement::Kind::Angle
+                && meterPoints.size() != 3)
             || !readPoint(object.value(QStringLiteral("sceneUnitsPerMeter")),
                           sceneUnitsPerMeter)
             || sceneUnitsPerMeter.x() <= 0.0

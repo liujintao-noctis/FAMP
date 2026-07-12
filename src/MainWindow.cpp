@@ -86,6 +86,7 @@ MainWindow::MainWindow(QWidget *parent)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
+    , angleMeasureAction(nullptr)
     , clearMeasurementsAction(nullptr)
     , cloudDisplaySettingsAction(nullptr)
     , preprocessCloudAction(nullptr)
@@ -296,8 +297,14 @@ void MainWindow::initializeCrsActions()
     areaMeasureAction->setCheckable(true);
     areaMeasureAction->setShortcut(
         QKeySequence(QStringLiteral("Ctrl+Alt+A")));
+    angleMeasureAction = toolsMenu->addAction(tr("测量角度"));
+    angleMeasureAction->setObjectName(QStringLiteral("actMeasureAngle"));
+    angleMeasureAction->setCheckable(true);
+    angleMeasureAction->setShortcut(
+        QKeySequence(QStringLiteral("Ctrl+Alt+G")));
     measurementActionGroup->addAction(distanceMeasureAction);
     measurementActionGroup->addAction(areaMeasureAction);
+    measurementActionGroup->addAction(angleMeasureAction);
     clearMeasurementsAction = toolsMenu->addAction(tr("清除测量结果"));
     clearMeasurementsAction->setObjectName(
         QStringLiteral("actClearMeasurements"));
@@ -311,6 +318,11 @@ void MainWindow::initializeCrsActions()
             ui.graphicsView, [this](bool checked) {
                 if (checked)
                     ui.graphicsView->startAreaMeasurement();
+            });
+    connect(angleMeasureAction, &QAction::triggered,
+            ui.graphicsView, [this](bool checked) {
+                if (checked)
+                    ui.graphicsView->startAngleMeasurement();
             });
     connect(clearMeasurementsAction, &QAction::triggered,
             ui.graphicsView, &MyGraphicsView::clearMeasurements);

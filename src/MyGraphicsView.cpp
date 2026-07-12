@@ -1846,9 +1846,13 @@ void MyGraphicsView::beginMeasurement(famp::measurement::Kind kind)
     setDragMode(QGraphicsView::NoDrag);
     viewport()->setCursor(Qt::CrossCursor);
 
-    const QString instructions = kind == famp::measurement::Kind::Distance
-        ? tr("距离测量：依次点击起点和终点，Esc 取消。")
-        : tr("面积测量：依次点击边界点，右键或双击闭合，Esc 取消。");
+    QString instructions;
+    if (kind == famp::measurement::Kind::Distance)
+        instructions = tr("距离测量：依次点击折线节点，右键或双击完成，Esc 取消。");
+    else if (kind == famp::measurement::Kind::Area)
+        instructions = tr("面积测量：依次点击边界点，右键或双击闭合，Esc 取消。");
+    else
+        instructions = tr("角度测量：依次点击第一边点、顶点和第二边点，Esc 取消。");
     emit measurementStatus(instructions);
 }
 
@@ -1860,6 +1864,11 @@ void MyGraphicsView::startDistanceMeasurement()
 void MyGraphicsView::startAreaMeasurement()
 {
     beginMeasurement(famp::measurement::Kind::Area);
+}
+
+void MyGraphicsView::startAngleMeasurement()
+{
+    beginMeasurement(famp::measurement::Kind::Angle);
 }
 
 void MyGraphicsView::cancelMeasurement()
@@ -1945,19 +1954,11 @@ void MyGraphicsView::updateMeasurementPreview()
     if (famp::measurement::sceneToMeters(
             previewPoints, deltaOffset, meterPoints, nullptr))
     {
-        if (measurementKind == famp::measurement::Kind::Distance
-            && meterPoints.size() >= 2)
+        if (meterPoints.size()
+            >= famp::measurement::minimumPointCount(measurementKind))
         {
-            label = famp::measurement::formatValue(
-                measurementKind,
-                famp::measurement::polylineLength(meterPoints));
-        }
-        else if (measurementKind == famp::measurement::Kind::Area
-                 && meterPoints.size() >= 3)
-        {
-            label = famp::measurement::formatValue(
-                measurementKind,
-                famp::measurement::polygonArea(meterPoints));
+            label = famp::measurement::formatSummary(
+                measurementKind, meterPoints);
         }
     }
 
@@ -1986,13 +1987,11 @@ void MyGraphicsView::finishMeasurement()
     if (!measurementActive)
         return;
 
-    const int minimumPointCount = measurementKind == famp::measurement::Kind::Area
-        ? 3
-        : 2;
-    if (measurementScenePoints.size() < minimumPointCount)
+    if (measurementScenePoints.size()
+        < famp::measurement::minimumPointCount(measurementKind))
     {
         emit measurementStatus(
-            tr("测量点不足：距离至少需要 2 点，面积至少需要 3 点。"));
+            tr("测量点不足：距离至少需要 2 点，面积和角度至少需要 3 点。"));
         return;
     }
 
@@ -2005,9 +2004,7 @@ void MyGraphicsView::finishMeasurement()
         return;
     }
 
-    const double value = measurementKind == famp::measurement::Kind::Distance
-        ? famp::measurement::polylineLength(meterPoints)
-        : famp::measurement::polygonArea(meterPoints);
+    const double value = famp::measurement::value(measurementKind, meterPoints);
     if (!std::isfinite(value) || value <= 1.0e-9)
     {
         emit measurementStatus(tr("测量结果为零，请重新选择不同的点。"));
@@ -2016,12 +2013,14 @@ void MyGraphicsView::finishMeasurement()
 
     auto* item = new MeasurementItem(
         measurementKind, meterPoints, deltaOffset);
-    addItemWithHistory(item,
-                       measurementKind == famp::measurement::Kind::Distance
-                           ? tr("添加距离测量")
-                           : tr("添加面积测量"));
-    const QString resultText = famp::measurement::formatValue(
-        measurementKind, value);
+    QString commandText = tr("添加距离测量");
+    if (measurementKind == famp::measurement::Kind::Area)
+        commandText = tr("添加面积测量");
+    else if (measurementKind == famp::measurement::Kind::Angle)
+        commandText = tr("添加角度测量");
+    addItemWithHistory(item, commandText);
+    const QString resultText = famp::measurement::formatSummary(
+        measurementKind, meterPoints);
     resetMeasurementInteraction(true);
     emit measurementStatus(tr("测量完成：%1").arg(resultText));
 }
@@ -2077,10 +2076,7 @@ void MyGraphicsView::mousePressEvent(QMouseEvent *e)
     {
         if (e->button() == Qt::RightButton)
         {
-            if (measurementKind == famp::measurement::Kind::Area)
-                finishMeasurement();
-            else
-                cancelMeasurement();
+            finishMeasurement();
             e->accept();
             return;
         }
@@ -2094,8 +2090,8 @@ void MyGraphicsView::mousePressEvent(QMouseEvent *e)
             }
             measurementHasHoverPoint = false;
             updateMeasurementPreview();
-            if (measurementKind == famp::measurement::Kind::Distance
-                && measurementScenePoints.size() >= 2)
+            if (measurementKind == famp::measurement::Kind::Angle
+                && measurementScenePoints.size() >= 3)
             {
                 finishMeasurement();
             }
@@ -2150,8 +2146,7 @@ void MyGraphicsView::mouseDoubleClickEvent(QMouseEvent * e)
 {
     if (measurementActive)
     {
-        if (measurementKind == famp::measurement::Kind::Area
-            && e->button() == Qt::LeftButton)
+        if (e->button() == Qt::LeftButton)
         {
             const QPointF scenePoint = mapToScene(e->pos());
             if (measurementScenePoints.isEmpty()

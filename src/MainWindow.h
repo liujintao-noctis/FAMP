@@ -98,6 +98,7 @@ private:
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
+    QAction * angleMeasureAction;
     QAction * clearMeasurementsAction;
     QAction * cloudDisplaySettingsAction;
     QAction * preprocessCloudAction;
