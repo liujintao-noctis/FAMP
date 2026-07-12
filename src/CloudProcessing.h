@@ -1,5 +1,7 @@
 #pragma once
 
+#include "TaskCancellation.h"
+
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
@@ -31,6 +33,7 @@ struct Result
     std::size_t inputPointCount = 0;
     std::size_t finitePointCount = 0;
     std::size_t outputPointCount = 0;
+    bool cancelled = false;
 
     bool succeeded() const
     {
@@ -43,10 +46,12 @@ bool validateOptions(const Options& options,
                      QString* errorMessage = nullptr);
 
 Result process(const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
-               const Options& options);
+               const Options& options,
+               const famp::tasks::CancellationCheck& shouldCancel = {});
 
 Result processAndSave(
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& input,
     const Options& options,
-    const QString& requestedOutputPath);
+    const QString& requestedOutputPath,
+    const famp::tasks::CancellationCheck& shouldCancel = {});
 }

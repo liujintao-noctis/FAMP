@@ -24,6 +24,19 @@ void setError(QString* errorMessage, const QString& message)
     if (errorMessage)
         *errorMessage = message;
 }
+
+bool cancel(LoadResult& result,
+            const famp::tasks::CancellationCheck& shouldCancel)
+{
+    if (!famp::tasks::isCancellationRequested(shouldCancel))
+        return false;
+
+    result.displayCloud.reset();
+    result.sourceCloud.reset();
+    result.cancelled = true;
+    result.error = QStringLiteral("点云加载已取消。");
+    return true;
+}
 }
 
 bool validatePath(const QString& requestedPath,
@@ -54,10 +67,13 @@ bool validatePath(const QString& requestedPath,
     return true;
 }
 
-LoadResult load(const QString& requestedPath)
+LoadResult load(const QString& requestedPath,
+                const famp::tasks::CancellationCheck& shouldCancel)
 {
     LoadResult result;
     if (!validatePath(requestedPath, &result.path, &result.error))
+        return result;
+    if (cancel(result, shouldCancel))
         return result;
 
     try
@@ -74,6 +90,8 @@ LoadResult load(const QString& requestedPath)
                 result.error = loadError;
                 return result;
             }
+            if (cancel(result, shouldCancel))
+                return result;
             if (loadedPoints->empty())
             {
                 result.error = QStringLiteral("点云不包含可用点：\n%1")
@@ -85,8 +103,14 @@ LoadResult load(const QString& requestedPath)
             long double sumX = 0.0;
             long double sumY = 0.0;
             long double sumZ = 0.0;
+            std::size_t pointIndex = 0;
             for (const pcl::PointXYZRGB& point : loadedPoints->points)
             {
+                if ((pointIndex++ & 0x0fffU) == 0U
+                    && cancel(result, shouldCancel))
+                {
+                    return result;
+                }
                 sumX += point.x;
                 sumY += point.y;
                 sumZ += point.z;
@@ -99,8 +123,14 @@ LoadResult load(const QString& requestedPath)
                 static_cast<double>(sumZ / count)};
             result.displayCloud.reset(
                 new pcl::PointCloud<pcl::PointXYZRGB>(*loadedPoints));
+            pointIndex = 0;
             for (pcl::PointXYZRGB& point : result.displayCloud->points)
             {
+                if ((pointIndex++ & 0x0fffU) == 0U
+                    && cancel(result, shouldCancel))
+                {
+                    return result;
+                }
                 point.x = static_cast<float>(
                     static_cast<double>(point.x) - result.spatial.origin[0]);
                 point.y = static_cast<float>(
@@ -119,6 +149,8 @@ LoadResult load(const QString& requestedPath)
                 result.error = loadError;
                 return result;
             }
+            if (cancel(result, shouldCancel))
+                return result;
             result.displayCloud = loadedPoints;
         }
 

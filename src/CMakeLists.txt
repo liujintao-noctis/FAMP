@@ -145,6 +145,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudDisplaySettings.cpp
     CloudLoader.cpp
     CloudProcessing.cpp
+    TaskCancellation.h
     CompassItem.cpp
     CrsService.cpp
     FAMPController.cpp

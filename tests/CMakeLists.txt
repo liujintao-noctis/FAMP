@@ -33,6 +33,7 @@ add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/CloudCoordinates.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
     "${FAMP_SRC_DIR}/CloudCoordinates.h"
+    "${FAMP_SRC_DIR}/TaskCancellation.h"
     "${FAMP_SRC_DIR}/CloudLoader.cpp"
     "${FAMP_SRC_DIR}/CloudLoader.h"
     "${FAMP_SRC_DIR}/LasLoader.cpp"
