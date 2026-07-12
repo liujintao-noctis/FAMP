@@ -19,9 +19,9 @@ cmake -S src -B build -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg
 cmake --build build --config Release
 ```
 
-CMake 入口文件为 `src/CMakeLists.txt`。Linux 构建始终使用 `/opt/vcpkg` 作为工具链路径，并使用自定义 triplet `triplets/x64-linux-release.cmake`（仅 release 版本，动态链接）。依赖项（Qt、VTK、PCL）通过 `vcpkg.json` 清单模式管理。
+CMake 入口文件为 `src/CMakeLists.txt`。Linux 构建始终使用 `/opt/vcpkg` 作为工具链路径，并使用自定义 triplet `triplets/x64-linux-release.cmake`（仅 release 版本，动态链接）。依赖项（Qt、VTK、PCL、PROJ）通过 `vcpkg.json` 清单模式管理。
 
-当前未配置测试框架、代码检查工具或 CI 流水线。
+单元测试使用 GoogleTest，通过 `ctest --test-dir build --output-on-failure` 运行。GitHub Actions 会构建、测试并打包 Linux/Windows Release 制品。
 
 ## 架构
 

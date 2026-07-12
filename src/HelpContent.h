@@ -10,6 +10,7 @@ inline QString quickStartHtml()
 <h2>FAMP 快速入门</h2>
 <ol>
   <li><b>管理项目：</b>使用“文件 → 新建/打开/保存项目”管理 `.famp` 点云项目；未保存更改每 60 秒自动备份。</li>
+  <li><b>声明坐标系：</b>使用“工具 → 项目坐标系”记录 EPSG 元数据；“坐标转换器”可用 PROJ 转换单个坐标点。</li>
   <li><b>打开点云：</b>使用“文件 → 打开点云”选择 PCD 或 LAS 文件，也可将文件直接拖入主窗口。</li>
   <li><b>继续工作：</b>“文件 → 最近打开”会保留最近 8 个可用点云文件。</li>
   <li><b>检查点云：</b>在内容列表中切换可见性，并使用六个标准视图和包围盒检查数据。</li>
@@ -45,7 +46,8 @@ inline QString shortcutsHtml()
 inline QString aboutHtml(const QString& applicationVersion,
                          const QString& qtVersion,
                          const QString& vtkVersion,
-                         const QString& pclVersion)
+                         const QString& pclVersion,
+                         const QString& projVersion)
 {
     return QStringLiteral(R"HTML(
 <h2>FAMP %1</h2>
@@ -55,11 +57,13 @@ inline QString aboutHtml(const QString& applicationVersion,
   <tr><td><b>Qt</b></td><td>%2</td></tr>
   <tr><td><b>VTK</b></td><td>%3</td></tr>
   <tr><td><b>PCL</b></td><td>%4</td></tr>
+  <tr><td><b>PROJ</b></td><td>%5</td></tr>
 </table>
 <p><a href="https://github.com/liujintao-noctis/FAMP">GitHub 项目主页</a></p>
 )HTML").arg(applicationVersion.toHtmlEscaped(),
              qtVersion.toHtmlEscaped(),
              vtkVersion.toHtmlEscaped(),
-             pclVersion.toHtmlEscaped());
+             pclVersion.toHtmlEscaped(),
+             projVersion.toHtmlEscaped());
 }
 }

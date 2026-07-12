@@ -42,6 +42,7 @@ if(QT_VERSION_MAJOR GREATER_EQUAL 6)
 endif()
 
 find_package(PCL REQUIRED COMPONENTS common io filters features keypoints visualization)
+find_package(PROJ CONFIG REQUIRED)
 find_package(VTK REQUIRED COMPONENTS
     CommonColor
     CommonCore
@@ -141,6 +142,7 @@ endif()
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.cpp
     CompassItem.cpp
+    CrsService.cpp
     FAMPController.cpp
     FileIO.cpp
     FormTabulationItem.cpp
@@ -161,6 +163,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     main.cpp
     Cloud.h
     CompassItem.h
+    CrsService.h
     FAMPController.h
     FileIO.h
     FormTabulationItem.h
@@ -218,6 +221,7 @@ target_link_libraries(FAMP
         Qt${QT_VERSION_MAJOR}::Core
         Qt${QT_VERSION_MAJOR}::Gui
         Qt${QT_VERSION_MAJOR}::Widgets
+        PROJ::proj
         ${PCL_LIBRARIES}
         ${VTK_LIBRARIES}
         lastools_compat
