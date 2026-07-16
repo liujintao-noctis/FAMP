@@ -106,6 +106,7 @@ MainWindow::MainWindow(QWidget *parent)
     , cloudLoadWatcher(nullptr)
     , cloudLoadProgress(nullptr)
     , cloudLoadCancelButton(nullptr)
+    , taskManager(nullptr)
     , cloudLoadTotal(0)
     , cloudLoadCompleted(0)
     , cloudLoadSucceeded(0)
@@ -183,6 +184,7 @@ MainWindow::MainWindow(QWidget *parent)
     initializeCrsActions();
     initializeUndoActions();
 
+    taskManager = new famp::tasks::TaskManager(this);
     cloudLoadWatcher = new QFutureWatcher<famp::cloud::LoadResult>(this);
     connect(cloudLoadWatcher,
             &QFutureWatcher<famp::cloud::LoadResult>::finished,
@@ -201,10 +203,10 @@ MainWindow::MainWindow(QWidget *parent)
     cloudLoadCancelButton->hide();
     statusBar()->addPermanentWidget(cloudLoadCancelButton);
     connect(cloudLoadCancelButton, &QToolButton::clicked, this, [this]() {
-        if (!cloudLoadBusy || !cloudLoadCancellation)
+        if (!cloudLoadBusy || !cloudLoadTask.isValid())
             return;
         cloudLoadCancelled = true;
-        cloudLoadCancellation->store(true, std::memory_order_relaxed);
+        taskManager->requestCancellation(cloudLoadTask.id);
         pendingCloudFiles.clear();
         cloudLoadCancelButton->setEnabled(false);
         statusBar()->showMessage(tr("正在安全取消点云加载…"));
@@ -468,9 +470,9 @@ void MainWindow::slotExportArchaeologyReport()
                                       .value<MyCloudList>();
         famp::report::CloudEntry entry;
         entry.path = cloudItem->data(Qt::UserRole).toString();
-        entry.pointCount = cloud.input_cloud ? cloud.input_cloud->size() : 0;
+        entry.pointCount = cloud.layer.points ? cloud.layer.points->size() : 0;
         entry.visible = cloudItem->checkState() == Qt::Checked;
-        entry.spatial = cloud.spatial;
+        entry.spatial = cloud.layer.spatial;
         report.clouds.append(entry);
     }
 
@@ -530,9 +532,16 @@ bool MainWindow::currentProjectDocument(
                                           .value<MyCloudList>();
             famp::project::CloudReference reference;
             reference.path = path;
+            reference.layerId = cloud.layer.id;
+            reference.name = projectItem->child(0)->text().trimmed();
+            reference.crs = cloud.layer.crs;
             reference.visible = projectItem->child(0)->checkState()
                 == Qt::Checked;
-            reference.spatial = cloud.spatial;
+            reference.locked = cloud.layer.locked;
+            reference.spatial = cloud.layer.spatial;
+            reference.display = cloud.layer.display;
+            reference.attributes = cloud.layer.attributes.summaries();
+            reference.archaeologyFields = cloud.layer.archaeologyFields;
             document.clouds.append(reference);
         }
     }
@@ -1114,12 +1123,43 @@ bool MainWindow::selectedCloudData(MyCloudList& cloud, QString* path) const
     if (!data.isValid())
         return false;
     cloud = data.value<MyCloudList>();
-    if (!cloud.input_cloud || cloud.input_cloud->empty() || !cloud.cloudactor)
+    if (!cloud.layer.points || cloud.layer.points->empty() || !cloud.cloudactor)
         return false;
 
     if (path)
         *path = item->data(Qt::UserRole).toString();
     return true;
+}
+
+void MainWindow::updateCloudData(const MyCloudList& cloud)
+{
+    for (MyCloudList& stored : pointCloudList)
+    {
+        if (stored.id == cloud.id)
+        {
+            stored = cloud;
+            break;
+        }
+    }
+
+    const QSignalBlocker blocker(model);
+    for (int row = 0; row < model->rowCount(); ++row)
+    {
+        QStandardItem* projectItem = model->item(row);
+        if (!projectItem || projectItem->rowCount() == 0)
+            continue;
+        QStandardItem* cloudItem = projectItem->child(0);
+        const QVariant data = cloudItem->data(Qt::UserRole + 2);
+        if (!data.isValid() || data.value<MyCloudList>().id != cloud.id)
+            continue;
+        projectItem->setData(QVariant::fromValue(cloud), Qt::UserRole + 2);
+        cloudItem->setData(QVariant::fromValue(cloud), Qt::UserRole + 2);
+        const QString path = cloudItem->data(Qt::UserRole).toString();
+        projectItem->setText(cloud.layer.name + QStringLiteral("(")
+                             + path + QStringLiteral(")"));
+        cloudItem->setText(cloud.layer.name);
+        return;
+    }
 }
 
 void MainWindow::updateCloudToolActions()
@@ -1156,9 +1196,9 @@ void MainWindow::slotOpenCloudCoordinateViewer()
     sourceLabel.setToolTip(path);
     QLabel originLabel(
         QStringLiteral("X=%1, Y=%2, Z=%3")
-            .arg(cloud.spatial.origin[0], 0, 'g', 15)
-            .arg(cloud.spatial.origin[1], 0, 'g', 15)
-            .arg(cloud.spatial.origin[2], 0, 'g', 15),
+            .arg(cloud.layer.spatial.origin[0], 0, 'g', 15)
+            .arg(cloud.layer.spatial.origin[1], 0, 'g', 15)
+            .arg(cloud.layer.spatial.origin[2], 0, 'g', 15),
         &dialog);
     QLabel crsLabel(projectCrs.isEmpty() ? tr("未声明") : projectCrs, &dialog);
     layout.addRow(tr("点云"), &sourceLabel);
@@ -1195,7 +1235,7 @@ void MainWindow::slotOpenCloudCoordinateViewer()
         famp::cloud::Point3d output{};
         QString error;
         if (!famp::cloud::localToReal(
-                cloud.spatial,
+                cloud.layer.spatial,
                 {localX.value(), localY.value(), localZ.value()},
                 output,
                 &error))
@@ -1211,7 +1251,7 @@ void MainWindow::slotOpenCloudCoordinateViewer()
         famp::cloud::Point3d output{};
         QString error;
         if (!famp::cloud::realToLocal(
-                cloud.spatial,
+                cloud.layer.spatial,
                 {realX.value(), realY.value(), realZ.value()},
                 output,
                 &error))
@@ -1255,13 +1295,13 @@ void MainWindow::slotCloudDisplaySettings()
     pointSize.setRange(1.0, 20.0);
     pointSize.setDecimals(1);
     pointSize.setSingleStep(0.5);
-    pointSize.setValue(actor->GetProperty()->GetPointSize());
+    pointSize.setValue(cloud.layer.display.pointSize);
 
     QDoubleSpinBox opacity(&dialog);
     opacity.setRange(0.05, 1.0);
     opacity.setDecimals(2);
     opacity.setSingleStep(0.05);
-    opacity.setValue(actor->GetProperty()->GetOpacity());
+    opacity.setValue(cloud.layer.display.opacity);
 
     QComboBox colorMode(&dialog);
     colorMode.addItem(
@@ -1273,19 +1313,16 @@ void MainWindow::slotCloudDisplaySettings()
     colorMode.addItem(
         tr("按局部高程 Z 渐变"),
         static_cast<int>(famp::display::ColorMode::Elevation));
-    if (!mapper->GetScalarVisibility())
-        colorMode.setCurrentIndex(1);
-    else if (mapper->GetColorMode() == VTK_COLOR_MODE_MAP_SCALARS)
-        colorMode.setCurrentIndex(2);
-    else
-        colorMode.setCurrentIndex(0);
+    colorMode.setCurrentIndex(colorMode.findData(
+        static_cast<int>(cloud.layer.display.colorMode)));
 
-    const double* vtkColor = actor->GetProperty()->GetColor();
     QColor selectedColor = QColor::fromRgbF(
-        vtkColor[0], vtkColor[1], vtkColor[2]);
+        cloud.layer.display.red,
+        cloud.layer.display.green,
+        cloud.layer.display.blue);
     QPushButton colorButton(tr("选择颜色…"), &dialog);
     QCheckBox automaticRange(tr("自动使用点云高程范围"), &dialog);
-    automaticRange.setChecked(true);
+    automaticRange.setChecked(cloud.layer.display.automaticScalarRange);
     QDoubleSpinBox scalarMinimum(&dialog);
     QDoubleSpinBox scalarMaximum(&dialog);
     for (QDoubleSpinBox* spinBox : {&scalarMinimum, &scalarMaximum})
@@ -1294,9 +1331,12 @@ void MainWindow::slotCloudDisplaySettings()
         spinBox->setDecimals(6);
         spinBox->setSuffix(tr(" m"));
     }
-    double elevationMinimum = 0.0;
-    double elevationMaximum = 1.0;
-    if (famp::display::elevationRange(
+    scalarMinimum.setValue(cloud.layer.display.scalarMinimum);
+    scalarMaximum.setValue(cloud.layer.display.scalarMaximum);
+    double elevationMinimum = cloud.layer.display.scalarMinimum;
+    double elevationMaximum = cloud.layer.display.scalarMaximum;
+    if (cloud.layer.display.automaticScalarRange
+        && famp::display::elevationRange(
             actor, elevationMinimum, elevationMaximum, nullptr))
     {
         scalarMinimum.setValue(elevationMinimum);
@@ -1363,6 +1403,10 @@ void MainWindow::slotCloudDisplaySettings()
         QMessageBox::warning(this, tr("点云显示设置"), error);
         return;
     }
+    cloud.layer.display = settings;
+    ++cloud.layer.revision;
+    updateCloudData(cloud);
+    markProjectDirty();
     myVTK->refresh();
     emit sendStr2Console(tr("已更新所选点云的显示设置。"));
 }
@@ -1396,8 +1440,8 @@ void MainWindow::slotPreprocessCloud()
     leafSize.setSuffix(tr(" m"));
 
     QSpinBox meanNeighbors(&dialog);
-    const std::size_t availableNeighbors = cloud.input_cloud->size() > 1
-        ? cloud.input_cloud->size() - 1
+    const std::size_t availableNeighbors = cloud.layer.points->size() > 1
+        ? cloud.layer.points->size() - 1
         : 0;
     const int maximumNeighbors = std::max(
         2, static_cast<int>(std::min<std::size_t>(10000, availableNeighbors)));
@@ -1468,7 +1512,7 @@ void MainWindow::slotPreprocessCloud()
             return;
         }
         if (!famp::processing::validateOptions(
-                recipe.processing, cloud.input_cloud->size(), &recipeError))
+                recipe.processing, cloud.layer.points->size(), &recipeError))
         {
             QMessageBox::warning(&dialog, tr("处理方案不适用"), recipeError);
             return;
@@ -1488,7 +1532,7 @@ void MainWindow::slotPreprocessCloud()
         const auto current = currentOptions();
         QString recipeError;
         if (!famp::processing::validateOptions(
-                current, cloud.input_cloud->size(), &recipeError))
+                current, cloud.layer.points->size(), &recipeError))
         {
             QMessageBox::warning(&dialog, tr("处理参数无效"), recipeError);
             return;
@@ -1521,7 +1565,7 @@ void MainWindow::slotPreprocessCloud()
     const famp::processing::Options options = currentOptions();
     QString validationError;
     if (!famp::processing::validateOptions(
-            options, cloud.input_cloud->size(), &validationError))
+            options, cloud.layer.points->size(), &validationError))
     {
         QMessageBox::warning(this, tr("点云预处理"), validationError);
         return;
@@ -1568,8 +1612,8 @@ void MainWindow::slotPreprocessCloud()
     QFutureWatcher<famp::processing::Result> watcher;
     connect(&watcher, &QFutureWatcher<famp::processing::Result>::finished,
             &progress, &QProgressDialog::accept);
-    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
-    const famp::cloud::SpatialReference spatial = cloud.spatial;
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.layer.points;
+    const famp::cloud::SpatialReference spatial = cloud.layer.spatial;
     watcher.setFuture(QtConcurrent::run(
         [input, options, outputPath, cancellation, spatial]() {
             return famp::processing::processAndSave(
@@ -1614,7 +1658,7 @@ void MainWindow::slotPreprocessCloud()
     famp::cloud::LoadResult loaded;
     loaded.path = result.outputPath;
     loaded.displayCloud = result.cloud;
-    loaded.spatial = cloud.spatial;
+    loaded.spatial = cloud.layer.spatial;
     integrateLoadedCloud(loaded);
     emit sendStr2Console(
         tr("点云预处理完成：%1 → %2 个点，已保存到 %3")
@@ -1637,7 +1681,7 @@ void MainWindow::slotCropCloud()
 
     famp::crop::Options options;
     QString error;
-    if (!famp::crop::dataBounds(cloud.input_cloud, options, &error))
+    if (!famp::crop::dataBounds(cloud.layer.points, options, &error))
     {
         QMessageBox::warning(this, tr("点云范围裁剪"), error);
         return;
@@ -1800,8 +1844,8 @@ void MainWindow::slotCropCloud()
     QFutureWatcher<famp::crop::Result> watcher;
     connect(&watcher, &QFutureWatcher<famp::crop::Result>::finished,
             &progress, &QProgressDialog::accept);
-    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.input_cloud;
-    const famp::cloud::SpatialReference spatial = cloud.spatial;
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.layer.points;
+    const famp::cloud::SpatialReference spatial = cloud.layer.spatial;
     watcher.setFuture(QtConcurrent::run(
         [input, options, outputPath, cancellation, spatial]() {
             return famp::crop::processAndSave(
@@ -1842,7 +1886,7 @@ void MainWindow::slotCropCloud()
     famp::cloud::LoadResult loaded;
     loaded.path = result.outputPath;
     loaded.displayCloud = result.cloud;
-    loaded.spatial = cloud.spatial;
+    loaded.spatial = cloud.layer.spatial;
     integrateLoadedCloud(loaded);
     emit sendStr2Console(
         tr("点云范围裁剪完成：%1 → %2 个点，已保存到 %3")
@@ -1878,7 +1922,7 @@ void MainWindow::slotRegisterCloud()
         if (!data.isValid())
             continue;
         const MyCloudList candidate = data.value<MyCloudList>();
-        if (!candidate.input_cloud || candidate.input_cloud->empty())
+        if (!candidate.layer.points || candidate.layer.points->empty())
             continue;
         Entry entry;
         entry.cloud = candidate;
@@ -2017,9 +2061,9 @@ void MainWindow::slotRegisterCloud()
     QFutureWatcher<famp::registration::Result> watcher;
     connect(&watcher, &QFutureWatcher<famp::registration::Result>::finished,
             &progress, &QProgressDialog::accept);
-    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr sourceCloud = source.cloud.input_cloud;
-    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr targetCloud = target.cloud.input_cloud;
-    const famp::cloud::SpatialReference targetSpatial = target.cloud.spatial;
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr sourceCloud = source.cloud.layer.points;
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr targetCloud = target.cloud.layer.points;
+    const famp::cloud::SpatialReference targetSpatial = target.cloud.layer.spatial;
     watcher.setFuture(QtConcurrent::run(
         [sourceCloud, targetCloud, options, outputPath, cancellation, targetSpatial]() {
             return famp::registration::alignAndSave(
@@ -2044,7 +2088,7 @@ void MainWindow::slotRegisterCloud()
     famp::cloud::LoadResult loaded;
     loaded.path = result.outputPath;
     loaded.displayCloud = result.cloud;
-    loaded.spatial = target.cloud.spatial;
+    loaded.spatial = target.cloud.layer.spatial;
     integrateLoadedCloud(loaded);
     QStringList matrixRows;
     for (int row = 0; row < 4; ++row)
@@ -2414,7 +2458,11 @@ bool MainWindow::beginCloudLoadBatch(const QStringList& paths,
     cloudLoadProjectBatch = projectBatch;
     cloudLoadProjectRecovery = projectRecovery;
     cloudLoadCancelled = false;
-    cloudLoadCancellation = std::make_shared<std::atomic_bool>(false);
+    cloudLoadTask = taskManager->start(
+        projectBatch ? tr("加载项目点云") : tr("加载点云"),
+        tr("正在检查输入文件"));
+    if (!cloudLoadTask.isValid())
+        return false;
 
     for (const QString& requestedPath : paths)
     {
@@ -2437,6 +2485,11 @@ bool MainWindow::beginCloudLoadBatch(const QStringList& paths,
     setCloudLoadUiBusy(true);
     cloudLoadProgress->setRange(0, std::max(1, cloudLoadTotal));
     cloudLoadProgress->setValue(cloudLoadCompleted);
+    taskManager->setProgress(
+        cloudLoadTask.id,
+        cloudLoadTotal > 0
+            ? static_cast<double>(cloudLoadCompleted) / cloudLoadTotal : 0.0,
+        tr("等待加载 %1 个点云").arg(pendingCloudFiles.size()));
 
     if (pendingCloudFiles.isEmpty())
         finishCloudLoadBatch();
@@ -2463,11 +2516,9 @@ void MainWindow::startNextCloudLoad()
     emit sendStr2Console(tr("后台读取点云  %1").arg(currentCloudLoadPath));
 
     const QString path = currentCloudLoadPath;
-    const auto cancellation = cloudLoadCancellation;
-    cloudLoadWatcher->setFuture(QtConcurrent::run([path, cancellation]() {
-        return famp::cloud::load(path, [cancellation]() {
-            return cancellation->load(std::memory_order_relaxed);
-        });
+    const auto shouldCancel = cloudLoadTask.cancellationCheck();
+    cloudLoadWatcher->setFuture(QtConcurrent::run([path, shouldCancel]() {
+        return famp::cloud::load(path, shouldCancel);
     }));
 }
 
@@ -2491,6 +2542,19 @@ void MainWindow::slotCloudLoadFinished()
         emit sendStr2Console(tr("点云加载失败  %1").arg(result.error));
     }
     cloudLoadProgress->setValue(cloudLoadCompleted);
+    if (cloudLoadTask.isValid())
+    {
+        taskManager->setProgress(
+            cloudLoadTask.id,
+            cloudLoadTotal > 0
+                ? std::min(1.0,
+                           static_cast<double>(cloudLoadCompleted)
+                               / cloudLoadTotal)
+                : 1.0,
+            tr("已处理 %1/%2 个点云")
+                .arg(cloudLoadCompleted)
+                .arg(cloudLoadTotal));
+    }
 
     if (pendingCloudFiles.isEmpty())
         finishCloudLoadBatch();
@@ -2524,18 +2588,27 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     vtkActor * AABB_actor = myVTK->appendAABBActor();
 
     //将各种数据储存到自定义结构体中
-    pointCloud.input_cloud = inCloud;
+    pointCloud.layer = famp::cloud::makeLayer(
+        result.path, inCloud, result.spatial, result.sourceCloud);
+    pointCloud.layer.attributes = result.attributes;
+    pointCloud.layer.crs = projectCrs;
     pointCloud.id = iCount;
     pointCloud.cloudactor = cloud_actor;
     pointCloud.AABBactor = AABB_actor;
-    pointCloud.spatial = result.spatial;
     bool cloudVisible = true;
     const auto storedReference = projectCloudReferences.constFind(result.path);
     if (storedReference != projectCloudReferences.cend())
     {
-        pointCloud.spatial = storedReference->spatial;
+        pointCloud.layer.id = storedReference->layerId;
+        pointCloud.layer.name = storedReference->name;
+        pointCloud.layer.crs = storedReference->crs;
+        pointCloud.layer.spatial = storedReference->spatial;
+        pointCloud.layer.display = storedReference->display;
+        pointCloud.layer.archaeologyFields = storedReference->archaeologyFields;
+        pointCloud.layer.locked = storedReference->locked;
         cloudVisible = storedReference->visible;
     }
+    pointCloud.layer.visible = cloudVisible;
     vtkNew<vtkMatrix4x4> cloudTransform;
     for (int row = 0; row < 4; ++row)
     {
@@ -2543,19 +2616,29 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
         {
             cloudTransform->SetElement(
                 row, column,
-                pointCloud.spatial.transform[static_cast<std::size_t>(
+                pointCloud.layer.spatial.transform[static_cast<std::size_t>(
                     row * 4 + column)]);
         }
     }
     pointCloud.cloudactor->SetUserMatrix(cloudTransform);
     pointCloud.AABBactor->SetUserMatrix(cloudTransform);
+    QString displayError;
+    if (!famp::display::apply(
+            pointCloud.cloudactor, pointCloud.layer.display, &displayError))
+    {
+        pointCloud.layer.display = {};
+        famp::display::apply(
+            pointCloud.cloudactor, pointCloud.layer.display, nullptr);
+        emit sendStr2Console(
+            tr("点云显示设置已恢复默认值：%1").arg(displayError));
+    }
     pointCloudList.push_back(pointCloud);
 
     //发送给Console消息
     emit sendStr2Console(tr("打开点云  %1").arg(result.path));
 
     /////-------------------DB tree---------------------
-    QString str = dir + "(" + result.path + ")";
+    QString str = pointCloud.layer.name + "(" + result.path + ")";
 
     //点云文件夹
     itemProject = new QStandardItem(icon_1, str);
@@ -2567,9 +2650,16 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     //else(currentItem->parent()->appendRow(itemProject));
 
     //点云文件
-    QStandardItem * itemChild = new QStandardItem(icon_2, dir);
+    QStandardItem * itemChild = new QStandardItem(icon_2, pointCloud.layer.name);
     ui.treeView->expand(itemProject->index());      //默认展开该项
-    itemChild->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsUserCheckable | Qt::ItemIsEditable | Qt::ItemIsDragEnabled | Qt::ItemIsDropEnabled);
+    Qt::ItemFlags cloudFlags = Qt::ItemIsSelectable | Qt::ItemIsEnabled
+        | Qt::ItemIsUserCheckable;
+    if (!pointCloud.layer.locked)
+    {
+        cloudFlags |= Qt::ItemIsEditable | Qt::ItemIsDragEnabled
+            | Qt::ItemIsDropEnabled;
+    }
+    itemChild->setFlags(cloudFlags);
     itemChild->setCheckState(cloudVisible ? Qt::Checked : Qt::Unchecked);
     itemChild->setData(QVariant(result.path), Qt::UserRole);
     itemChild->setData(QVariant(dir), Qt::UserRole+1);
@@ -2638,7 +2728,27 @@ void MainWindow::finishCloudLoadBatch()
     cloudLoadProjectBatch = false;
     cloudLoadProjectRecovery = false;
     cloudLoadCancelled = false;
-    cloudLoadCancellation.reset();
+    if (cloudLoadTask.isValid())
+    {
+        if (cancelled)
+        {
+            taskManager->acknowledgeCancellation(
+                cloudLoadTask.id, tr("点云加载已取消"));
+        }
+        else if (!failurePaths.isEmpty())
+        {
+            taskManager->fail(
+                cloudLoadTask.id,
+                tr("%1 个点云加载失败").arg(failurePaths.size()));
+        }
+        else
+        {
+            taskManager->succeed(
+                cloudLoadTask.id,
+                tr("已加载 %1 个点云").arg(succeeded));
+        }
+    }
+    cloudLoadTask = {};
     projectCloudReferences.clear();
     pendingCloudFiles.clear();
     currentCloudLoadPath.clear();
@@ -2700,7 +2810,7 @@ void MainWindow::slotOn_treeView_clicked(const QModelIndex & index)
     //qDebug() << currentItem->data(Qt::UserRole).toString();
     MyCloudList cloudData = currentItem->data(Qt::UserRole + 2).value<MyCloudList>();
     vtkActor * cloudDataActor = cloudData.cloudactor;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr  itemCloud = cloudData.input_cloud;
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr  itemCloud = cloudData.layer.points;
     //qDebug() <<"cloudID"<< cloudData.id;
 
     //qDebug() << currentItem->text();
@@ -2845,7 +2955,7 @@ void MainWindow::slotOn_treeView_clicked(const QModelIndex & index)
                 {
                     QStandardItem * childItem = currentItem->child(0);
                     MyCloudList cloudData = childItem->data(Qt::UserRole + 2).value<MyCloudList>();
-                    myVTK->AABBOrignalPosAxis(cloudData.input_cloud);   //将DBTree有效的点云发送给VTK
+                    myVTK->AABBOrignalPosAxis(cloudData.layer.points);   //将DBTree有效的点云发送给VTK
                     //myVTK->displayAABBOrignalPosAxis(true);       //是否显示AABB最小的坐标创建坐标轴
                 }
                 else if (currentItem->checkState() == Qt::Unchecked)
@@ -2866,6 +2976,31 @@ void MainWindow::slotOn_treeItemChanged(QStandardItem * item)
 {
 
     if (item == nullptr)        return;
+
+    const QVariant layerData = item->data(Qt::UserRole + 2);
+    if (!item->hasChildren() && layerData.isValid())
+    {
+        MyCloudList cloud = layerData.value<MyCloudList>();
+        const QString normalizedName = item->text().trimmed();
+        if (normalizedName.isEmpty())
+        {
+            const QSignalBlocker blocker(model);
+            item->setText(cloud.layer.name);
+        }
+        else
+        {
+            const bool visible = item->checkState() == Qt::Checked;
+            if (cloud.layer.name != normalizedName
+                || cloud.layer.visible != visible)
+            {
+                cloud.layer.name = normalizedName;
+                cloud.layer.visible = visible;
+                ++cloud.layer.revision;
+                updateCloudData(cloud);
+                markProjectDirty();
+            }
+        }
+    }
 
     QModelIndex index = ui.treeView->currentIndex();
     QStandardItem * currentItem = model->itemFromIndex(index);
@@ -3099,7 +3234,7 @@ void MainWindow::DBTreeSendVTKItemCloud()
     QStandardItem * currentItem = model->itemFromIndex(index);
     if (currentItem == nullptr  || currentItem->hasChildren())      return;
     MyCloudList cloudData = currentItem->data(Qt::UserRole + 2).value<MyCloudList>();
-    myVTK->getDBItemCloud(cloudData.input_cloud);
+    myVTK->getDBItemCloud(cloudData.layer.points);
 
 }
 
@@ -3110,7 +3245,7 @@ void MainWindow::DBTreeSendGraphicViewItemCloud()
     QStandardItem * currentItem = model->itemFromIndex(index);
     if (currentItem == nullptr || currentItem->hasChildren())       return;
     MyCloudList cloudData = currentItem->data(Qt::UserRole + 2).value<MyCloudList>();
-    ui.graphicsView->getDBItemCloud(cloudData.input_cloud);
+    ui.graphicsView->getDBItemCloud(cloudData.layer.points);
 }
 
 //设置DBTree item点云与切割按钮的禁用与否

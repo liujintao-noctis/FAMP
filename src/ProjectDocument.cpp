@@ -1,4 +1,5 @@
 #include "ProjectDocument.h"
+#include "CloudLayer.h"
 #include "CrsService.h"
 #include "RecentFiles.h"
 
@@ -11,6 +12,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QSaveFile>
+#include <QSet>
 
 #include <cmath>
 #include <limits>
@@ -20,6 +22,11 @@ namespace
 constexpr int MaxCloudFiles = 1'000;
 constexpr qint64 MaxProjectBytes = 64 * 1024 * 1024;
 constexpr int MaxWindowStateBytes = 4 * 1024 * 1024;
+constexpr int MaxLayerNameLength = 512;
+constexpr int MaxAttributeSummaries = 256;
+constexpr int MaxArchaeologyFields = 128;
+constexpr int MaxArchaeologyKeyLength = 128;
+constexpr int MaxArchaeologyValueLength = 16 * 1024;
 constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
 
 void setError(QString* errorMessage, const QString& message)
@@ -98,6 +105,210 @@ bool readMetadataInteger(const QJsonValue& value, qint64& output)
         return false;
     }
     output = static_cast<qint64>(number);
+    return true;
+}
+
+QString colorModeName(famp::display::ColorMode mode)
+{
+    switch (mode)
+    {
+    case famp::display::ColorMode::PointRgb:
+        return QStringLiteral("point-rgb");
+    case famp::display::ColorMode::Uniform:
+        return QStringLiteral("uniform");
+    case famp::display::ColorMode::Elevation:
+        return QStringLiteral("elevation");
+    }
+    return {};
+}
+
+bool colorModeFromName(const QString& name, famp::display::ColorMode& mode)
+{
+    const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("point-rgb"))
+        mode = famp::display::ColorMode::PointRgb;
+    else if (normalized == QStringLiteral("uniform"))
+        mode = famp::display::ColorMode::Uniform;
+    else if (normalized == QStringLiteral("elevation"))
+        mode = famp::display::ColorMode::Elevation;
+    else
+        return false;
+    return true;
+}
+
+QJsonObject serializeDisplay(const famp::display::Settings& display)
+{
+    return QJsonObject{
+        {QStringLiteral("pointSize"), display.pointSize},
+        {QStringLiteral("opacity"), display.opacity},
+        {QStringLiteral("colorMode"), colorModeName(display.colorMode)},
+        {QStringLiteral("red"), display.red},
+        {QStringLiteral("green"), display.green},
+        {QStringLiteral("blue"), display.blue},
+        {QStringLiteral("automaticScalarRange"), display.automaticScalarRange},
+        {QStringLiteral("scalarMinimum"), display.scalarMinimum},
+        {QStringLiteral("scalarMaximum"), display.scalarMaximum}};
+}
+
+bool deserializeDisplay(const QJsonValue& value,
+                        famp::display::Settings& display)
+{
+    if (!value.isObject())
+        return false;
+    const QJsonObject object = value.toObject();
+    const QJsonValue pointSize = object.value(QStringLiteral("pointSize"));
+    const QJsonValue opacity = object.value(QStringLiteral("opacity"));
+    const QJsonValue colorMode = object.value(QStringLiteral("colorMode"));
+    const QJsonValue red = object.value(QStringLiteral("red"));
+    const QJsonValue green = object.value(QStringLiteral("green"));
+    const QJsonValue blue = object.value(QStringLiteral("blue"));
+    const QJsonValue automatic = object.value(
+        QStringLiteral("automaticScalarRange"));
+    const QJsonValue minimum = object.value(QStringLiteral("scalarMinimum"));
+    const QJsonValue maximum = object.value(QStringLiteral("scalarMaximum"));
+    if (!pointSize.isDouble() || !opacity.isDouble() || !colorMode.isString()
+        || !red.isDouble() || !green.isDouble() || !blue.isDouble()
+        || !automatic.isBool() || !minimum.isDouble() || !maximum.isDouble())
+    {
+        return false;
+    }
+
+    famp::display::Settings candidate;
+    candidate.pointSize = pointSize.toDouble();
+    candidate.opacity = opacity.toDouble();
+    candidate.red = red.toDouble();
+    candidate.green = green.toDouble();
+    candidate.blue = blue.toDouble();
+    candidate.automaticScalarRange = automatic.toBool();
+    candidate.scalarMinimum = minimum.toDouble();
+    candidate.scalarMaximum = maximum.toDouble();
+    if (!colorModeFromName(colorMode.toString(), candidate.colorMode)
+        || !famp::display::validateSettings(candidate))
+    {
+        return false;
+    }
+    display = candidate;
+    return true;
+}
+
+QJsonArray serializeAttributes(
+    const QVector<famp::cloud::AttributeSummary>& attributes)
+{
+    QJsonArray result;
+    for (const famp::cloud::AttributeSummary& attribute : attributes)
+    {
+        result.append(QJsonObject{
+            {QStringLiteral("name"), attribute.name.trimmed()},
+            {QStringLiteral("unit"), attribute.unit.trimmed()},
+            {QStringLiteral("type"),
+             famp::cloud::attributeValueTypeName(attribute.type)},
+            {QStringLiteral("valueCount"),
+             static_cast<double>(attribute.valueCount)},
+            {QStringLiteral("finiteValueCount"),
+             static_cast<double>(attribute.finiteValueCount)},
+            {QStringLiteral("hasFiniteRange"), attribute.hasFiniteRange},
+            {QStringLiteral("minimum"), attribute.minimum},
+            {QStringLiteral("maximum"), attribute.maximum}});
+    }
+    return result;
+}
+
+bool deserializeAttributes(
+    const QJsonValue& value,
+    QVector<famp::cloud::AttributeSummary>& attributes)
+{
+    if (!value.isArray() || value.toArray().size() > MaxAttributeSummaries)
+        return false;
+    QVector<famp::cloud::AttributeSummary> candidate;
+    QSet<QString> names;
+    for (const QJsonValue& item : value.toArray())
+    {
+        if (!item.isObject())
+            return false;
+        const QJsonObject object = item.toObject();
+        const QJsonValue name = object.value(QStringLiteral("name"));
+        const QJsonValue unit = object.value(QStringLiteral("unit"));
+        const QJsonValue type = object.value(QStringLiteral("type"));
+        const QJsonValue finiteRange = object.value(
+            QStringLiteral("hasFiniteRange"));
+        const QJsonValue minimum = object.value(QStringLiteral("minimum"));
+        const QJsonValue maximum = object.value(QStringLiteral("maximum"));
+        famp::cloud::AttributeSummary summary;
+        if (!name.isString() || !unit.isString() || !type.isString()
+            || !finiteRange.isBool() || !minimum.isDouble()
+            || !maximum.isDouble()
+            || !readMetadataInteger(
+                object.value(QStringLiteral("valueCount")), summary.valueCount)
+            || !readMetadataInteger(
+                object.value(QStringLiteral("finiteValueCount")),
+                summary.finiteValueCount)
+            || !famp::cloud::attributeValueTypeFromName(
+                type.toString(), summary.type))
+        {
+            return false;
+        }
+        summary.name = name.toString().trimmed();
+        summary.unit = unit.toString().trimmed();
+        summary.hasFiniteRange = finiteRange.toBool();
+        summary.minimum = minimum.toDouble();
+        summary.maximum = maximum.toDouble();
+        const QString key = summary.name.toCaseFolded();
+        if (names.contains(key)
+            || !famp::cloud::validateAttributeSummary(summary))
+        {
+            return false;
+        }
+        names.insert(key);
+        candidate.append(summary);
+    }
+    attributes = candidate;
+    return true;
+}
+
+bool validArchaeologyFields(const QMap<QString, QString>& fields)
+{
+    if (fields.size() > MaxArchaeologyFields)
+        return false;
+    QSet<QString> keys;
+    for (auto iterator = fields.cbegin(); iterator != fields.cend(); ++iterator)
+    {
+        const QString key = iterator.key().trimmed().toCaseFolded();
+        if (key.isEmpty() || keys.contains(key)
+            || iterator.key().size() > MaxArchaeologyKeyLength
+            || iterator.value().size() > MaxArchaeologyValueLength)
+        {
+            return false;
+        }
+        keys.insert(key);
+    }
+    return true;
+}
+
+QJsonObject serializeArchaeologyFields(const QMap<QString, QString>& fields)
+{
+    QJsonObject result;
+    for (auto iterator = fields.cbegin(); iterator != fields.cend(); ++iterator)
+        result.insert(iterator.key().trimmed(), iterator.value());
+    return result;
+}
+
+bool deserializeArchaeologyFields(
+    const QJsonValue& value,
+    QMap<QString, QString>& fields)
+{
+    if (!value.isObject() || value.toObject().size() > MaxArchaeologyFields)
+        return false;
+    QMap<QString, QString> candidate;
+    const QJsonObject object = value.toObject();
+    for (auto iterator = object.begin(); iterator != object.end(); ++iterator)
+    {
+        if (!iterator.value().isString())
+            return false;
+        candidate.insert(iterator.key(), iterator.value().toString());
+    }
+    if (!validArchaeologyFields(candidate))
+        return false;
+    fields = candidate;
     return true;
 }
 
@@ -216,6 +427,7 @@ bool save(const QString& projectPath,
     QJsonArray cloudFiles;
     QJsonArray cloudReferences;
     QStringList uniquePaths;
+    QSet<QString> uniqueLayerIds;
     QVector<CloudReference> references = document.clouds;
     if (references.isEmpty())
     {
@@ -253,12 +465,66 @@ bool save(const QString& projectPath,
         if (containsPath(uniquePaths, normalizedCloudPath))
             continue;
 
+        const QFileInfo info(normalizedCloudPath);
+        const QString layerId = reference.layerId.trimmed().isEmpty()
+            ? famp::cloud::stableLayerId(normalizedCloudPath)
+            : reference.layerId.trimmed().toLower();
+        const QString layerName = reference.name.trimmed().isEmpty()
+            ? info.fileName() : reference.name.trimmed();
+        const QString layerCrs = reference.crs.trimmed().isEmpty()
+            ? projectCrs : famp::crs::normalizedEpsg(reference.crs);
+        if (!famp::cloud::isValidLayerId(layerId)
+            || uniqueLayerIds.contains(layerId))
+        {
+            setError(errorMessage,
+                     QStringLiteral("点云图层 ID 无效或重复：%1")
+                         .arg(reference.layerId));
+            return false;
+        }
+        if (layerName.isEmpty() || layerName.size() > MaxLayerNameLength)
+        {
+            setError(errorMessage, QStringLiteral("点云图层名称无效：%1")
+                                       .arg(reference.name));
+            return false;
+        }
+        if (!reference.crs.trimmed().isEmpty() && layerCrs.isEmpty())
+        {
+            setError(errorMessage, QStringLiteral("点云图层坐标系无效：%1")
+                                       .arg(reference.crs));
+            return false;
+        }
+        if (!famp::display::validateSettings(reference.display)
+            || reference.attributes.size() > MaxAttributeSummaries
+            || !validArchaeologyFields(reference.archaeologyFields))
+        {
+            setError(errorMessage,
+                     QStringLiteral("点云图层显示、属性或考古字段无效：%1")
+                         .arg(layerName));
+            return false;
+        }
+        QSet<QString> attributeNames;
+        for (const famp::cloud::AttributeSummary& attribute : reference.attributes)
+        {
+            const QString key = attribute.name.trimmed().toCaseFolded();
+            if (attributeNames.contains(key)
+                || !validMetadataInteger(attribute.valueCount)
+                || !validMetadataInteger(attribute.finiteValueCount)
+                || !famp::cloud::validateAttributeSummary(attribute))
+            {
+                setError(errorMessage,
+                         QStringLiteral("点云图层属性摘要无效：%1")
+                             .arg(layerName));
+                return false;
+            }
+            attributeNames.insert(key);
+        }
+
         uniquePaths.append(normalizedCloudPath);
+        uniqueLayerIds.insert(layerId);
         const QString relativePath = QDir::fromNativeSeparators(
             projectDirectory.relativeFilePath(normalizedCloudPath));
         cloudFiles.append(relativePath);
 
-        const QFileInfo info(normalizedCloudPath);
         const qint64 size = reference.size >= 0
             ? reference.size : (info.exists() ? info.size() : -1);
         const qint64 modified = reference.modifiedUtcMilliseconds >= 0
@@ -275,6 +541,9 @@ bool save(const QString& projectPath,
         serializedReference.insert(QStringLiteral("relativePath"), relativePath);
         serializedReference.insert(QStringLiteral("absolutePath"),
                                    QDir::fromNativeSeparators(normalizedCloudPath));
+        serializedReference.insert(QStringLiteral("layerId"), layerId);
+        serializedReference.insert(QStringLiteral("name"), layerName);
+        serializedReference.insert(QStringLiteral("crs"), layerCrs);
         serializedReference.insert(QStringLiteral("size"),
                                    static_cast<double>(size));
         serializedReference.insert(QStringLiteral("modifiedUtcMilliseconds"),
@@ -282,10 +551,18 @@ bool save(const QString& projectPath,
         serializedReference.insert(QStringLiteral("sha256"),
                                    QString::fromLatin1(reference.sha256.toHex()));
         serializedReference.insert(QStringLiteral("visible"), reference.visible);
+        serializedReference.insert(QStringLiteral("locked"), reference.locked);
         serializedReference.insert(QStringLiteral("origin"),
                                    numberArray(reference.spatial.origin));
         serializedReference.insert(QStringLiteral("transform"),
                                    numberArray(reference.spatial.transform));
+        serializedReference.insert(QStringLiteral("display"),
+                                   serializeDisplay(reference.display));
+        serializedReference.insert(QStringLiteral("attributes"),
+                                   serializeAttributes(reference.attributes));
+        serializedReference.insert(
+            QStringLiteral("archaeologyFields"),
+            serializeArchaeologyFields(reference.archaeologyFields));
         cloudReferences.append(serializedReference);
     }
 
@@ -366,7 +643,7 @@ bool load(const QString& projectPath,
         return false;
     }
     const int schemaVersion = root.value(QStringLiteral("schemaVersion")).toInt(-1);
-    if (schemaVersion != 1 && schemaVersion != SchemaVersion)
+    if (schemaVersion < 1 || schemaVersion > SchemaVersion)
     {
         setError(errorMessage,
                  QStringLiteral("不支持的 FAMP 项目格式版本。"));
@@ -473,6 +750,7 @@ bool load(const QString& projectPath,
             return false;
         }
         QStringList referencedPaths;
+        QSet<QString> referencedLayerIds;
         for (const QJsonValue& value : referencesValue.toArray())
         {
             if (!value.isObject())
@@ -517,6 +795,9 @@ bool load(const QString& projectPath,
 
             CloudReference reference;
             reference.path = resolvedPath;
+            reference.layerId = famp::cloud::stableLayerId(resolvedPath);
+            reference.name = QFileInfo(resolvedPath).fileName();
+            reference.crs = projectCrs;
             const QString hash = hashValue.toString();
             reference.visible = visibleValue.toBool();
             if (!readMetadataInteger(sizeValue, reference.size)
@@ -535,8 +816,55 @@ bool load(const QString& projectPath,
                 return false;
             }
             reference.sha256 = QByteArray::fromHex(hash.toLatin1());
+            if (schemaVersion >= 3)
+            {
+                const QJsonValue layerIdValue = object.value(
+                    QStringLiteral("layerId"));
+                const QJsonValue nameValue = object.value(QStringLiteral("name"));
+                const QJsonValue crsValue = object.value(QStringLiteral("crs"));
+                const QJsonValue lockedValue = object.value(QStringLiteral("locked"));
+                if (!layerIdValue.isString() || !nameValue.isString()
+                    || !crsValue.isString() || !lockedValue.isBool())
+                {
+                    setError(errorMessage,
+                             QStringLiteral("项目包含无效的点云图层字段。"));
+                    return false;
+                }
+                reference.layerId = layerIdValue.toString().trimmed().toLower();
+                reference.name = nameValue.toString().trimmed();
+                const QString storedLayerCrs = crsValue.toString();
+                reference.crs = storedLayerCrs.trimmed().isEmpty()
+                    ? QString()
+                    : famp::crs::normalizedEpsg(storedLayerCrs);
+                reference.locked = lockedValue.toBool();
+                if (!famp::cloud::isValidLayerId(reference.layerId)
+                    || reference.name.isEmpty()
+                    || reference.name.size() > MaxLayerNameLength
+                    || (!storedLayerCrs.trimmed().isEmpty()
+                        && reference.crs.isEmpty())
+                    || !deserializeDisplay(
+                        object.value(QStringLiteral("display")),
+                        reference.display)
+                    || !deserializeAttributes(
+                        object.value(QStringLiteral("attributes")),
+                        reference.attributes)
+                    || !deserializeArchaeologyFields(
+                        object.value(QStringLiteral("archaeologyFields")),
+                        reference.archaeologyFields))
+                {
+                    setError(errorMessage,
+                             QStringLiteral("项目包含无效的点云图层状态。"));
+                    return false;
+                }
+            }
             if (!containsPath(referencedPaths, reference.path))
             {
+                if (referencedLayerIds.contains(reference.layerId))
+                {
+                    setError(errorMessage, QStringLiteral("项目包含重复的点云图层 ID。"));
+                    return false;
+                }
+                referencedLayerIds.insert(reference.layerId);
                 referencedPaths.append(reference.path);
                 cloudReferences.append(reference);
             }
@@ -550,6 +878,9 @@ bool load(const QString& projectPath,
         {
             CloudReference reference;
             reference.path = path;
+            reference.layerId = famp::cloud::stableLayerId(path);
+            reference.name = QFileInfo(path).fileName();
+            reference.crs = projectCrs;
             cloudReferences.append(reference);
         }
     }
