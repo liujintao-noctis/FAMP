@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 
 #include "ProjectDocument.h"
+#include "CloudLayer.h"
 
 TEST(ProjectDocumentTest, RoundTripsRelativeCloudPathsAndScale)
 {
@@ -122,6 +123,150 @@ TEST(ProjectDocumentTest, PreservesCloudMetadataAndUsesAbsoluteFallback)
     EXPECT_EQ(loaded.clouds.front().spatial.origin, cloud.spatial.origin);
     EXPECT_EQ(loaded.clouds.front().spatial.transform,
               cloud.spatial.transform);
+}
+
+TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("遗址点云.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.write("placeholder");
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.layerId = famp::cloud::createLayerId();
+    cloud.name = QStringLiteral("T1 探方表土层");
+    cloud.crs = QStringLiteral("epsg:4490");
+    cloud.visible = false;
+    cloud.locked = true;
+    cloud.display.pointSize = 4.5;
+    cloud.display.opacity = 0.65;
+    cloud.display.colorMode = famp::display::ColorMode::Elevation;
+    cloud.display.automaticScalarRange = false;
+    cloud.display.scalarMinimum = 10.0;
+    cloud.display.scalarMaximum = 20.0;
+    famp::cloud::AttributeSummary intensity;
+    intensity.name = QStringLiteral("intensity");
+    intensity.unit = QStringLiteral("raw");
+    intensity.type = famp::cloud::AttributeValueType::UnsignedInteger;
+    intensity.valueCount = 3;
+    intensity.finiteValueCount = 3;
+    intensity.hasFiniteRange = true;
+    intensity.minimum = 2.0;
+    intensity.maximum = 99.0;
+    cloud.attributes = {intensity};
+    cloud.archaeologyFields.insert(
+        QStringLiteral("context"), QStringLiteral("Locus-12"));
+
+    famp::project::Document source;
+    source.projectCrs = QStringLiteral("EPSG:4490");
+    source.clouds = {cloud};
+    const QString projectPath = directory.filePath(QStringLiteral("schema3.famp"));
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.6.0"), &error))
+        << error.toStdString();
+
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(projectPath, loaded, &error))
+        << error.toStdString();
+    ASSERT_EQ(loaded.clouds.size(), 1);
+    const auto& result = loaded.clouds.front();
+    EXPECT_EQ(result.layerId, cloud.layerId);
+    EXPECT_EQ(result.name, cloud.name);
+    EXPECT_EQ(result.crs, QStringLiteral("EPSG:4490"));
+    EXPECT_FALSE(result.visible);
+    EXPECT_TRUE(result.locked);
+    EXPECT_DOUBLE_EQ(result.display.pointSize, 4.5);
+    EXPECT_DOUBLE_EQ(result.display.opacity, 0.65);
+    EXPECT_EQ(result.display.colorMode, famp::display::ColorMode::Elevation);
+    ASSERT_EQ(result.attributes.size(), 1);
+    EXPECT_EQ(result.attributes.front().name, QStringLiteral("intensity"));
+    EXPECT_EQ(result.attributes.front().valueCount, 3);
+    EXPECT_EQ(result.archaeologyFields.value(QStringLiteral("context")),
+              QStringLiteral("Locus-12"));
+}
+
+TEST(ProjectDocumentTest, MigratesSchemaTwoLayerDefaultsDeterministically)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("legacy.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+    const QString projectPath = directory.filePath(QStringLiteral("legacy-v2.famp"));
+
+    famp::project::Document source;
+    source.cloudFiles = {cloudPath};
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.5.2"), &error));
+    QFile file(projectPath);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    root.insert(QStringLiteral("schemaVersion"), 2);
+    QJsonArray clouds = root.value(QStringLiteral("clouds")).toArray();
+    QJsonObject serialized = clouds.at(0).toObject();
+    for (const QString& field : {
+             QStringLiteral("layerId"), QStringLiteral("name"),
+             QStringLiteral("crs"), QStringLiteral("locked"),
+             QStringLiteral("display"), QStringLiteral("attributes"),
+             QStringLiteral("archaeologyFields")})
+    {
+        serialized.remove(field);
+    }
+    clouds[0] = serialized;
+    root.insert(QStringLiteral("clouds"), clouds);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    famp::project::Document first;
+    famp::project::Document second;
+    ASSERT_TRUE(famp::project::load(projectPath, first, &error))
+        << error.toStdString();
+    ASSERT_TRUE(famp::project::load(projectPath, second, &error))
+        << error.toStdString();
+    ASSERT_EQ(first.clouds.size(), 1);
+    EXPECT_EQ(first.clouds.front().layerId, second.clouds.front().layerId);
+    EXPECT_TRUE(famp::cloud::isValidLayerId(first.clouds.front().layerId));
+    EXPECT_EQ(first.clouds.front().name, QStringLiteral("legacy.pcd"));
+    EXPECT_FALSE(first.clouds.front().locked);
+    EXPECT_TRUE(first.clouds.front().attributes.isEmpty());
+}
+
+TEST(ProjectDocumentTest, RejectsDuplicateLayerIdsBeforeWriting)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString firstPath = directory.filePath(QStringLiteral("first.pcd"));
+    const QString secondPath = directory.filePath(QStringLiteral("second.pcd"));
+    for (const QString& path : {firstPath, secondPath})
+    {
+        QFile file(path);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+    }
+
+    const QString duplicateId = famp::cloud::createLayerId();
+    famp::project::CloudReference first;
+    first.path = firstPath;
+    first.layerId = duplicateId;
+    famp::project::CloudReference second;
+    second.path = secondPath;
+    second.layerId = duplicateId;
+    famp::project::Document document;
+    document.clouds = {first, second};
+    const QString projectPath = directory.filePath(QStringLiteral("duplicate.famp"));
+    QString error;
+    EXPECT_FALSE(famp::project::save(
+        projectPath, document, QStringLiteral("0.6.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(QFileInfo::exists(projectPath));
 }
 
 TEST(ProjectDocumentTest, LoadsSchemaOneWithSafeDefaults)

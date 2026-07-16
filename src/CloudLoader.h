@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "CloudAttributes.h"
 #include "CloudCoordinates.h"
 #include "TaskCancellation.h"
 
@@ -25,6 +26,7 @@ struct LoadResult
     bool sourceWasPcd = false;
     bool cancelled = false;
     SpatialReference spatial;
+    CloudAttributes attributes;
 
     bool succeeded() const
     {

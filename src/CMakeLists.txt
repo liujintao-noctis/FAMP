@@ -143,13 +143,16 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     ArchaeologyReport.cpp
     AdditionalCloudLoader.cpp
     Cloud.cpp
+    CloudAttributes.cpp
     CloudCoordinates.cpp
     CloudCrop.cpp
     CloudDisplaySettings.cpp
     CloudLoader.cpp
+    CloudLayer.cpp
     CloudProcessing.cpp
     CloudRegistration.cpp
     TaskCancellation.h
+    TaskManager.cpp
     CompassItem.cpp
     CrsService.cpp
     FAMPController.cpp
@@ -179,10 +182,12 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     Cloud.h
     ArchaeologyReport.h
     AdditionalCloudLoader.h
+    CloudAttributes.h
     CloudCoordinates.h
     CloudCrop.h
     CloudDisplaySettings.h
     CloudLoader.h
+    CloudLayer.h
     CloudProcessing.h
     CloudRegistration.h
     CompassItem.h
@@ -210,6 +215,7 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     QDlgClip.h
     QDlgPlotTab.h
     QstringAndStringConvert.h
+    TaskManager.h
     VTKRenderManager.h
     VTKPointCloudManager.h
     VTKProjectionManager.h

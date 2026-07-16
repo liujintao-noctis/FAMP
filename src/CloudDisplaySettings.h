@@ -26,6 +26,9 @@ struct Settings
     double scalarMaximum = 1.0;
 };
 
+bool validateSettings(const Settings& settings,
+                      QString* errorMessage = nullptr);
+
 bool elevationRange(vtkActor* actor,
                     double& minimum,
                     double& maximum,

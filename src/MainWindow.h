@@ -11,10 +11,12 @@
 #include "ui_MainWindow.h"
 #include "MyVTK.h"
 #include "Cloud.h"
+#include "CloudLayer.h"
 #include "CloudLoader.h"
 #include "QDlgClip.h"
 #include "MyGraphicsView.h"
 #include "ProjectDocument.h"
+#include "TaskManager.h"
 
 #include <QtWidgets/QMainWindow>
 #include <QDockWidget>
@@ -46,10 +48,9 @@ class QToolButton;
 struct MyCloudList
 {
     int id;
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr input_cloud;
+    famp::cloud::CloudLayer layer;
     vtkActor * cloudactor;
     vtkActor * AABBactor;
-    famp::cloud::SpatialReference spatial;
 };
 
 class MainWindow : public QMainWindow
@@ -114,7 +115,8 @@ private:
     QFutureWatcher<famp::cloud::LoadResult> * cloudLoadWatcher;
     QProgressBar * cloudLoadProgress;
     QToolButton * cloudLoadCancelButton;
-    std::shared_ptr<std::atomic_bool> cloudLoadCancellation;
+    famp::tasks::TaskManager * taskManager;
+    famp::tasks::Handle cloudLoadTask;
     QStringList pendingCloudFiles;
     QStringList cloudLoadFailurePaths;
     QStringList cloudLoadFailureMessages;
@@ -150,6 +152,7 @@ private:
     void finishCloudLoadBatch();
     void setCloudLoadUiBusy(bool busy);
     bool selectedCloudData(MyCloudList& cloud, QString* path = nullptr) const;
+    void updateCloudData(const MyCloudList& cloud);
     void updateCloudToolActions();
     void initializeRecentFilesMenu();
     void addRecentFile(const QString& path);

@@ -32,8 +32,10 @@ add_library(famp_cloud STATIC
     "${FAMP_SRC_DIR}/AdditionalCloudLoader.cpp"
     "${FAMP_SRC_DIR}/AdditionalCloudLoader.h"
     "${FAMP_SRC_DIR}/Cloud.cpp"
+    "${FAMP_SRC_DIR}/CloudAttributes.cpp"
     "${FAMP_SRC_DIR}/CloudCoordinates.cpp"
     "${FAMP_SRC_DIR}/Cloud.h"
+    "${FAMP_SRC_DIR}/CloudAttributes.h"
     "${FAMP_SRC_DIR}/CloudCoordinates.h"
     "${FAMP_SRC_DIR}/TaskCancellation.h"
     "${FAMP_SRC_DIR}/CloudLoader.cpp"
@@ -79,11 +81,15 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/CloudRegistration.cpp"
     "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
+    "${FAMP_SRC_DIR}/CloudLayer.cpp"
+    "${FAMP_SRC_DIR}/TaskManager.cpp"
     "${FAMP_SRC_DIR}/ProjectDocument.cpp"
     "${FAMP_SRC_DIR}/ProcessingRecipe.cpp"
     test_main.cpp
     test_archaeology_report.cpp
     test_cloud.cpp
+    test_cloud_attributes.cpp
+    test_cloud_layer.cpp
     test_cloud_coordinates.cpp
     test_cloud_loader.cpp
     test_additional_cloud_loader.cpp
@@ -106,6 +112,7 @@ add_executable(famp_tests
     test_processing_recipe.cpp
     test_recent_files.cpp
     test_string_convert.cpp
+    test_task_manager.cpp
 )
 
 target_link_libraries(famp_tests

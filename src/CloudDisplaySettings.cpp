@@ -76,15 +76,8 @@ bool elevationRange(vtkActor* actor,
     return true;
 }
 
-bool apply(vtkActor* actor,
-           const Settings& settings,
-           QString* errorMessage)
+bool validateSettings(const Settings& settings, QString* errorMessage)
 {
-    if (!actor || !actor->GetMapper())
-    {
-        setError(errorMessage, QStringLiteral("点云渲染对象无效。"));
-        return false;
-    }
     if (!std::isfinite(settings.pointSize)
         || settings.pointSize < 1.0
         || settings.pointSize > 20.0)
@@ -106,6 +99,42 @@ bool apply(vtkActor* actor,
         setError(errorMessage, QStringLiteral("点云颜色分量必须在 0 到 1 之间。"));
         return false;
     }
+    if (settings.colorMode != ColorMode::PointRgb
+        && settings.colorMode != ColorMode::Uniform
+        && settings.colorMode != ColorMode::Elevation)
+    {
+        setError(errorMessage, QStringLiteral("点云颜色模式无效。"));
+        return false;
+    }
+    if (!std::isfinite(settings.scalarMinimum)
+        || !std::isfinite(settings.scalarMaximum))
+    {
+        setError(errorMessage, QStringLiteral("高程色带范围必须是有限数值。"));
+        return false;
+    }
+    if (settings.colorMode == ColorMode::Elevation
+        && !settings.automaticScalarRange
+        && settings.scalarMinimum >= settings.scalarMaximum)
+    {
+        setError(errorMessage, QStringLiteral("高程色带最小值必须小于最大值。"));
+        return false;
+    }
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+bool apply(vtkActor* actor,
+           const Settings& settings,
+           QString* errorMessage)
+{
+    if (!actor || !actor->GetMapper())
+    {
+        setError(errorMessage, QStringLiteral("点云渲染对象无效。"));
+        return false;
+    }
+    if (!validateSettings(settings, errorMessage))
+        return false;
 
     double scalarMinimum = settings.scalarMinimum;
     double scalarMaximum = settings.scalarMaximum;
