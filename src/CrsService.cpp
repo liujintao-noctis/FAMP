@@ -80,6 +80,129 @@ QString projError(PJ* operation)
 
 namespace famp::crs
 {
+class Transformer::Impl
+{
+public:
+    ContextPtr context{nullptr, &proj_context_destroy};
+    ProjPtr operation{nullptr, &proj_destroy};
+    QString source;
+    QString target;
+};
+
+Transformer::Transformer()
+    : impl_(std::make_unique<Impl>())
+{
+}
+
+Transformer::~Transformer() = default;
+Transformer::Transformer(Transformer&& other) noexcept = default;
+Transformer& Transformer::operator=(Transformer&& other) noexcept = default;
+
+bool Transformer::initialize(const QString& sourceIdentifier,
+                             const QString& targetIdentifier,
+                             QString* errorMessage)
+{
+    const QString sourceCrs = normalizedEpsg(sourceIdentifier);
+    const QString targetCrs = normalizedEpsg(targetIdentifier);
+    if (sourceCrs.isEmpty() || targetCrs.isEmpty())
+    {
+        setError(errorMessage, QStringLiteral("源坐标系和目标坐标系必须是有效的 EPSG 编码。"));
+        return false;
+    }
+
+    auto candidate = std::make_unique<Impl>();
+    candidate->context = createContext();
+    if (!candidate->context)
+    {
+        setError(errorMessage, QStringLiteral("无法初始化 PROJ。"));
+        return false;
+    }
+
+    const QByteArray sourceEncoded = sourceCrs.toUtf8();
+    const QByteArray targetEncoded = targetCrs.toUtf8();
+    ProjPtr rawOperation(
+        proj_create_crs_to_crs(candidate->context.get(),
+                               sourceEncoded.constData(),
+                               targetEncoded.constData(),
+                               nullptr),
+        &proj_destroy);
+    if (!rawOperation)
+    {
+        setError(errorMessage,
+                 QStringLiteral("无法创建 %1 到 %2 的坐标转换。")
+                     .arg(sourceCrs, targetCrs));
+        return false;
+    }
+
+    candidate->operation.reset(proj_normalize_for_visualization(
+        candidate->context.get(), rawOperation.get()));
+    if (!candidate->operation)
+    {
+        setError(errorMessage, QStringLiteral("无法规范化 PROJ 坐标轴顺序。"));
+        return false;
+    }
+    candidate->source = sourceCrs;
+    candidate->target = targetCrs;
+    impl_ = std::move(candidate);
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+bool Transformer::transform(const Coordinate& source,
+                            Coordinate& target,
+                            QString* errorMessage) const
+{
+    if (!isValid())
+    {
+        setError(errorMessage, QStringLiteral("坐标转换器尚未初始化。"));
+        return false;
+    }
+    if (!std::isfinite(source.x)
+        || !std::isfinite(source.y)
+        || !std::isfinite(source.z))
+    {
+        setError(errorMessage, QStringLiteral("待转换坐标必须是有限数值。"));
+        return false;
+    }
+
+    proj_errno_reset(impl_->operation.get());
+    const PJ_COORD transformed = proj_trans(
+        impl_->operation.get(), PJ_FWD,
+        proj_coord(source.x, source.y, source.z, 0.0));
+    if (proj_errno(impl_->operation.get()) != 0
+        || !std::isfinite(transformed.xyz.x)
+        || !std::isfinite(transformed.xyz.y)
+        || !std::isfinite(transformed.xyz.z))
+    {
+        setError(errorMessage,
+                 QStringLiteral("坐标转换失败：%1")
+                     .arg(projError(impl_->operation.get())));
+        return false;
+    }
+
+    target = Coordinate{
+        transformed.xyz.x, transformed.xyz.y, transformed.xyz.z};
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+bool Transformer::isValid() const
+{
+    return impl_ && impl_->context && impl_->operation;
+}
+
+QString Transformer::sourceIdentifier() const
+{
+    return impl_ ? impl_->source : QString();
+}
+
+QString Transformer::targetIdentifier() const
+{
+    return impl_ ? impl_->target : QString();
+}
+
 QString runtimeVersion()
 {
     const PJ_INFO info = proj_info();
@@ -139,70 +262,9 @@ bool transform(const QString& sourceIdentifier,
                Coordinate& target,
                QString* errorMessage)
 {
-    const QString sourceCrs = normalizedEpsg(sourceIdentifier);
-    const QString targetCrs = normalizedEpsg(targetIdentifier);
-    if (sourceCrs.isEmpty() || targetCrs.isEmpty())
-    {
-        setError(errorMessage, QStringLiteral("源坐标系和目标坐标系必须是有效的 EPSG 编码。"));
-        return false;
-    }
-    if (!std::isfinite(source.x)
-        || !std::isfinite(source.y)
-        || !std::isfinite(source.z))
-    {
-        setError(errorMessage, QStringLiteral("待转换坐标必须是有限数值。"));
-        return false;
-    }
-
-    ContextPtr context = createContext();
-    if (!context)
-    {
-        setError(errorMessage, QStringLiteral("无法初始化 PROJ。"));
-        return false;
-    }
-    const QByteArray sourceEncoded = sourceCrs.toUtf8();
-    const QByteArray targetEncoded = targetCrs.toUtf8();
-    ProjPtr rawOperation(
-        proj_create_crs_to_crs(context.get(),
-                               sourceEncoded.constData(),
-                               targetEncoded.constData(),
-                               nullptr),
-        &proj_destroy);
-    if (!rawOperation)
-    {
-        setError(errorMessage,
-                 QStringLiteral("无法创建 %1 到 %2 的坐标转换。")
-                     .arg(sourceCrs, targetCrs));
-        return false;
-    }
-
-    ProjPtr operation(
-        proj_normalize_for_visualization(context.get(), rawOperation.get()),
-        &proj_destroy);
-    if (!operation)
-    {
-        setError(errorMessage, QStringLiteral("无法规范化 PROJ 坐标轴顺序。"));
-        return false;
-    }
-
-    proj_errno_reset(operation.get());
-    const PJ_COORD transformed = proj_trans(
-        operation.get(), PJ_FWD, proj_coord(source.x, source.y, source.z, 0.0));
-    if (proj_errno(operation.get()) != 0
-        || !std::isfinite(transformed.xyz.x)
-        || !std::isfinite(transformed.xyz.y)
-        || !std::isfinite(transformed.xyz.z))
-    {
-        setError(errorMessage,
-                 QStringLiteral("坐标转换失败：%1").arg(projError(operation.get())));
-        return false;
-    }
-
-    Coordinate result;
-    result.x = transformed.xyz.x;
-    result.y = transformed.xyz.y;
-    result.z = transformed.xyz.z;
-    target = result;
-    return true;
+    Transformer transformer;
+    return transformer.initialize(
+               sourceIdentifier, targetIdentifier, errorMessage)
+        && transformer.transform(source, target, errorMessage);
 }
 }

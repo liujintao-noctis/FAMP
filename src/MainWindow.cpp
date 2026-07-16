@@ -14,7 +14,9 @@
 #include "CloudCrop.h"
 #include "CloudProcessing.h"
 #include "CloudRegistration.h"
+#include "CloudReprojection.h"
 #include "FileIO.h"
+#include "GraphicsUndoCommands.h"
 #include "HelpContent.h"
 #include "LasLoader.h"
 #include "PcdLoader.h"
@@ -89,6 +91,7 @@ MainWindow::MainWindow(QWidget *parent)
     , setProjectCrsAction(nullptr)
     , coordinateConverterAction(nullptr)
     , cloudCoordinateAction(nullptr)
+    , reprojectCloudAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -273,12 +276,17 @@ void MainWindow::initializeCrsActions()
     cloudCoordinateAction->setObjectName(
         QStringLiteral("actCloudCoordinateViewer"));
     cloudCoordinateAction->setEnabled(false);
+    reprojectCloudAction = toolsMenu->addAction(tr("重投影所选点云…"));
+    reprojectCloudAction->setObjectName(QStringLiteral("actReprojectCloud"));
+    reprojectCloudAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
             this, &MainWindow::slotOpenCoordinateConverter);
     connect(cloudCoordinateAction, &QAction::triggered,
             this, &MainWindow::slotOpenCloudCoordinateViewer);
+    connect(reprojectCloudAction, &QAction::triggered,
+            this, &MainWindow::slotReprojectCloud);
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -816,6 +824,8 @@ void MainWindow::clearWorkspace()
         registerCloudAction->setEnabled(false);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(false);
+    if (reprojectCloudAction)
+        reprojectCloudAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -1105,6 +1115,256 @@ void MainWindow::slotOpenCoordinateConverter()
     dialog.exec();
 }
 
+void MainWindow::slotReprojectCloud()
+{
+    MyCloudList cloud;
+    QString sourcePath;
+    if (!selectedCloudData(cloud, &sourcePath))
+    {
+        QMessageBox::information(
+            this, tr("点云重投影"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (cloud.layer.locked)
+    {
+        QMessageBox::information(
+            this, tr("点云重投影"), tr("所选图层已锁定，无法修改。"));
+        return;
+    }
+    if (!cloud.layer.attributes.isEmpty())
+    {
+        QMessageBox::information(
+            this, tr("点云重投影"),
+            tr("所选图层包含逐点属性。当前 PCD 输出尚不能无损保存这些属性，"
+               "因此已阻止重投影；属性持久化支持完成后将自动开放。"));
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("重投影所选点云"));
+    QFormLayout layout(&dialog);
+    QLineEdit sourceCrsEdit(
+        cloud.layer.crs.isEmpty()
+            ? (projectCrs.isEmpty() ? QStringLiteral("EPSG:4490") : projectCrs)
+            : cloud.layer.crs,
+        &dialog);
+    QLineEdit targetCrsEdit(
+        !projectCrs.isEmpty() && projectCrs != sourceCrsEdit.text()
+            ? projectCrs : QStringLiteral("EPSG:3857"),
+        &dialog);
+    QLabel explanation(
+        tr("程序将逐点转换真实坐标并重新中心化，以保留大坐标下的局部精度。"
+           "结果会原子保存为新的 PCD，当前图层切换到新文件；可通过撤销恢复。"),
+        &dialog);
+    explanation.setWordWrap(true);
+    layout.addRow(tr("源 CRS"), &sourceCrsEdit);
+    layout.addRow(tr("目标 CRS"), &targetCrsEdit);
+    layout.addRow(&explanation);
+    QDialogButtonBox buttons(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons.button(QDialogButtonBox::Ok)->setText(tr("选择输出文件…"));
+    connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(&buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout.addRow(&buttons);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    famp::crs::Info sourceInfo;
+    famp::crs::Info targetInfo;
+    QString error;
+    if (!famp::crs::inspect(sourceCrsEdit.text(), sourceInfo, &error)
+        || !famp::crs::inspect(targetCrsEdit.text(), targetInfo, &error))
+    {
+        QMessageBox::warning(this, tr("点云重投影"), error);
+        return;
+    }
+    if (sourceInfo.identifier == targetInfo.identifier)
+    {
+        QMessageBox::information(
+            this, tr("点云重投影"), tr("源 CRS 与目标 CRS 相同，无需重投影。"));
+        return;
+    }
+
+    const QFileInfo sourceFile(sourcePath);
+    QString targetSuffix = targetInfo.identifier;
+    targetSuffix.replace(QLatin1Char(':'), QLatin1Char('_'));
+    const QString initialPath = sourceFile.absoluteDir().filePath(
+        sourceFile.completeBaseName() + QStringLiteral("_reprojected_")
+        + targetSuffix + QStringLiteral(".pcd"));
+    QString outputPath = QFileDialog::getSaveFileName(
+        this, tr("保存重投影点云"), initialPath, tr("PCD 点云 (*.pcd)"));
+    if (outputPath.isEmpty())
+        return;
+    outputPath = famp::recent::normalizedPath(
+        famp::io::pathWithRequiredSuffix(outputPath, QStringLiteral("pcd")));
+
+    const Qt::CaseSensitivity pathCaseSensitivity =
+#ifdef Q_OS_WIN
+        Qt::CaseInsensitive;
+#else
+        Qt::CaseSensitive;
+#endif
+    if (outputPath.compare(
+            famp::recent::normalizedPath(sourcePath), pathCaseSensitivity) == 0)
+    {
+        QMessageBox::warning(
+            this, tr("点云重投影"),
+            tr("输出文件不能覆盖当前源点云，请选择新的文件名。"));
+        return;
+    }
+    for (const MyCloudList& candidate : pointCloudList)
+    {
+        if (candidate.layer.id == cloud.layer.id)
+            continue;
+        if (outputPath.compare(
+                famp::recent::normalizedPath(candidate.layer.sourcePath),
+                pathCaseSensitivity) == 0)
+        {
+            QMessageBox::warning(
+                this, tr("点云重投影"),
+                tr("输出文件正被另一个已加载图层使用，请选择新的文件名。"));
+            return;
+        }
+    }
+
+    const famp::tasks::Handle task = taskManager->start(
+        tr("重投影点云"),
+        tr("%1 → %2").arg(sourceInfo.identifier, targetInfo.identifier));
+    if (!task.isValid())
+    {
+        QMessageBox::warning(
+            this, tr("点云重投影"), tr("无法创建后台重投影任务。"));
+        return;
+    }
+
+    QProgressDialog progress(
+        tr("正在重投影点云…"), tr("取消"), 0, 100, this);
+    progress.setWindowTitle(tr("点云重投影"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+    connect(&progress, &QProgressDialog::canceled, this, [this, task]() {
+        taskManager->requestCancellation(task.id);
+    });
+    const QMetaObject::Connection taskProgressConnection = connect(
+        taskManager, &famp::tasks::TaskManager::taskChanged,
+        &progress, [this, task, &progress](quint64 id) {
+            if (id != task.id)
+                return;
+            famp::tasks::Snapshot snapshot;
+            if (!taskManager->snapshot(id, snapshot))
+                return;
+            progress.setValue(static_cast<int>(std::clamp(
+                snapshot.progress * 100.0, 0.0, 100.0)));
+            if (!snapshot.message.isEmpty())
+                progress.setLabelText(snapshot.message);
+        });
+
+    QFutureWatcher<famp::cloud::ReprojectionResult> watcher;
+    connect(&watcher,
+            &QFutureWatcher<famp::cloud::ReprojectionResult>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.layer.points;
+    const famp::cloud::SpatialReference inputSpatial = cloud.layer.spatial;
+    const QString sourceCrs = sourceInfo.identifier;
+    const QString targetCrs = targetInfo.identifier;
+    watcher.setFuture(QtConcurrent::run(
+        [this, task, input, inputSpatial, sourceCrs, targetCrs, outputPath]() {
+            auto result = famp::cloud::reproject(
+                input, inputSpatial, sourceCrs, targetCrs,
+                task.cancellationCheck(),
+                [this, task](double value) {
+                    taskManager->setProgress(
+                        task.id, value * 0.9,
+                        tr("正在转换点云坐标：%1%")
+                            .arg(static_cast<int>(value * 100.0)));
+                });
+            if (!result.succeeded())
+                return result;
+            if (famp::tasks::isCancellationRequested(task.cancellationCheck()))
+            {
+                result.points.reset();
+                result.cancelled = true;
+                result.error = tr("点云重投影已取消。");
+                return result;
+            }
+
+            taskManager->setProgress(task.id, 0.92, tr("正在原子保存重投影点云…"));
+            QString saveError;
+            if (!famp::io::savePcdAsciiAtomically(
+                    outputPath, *result.points, &saveError, &result.spatial))
+            {
+                result.error = saveError;
+                return result;
+            }
+            if (famp::tasks::isCancellationRequested(task.cancellationCheck()))
+            {
+                result.points.reset();
+                result.cancelled = true;
+                result.error = tr("重投影在保存完成后取消；输出文件已保留，图层未切换。");
+                return result;
+            }
+            taskManager->setProgress(task.id, 1.0, tr("重投影点云已保存"));
+            return result;
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const famp::cloud::ReprojectionResult result = watcher.result();
+    disconnect(taskProgressConnection);
+
+    if (result.cancelled)
+    {
+        const QString message = result.error.isEmpty()
+            ? tr("点云重投影已取消") : result.error;
+        taskManager->acknowledgeCancellation(task.id, message);
+        statusBar()->showMessage(message, 5000);
+        emit sendStr2Console(message);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        taskManager->fail(
+            task.id, result.error.isEmpty() ? tr("点云重投影失败") : result.error);
+        QMessageBox::warning(
+            this, tr("点云重投影"),
+            result.error.isEmpty() ? tr("点云重投影失败。") : result.error);
+        return;
+    }
+    taskManager->succeed(task.id, tr("点云重投影完成"));
+
+    const famp::cloud::CloudLayer before = cloud.layer;
+    famp::cloud::CloudLayer after = before;
+    after.points = result.points;
+    after.sourcePoints.reset();
+    after.sourcePath = outputPath;
+    after.spatial = result.spatial;
+    after.crs = result.targetCrs;
+    if (before.name == sourceFile.fileName())
+        after.name = QFileInfo(outputPath).fileName();
+    ++after.revision;
+    const QString layerId = before.id;
+    ui.graphicsView->commandStack()->push(
+        famp::graphics::makeCallbackCommand(
+            [this, layerId, before]() {
+                applyCloudLayerState(layerId, before);
+            },
+            [this, layerId, after]() {
+                applyCloudLayerState(layerId, after);
+            },
+            tr("重投影点云 %1 → %2")
+                .arg(result.sourceCrs, result.targetCrs)));
+    addRecentFile(outputPath);
+    statusBar()->showMessage(
+        tr("点云已重投影为 %1，可使用撤销恢复。")
+            .arg(result.targetCrs),
+        8000);
+    emit sendStr2Console(
+        tr("点云重投影完成：%1 → %2，%3 个点，已保存到 %4")
+            .arg(result.sourceCrs, result.targetCrs)
+            .arg(result.points->size())
+            .arg(outputPath));
+}
+
 bool MainWindow::selectedCloudData(MyCloudList& cloud, QString* path) const
 {
     const QModelIndex index = ui.treeView->currentIndex();
@@ -1131,6 +1391,56 @@ bool MainWindow::selectedCloudData(MyCloudList& cloud, QString* path) const
     return true;
 }
 
+bool MainWindow::applyCloudLayerState(
+    const QString& layerId,
+    const famp::cloud::CloudLayer& state)
+{
+    QString validationError;
+    if (!famp::cloud::validateLayer(state, true, &validationError))
+        return false;
+
+    auto found = std::find_if(
+        pointCloudList.begin(), pointCloudList.end(),
+        [&layerId](const MyCloudList& cloud) {
+            return cloud.layer.id == layerId;
+        });
+    if (found == pointCloudList.end()
+        || !myVTK->updateCloudActors(
+            found->cloudactor, found->AABBactor, state.points))
+    {
+        return false;
+    }
+
+    vtkNew<vtkMatrix4x4> cloudTransform;
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int column = 0; column < 4; ++column)
+        {
+            cloudTransform->SetElement(
+                row, column,
+                state.spatial.transform[static_cast<std::size_t>(
+                    row * 4 + column)]);
+        }
+    }
+    found->cloudactor->SetUserMatrix(cloudTransform);
+    found->AABBactor->SetUserMatrix(cloudTransform);
+    if (!famp::display::apply(
+            found->cloudactor, state.display, &validationError))
+    {
+        return false;
+    }
+
+    found->layer = state;
+    const MyCloudList updated = *found;
+    inCloud = state.points;
+    emit sendOrignalCloud(inCloud);
+    updateCloudData(updated);
+    updateCloudToolActions();
+    markProjectDirty();
+    myVTK->refresh();
+    return true;
+}
+
 void MainWindow::updateCloudData(const MyCloudList& cloud)
 {
     for (MyCloudList& stored : pointCloudList)
@@ -1154,7 +1464,10 @@ void MainWindow::updateCloudData(const MyCloudList& cloud)
             continue;
         projectItem->setData(QVariant::fromValue(cloud), Qt::UserRole + 2);
         cloudItem->setData(QVariant::fromValue(cloud), Qt::UserRole + 2);
-        const QString path = cloudItem->data(Qt::UserRole).toString();
+        const QString path = cloud.layer.sourcePath;
+        projectItem->setData(path, Qt::UserRole);
+        cloudItem->setData(path, Qt::UserRole);
+        cloudItem->setData(QFileInfo(path).fileName(), Qt::UserRole + 1);
         projectItem->setText(cloud.layer.name + QStringLiteral("(")
                              + path + QStringLiteral(")"));
         cloudItem->setText(cloud.layer.name);
@@ -1176,6 +1489,9 @@ void MainWindow::updateCloudToolActions()
         registerCloudAction->setEnabled(pointCloudList.size() >= 2 && !cloudLoadBusy);
     if (cloudCoordinateAction)
         cloudCoordinateAction->setEnabled(available && !cloudLoadBusy);
+    if (reprojectCloudAction)
+        reprojectCloudAction->setEnabled(
+            available && !cloud.layer.locked && !cloudLoadBusy);
 }
 
 void MainWindow::slotOpenCloudCoordinateViewer()
@@ -1200,10 +1516,11 @@ void MainWindow::slotOpenCloudCoordinateViewer()
             .arg(cloud.layer.spatial.origin[1], 0, 'g', 15)
             .arg(cloud.layer.spatial.origin[2], 0, 'g', 15),
         &dialog);
-    QLabel crsLabel(projectCrs.isEmpty() ? tr("未声明") : projectCrs, &dialog);
+    QLabel crsLabel(
+        cloud.layer.crs.isEmpty() ? tr("未声明") : cloud.layer.crs, &dialog);
     layout.addRow(tr("点云"), &sourceLabel);
     layout.addRow(tr("原始坐标原点"), &originLabel);
-    layout.addRow(tr("项目 CRS"), &crsLabel);
+    layout.addRow(tr("图层 CRS"), &crsLabel);
 
     QDoubleSpinBox localX(&dialog), localY(&dialog), localZ(&dialog);
     QDoubleSpinBox realX(&dialog), realY(&dialog), realZ(&dialog);
@@ -2706,6 +3023,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         cropCloudAction->setEnabled(false);
     if (busy && registerCloudAction)
         registerCloudAction->setEnabled(false);
+    if (busy && reprojectCloudAction)
+        reprojectCloudAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

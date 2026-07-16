@@ -43,6 +43,11 @@ public:
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr orignalCloud,
         vtkPolyData ** outPolyData = nullptr);
 
+    bool updateCloudActors(
+        vtkActor * cloudActor,
+        vtkActor * aabbActor,
+        const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
+
     // AABB 包围盒 Actor
     vtkActor * appendAABBActor(vtkPolyData * AABB_Polydata);
 

@@ -62,3 +62,27 @@ TEST(CrsServiceTest, RejectsNonFiniteCoordinateWithoutMutatingOutput)
     EXPECT_DOUBLE_EQ(target.z, original.z);
     EXPECT_FALSE(error.isEmpty());
 }
+
+TEST(CrsServiceTest, ReusesInitializedTransformerAndMovesSafely)
+{
+    famp::crs::Transformer transformer;
+    QString error;
+    ASSERT_TRUE(transformer.initialize(
+        QStringLiteral("EPSG:4326"), QStringLiteral("EPSG:3857"), &error))
+        << error.toStdString();
+    EXPECT_TRUE(transformer.isValid());
+    EXPECT_EQ(transformer.sourceIdentifier(), QStringLiteral("EPSG:4326"));
+    EXPECT_EQ(transformer.targetIdentifier(), QStringLiteral("EPSG:3857"));
+
+    famp::crs::Coordinate first;
+    famp::crs::Coordinate second;
+    ASSERT_TRUE(transformer.transform({12.0, 55.0, 0.0}, first, &error));
+    ASSERT_TRUE(transformer.transform({13.0, 55.0, 0.0}, second, &error));
+    EXPECT_GT(second.x, first.x);
+
+    famp::crs::Transformer moved(std::move(transformer));
+    EXPECT_FALSE(transformer.isValid());
+    EXPECT_TRUE(moved.isValid());
+    EXPECT_FALSE(transformer.transform({12.0, 55.0, 0.0}, second, &error));
+    EXPECT_FALSE(error.isEmpty());
+}

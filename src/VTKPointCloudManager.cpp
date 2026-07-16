@@ -11,6 +11,52 @@
 #include <algorithm>
 #include <cmath>
 
+namespace
+{
+vtkSmartPointer<vtkPolyData> createCloudPolyData(
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud)
+{
+    vtkNew<vtkPoints> points;
+    vtkNew<vtkCellArray> vertices;
+    vtkNew<vtkPolyData> polyData;
+    vtkNew<vtkUnsignedCharArray> colors;
+
+    colors->SetName("RGB");
+    colors->SetNumberOfComponents(3);
+    if (cloud)
+    {
+        const vtkIdType count = static_cast<vtkIdType>(cloud->size());
+        points->SetNumberOfPoints(count);
+        vertices->AllocateEstimate(count, 1);
+        colors->SetNumberOfTuples(count);
+        for (std::size_t index = 0; index < cloud->size(); ++index)
+        {
+            const pcl::PointXYZRGB& point = cloud->points[index];
+            const vtkIdType id = static_cast<vtkIdType>(index);
+            points->SetPoint(id, point.x, point.y, point.z);
+            vertices->InsertNextCell(1, &id);
+            const unsigned char rgb[3] = {point.r, point.g, point.b};
+            colors->SetTypedTuple(id, rgb);
+        }
+    }
+
+    polyData->SetPoints(points);
+    polyData->SetVerts(vertices);
+    polyData->GetPointData()->SetScalars(colors);
+    return polyData;
+}
+
+void updateAabbMapper(vtkActor* actor, vtkPolyData* polyData)
+{
+    vtkNew<vtkOutlineFilter> outline;
+    outline->SetInputData(polyData);
+    outline->Update();
+    vtkNew<vtkPolyDataMapper> mapper;
+    mapper->SetInputConnection(outline->GetOutputPort());
+    actor->SetMapper(mapper);
+}
+}
+
 VTKPointCloudManager::VTKPointCloudManager()
 {
     // AABB 坐标轴初始化
@@ -49,43 +95,15 @@ vtkActor * VTKPointCloudManager::appendCloudActor(vtkRenderer * renderer,
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr orignalCloud,
     vtkPolyData ** outPolyData)
 {
-    vtkNew<vtkPoints> points;
-    vtkNew<vtkCellArray> vertices;
-    vtkNew<vtkPolyData> polyData;
-    vtkNew<vtkUnsignedCharArray> colors;
+    const vtkSmartPointer<vtkPolyData> polyData =
+        createCloudPolyData(orignalCloud);
     vtkNew<vtkPolyDataMapper> cloudMapper;
     vtkNew<vtkActor> cloudActor;
 
-    colors->SetName("RGB");
-    colors->SetNumberOfComponents(3);
-
-    if (orignalCloud)
-    {
-        points->SetNumberOfPoints(static_cast<vtkIdType>(orignalCloud->size()));
-        vertices->AllocateEstimate(static_cast<vtkIdType>(orignalCloud->size()), 1);
-        colors->SetNumberOfTuples(static_cast<vtkIdType>(orignalCloud->size()));
-
-        vtkIdType idtype;
-        for (size_t i = 0; i < orignalCloud->points.size(); i++)
-        {
-            const auto& point = orignalCloud->points[i];
-            idtype = static_cast<vtkIdType>(i);
-            points->SetPoint(idtype, point.x, point.y, point.z);
-            vertices->InsertNextCell(1, &idtype);
-
-            const unsigned char rgb[3] = { point.r, point.g, point.b };
-            colors->SetTypedTuple(idtype, rgb);
-        }
-    }
-
-    polyData->SetPoints(points);
-    polyData->SetVerts(vertices);
-    polyData->GetPointData()->SetScalars(colors);
-
     if (outPolyData)
     {
-        *outPolyData = polyData;
-        (*outPolyData)->Register(nullptr);  // 防止 vtkNew 析构时释放对象
+        *outPolyData = polyData.GetPointer();
+        (*outPolyData)->Register(nullptr);
     }
 
     cloudMapper->SetInputData(polyData);
@@ -104,6 +122,28 @@ vtkActor * VTKPointCloudManager::appendCloudActor(vtkRenderer * renderer,
     return cloudActor;
 }
 
+bool VTKPointCloudManager::updateCloudActors(
+    vtkActor * cloudActor,
+    vtkActor * aabbActor,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud)
+{
+    if (!cloudActor || !aabbActor || !cloud || cloud->empty())
+        return false;
+
+    const vtkSmartPointer<vtkPolyData> polyData = createCloudPolyData(cloud);
+    auto* cloudMapper = vtkPolyDataMapper::SafeDownCast(cloudActor->GetMapper());
+    if (!cloudMapper)
+    {
+        vtkNew<vtkPolyDataMapper> replacement;
+        cloudActor->SetMapper(replacement);
+        cloudMapper = replacement;
+    }
+    cloudMapper->SetInputData(polyData);
+    cloudMapper->Update();
+    updateAabbMapper(aabbActor, polyData);
+    return true;
+}
+
 vtkActor * VTKPointCloudManager::appendAABBActor(vtkPolyData * AABB_Polydata)
 {
     vtkNew<vtkActor> AABBActor;
@@ -120,14 +160,7 @@ vtkActor * VTKPointCloudManager::appendAABBActor(vtkPolyData * AABB_Polydata)
     qDebug() << "OBB Size:\t"
         << bound[1] - bound[0] << ", " << bound[3] - bound[2] << ", " << bound[5] - bound[4];
 
-    vtkNew<vtkOutlineFilter> AABBOutlineData;
-    AABBOutlineData->SetInputData(AABB_Polydata);
-    AABBOutlineData->Update();
-
-    vtkNew<vtkPolyDataMapper> mapOutline;
-    mapOutline->SetInputConnection(AABBOutlineData->GetOutputPort());
-
-    AABBActor->SetMapper(mapOutline);
+    updateAabbMapper(AABBActor, AABB_Polydata);
 
     AABBActor->Register(nullptr);  // 防止 vtkNew 析构时释放对象
     return AABBActor;
