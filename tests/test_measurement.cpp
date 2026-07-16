@@ -6,6 +6,9 @@
 #include "Measurement.h"
 #include "MeasurementItem.h"
 
+#include <cmath>
+#include <limits>
+
 TEST(MeasurementTest, ConvertsAnisotropicSceneCoordinatesToMeters)
 {
     const QVector<QPointF> scenePoints{
@@ -112,4 +115,41 @@ TEST(MeasurementItemTest, RescalesGeometryWithoutChangingMeasuredValue)
     EXPECT_DOUBLE_EQ(item.value(), 5.0);
     EXPECT_GT(item.boundingRect().width(), originalBounds.width());
     EXPECT_GT(item.boundingRect().height(), originalBounds.height());
+}
+
+TEST(Measurement3DTest, ComputesPolylineLengthAcrossAllAxes)
+{
+    const QVector<QVector3D> points{
+        QVector3D(0.0f, 0.0f, 0.0f),
+        QVector3D(3.0f, 4.0f, 0.0f),
+        QVector3D(3.0f, 4.0f, 12.0f)};
+
+    EXPECT_DOUBLE_EQ(famp::measurement::polylineLength(points), 17.0);
+}
+
+TEST(Measurement3DTest, ComputesTiltedPolygonAreaAndPerimeter)
+{
+    const QVector<QVector3D> points{
+        QVector3D(0.0f, 0.0f, 0.0f),
+        QVector3D(3.0f, 0.0f, 0.0f),
+        QVector3D(3.0f, 0.0f, 4.0f),
+        QVector3D(0.0f, 0.0f, 4.0f)};
+
+    EXPECT_DOUBLE_EQ(famp::measurement::polygonArea(points), 12.0);
+    EXPECT_DOUBLE_EQ(famp::measurement::polygonPerimeter(points), 14.0);
+}
+
+TEST(Measurement3DTest, ComputesAngleAndRejectsNonFiniteCoordinates)
+{
+    const QVector<QVector3D> rightAngle{
+        QVector3D(1.0f, 0.0f, 0.0f),
+        QVector3D(0.0f, 0.0f, 0.0f),
+        QVector3D(0.0f, 0.0f, 2.0f)};
+    EXPECT_NEAR(famp::measurement::angleDegrees(rightAngle), 90.0, 1.0e-12);
+
+    QVector<QVector3D> invalid = rightAngle;
+    invalid[2].setZ(std::numeric_limits<float>::infinity());
+    EXPECT_FALSE(famp::measurement::finitePoints(invalid));
+    EXPECT_TRUE(std::isnan(famp::measurement::value(
+        famp::measurement::Kind::Angle, invalid)));
 }

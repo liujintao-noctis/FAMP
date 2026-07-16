@@ -202,7 +202,7 @@ private:
     void addItemWithHistory(QGraphicsItem* item, const QString& text);
     void invalidateHistory(const QString& reason);
     void moveSelectedItemsBy(const QPointF& delta, const QString& text);
-    void beginMeasurement(famp::measurement::Kind kind);
+    void beginMeasurement(famp::measurement::Kind kind, bool announce);
     void updateMeasurementPreview();
     void finishMeasurement();
     void resetMeasurementInteraction(bool notify);
@@ -255,11 +255,13 @@ public slots:
     void getReDraw(ScaleType scale);                //接受改变比例尺时重新画图
     void getScaleOffset(QPointF offset);        //得到比例尺变化后坐标的偏移量
     void slotOn_actPlotTab_triggered();         //出图模板按钮
-    void startDistanceMeasurement();
-    void startAreaMeasurement();
-    void startAngleMeasurement();
+    void startDistanceMeasurement(bool announce = true);
+    void startAreaMeasurement(bool announce = true);
+    void startAngleMeasurement(bool announce = true);
+    void deactivateMeasurement();
+    int measurementCount() const;
+    void clearMeasurements(bool announce = true);
     void cancelMeasurement();
-    void clearMeasurements();
 
 signals:
     void keyPress(QKeyEvent *e);
