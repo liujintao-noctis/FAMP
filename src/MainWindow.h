@@ -97,6 +97,7 @@ private:
     QAction * setProjectCrsAction;
     QAction * coordinateConverterAction;
     QAction * cloudCoordinateAction;
+    QAction * reprojectCloudAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -152,6 +153,9 @@ private:
     void finishCloudLoadBatch();
     void setCloudLoadUiBusy(bool busy);
     bool selectedCloudData(MyCloudList& cloud, QString* path = nullptr) const;
+    bool applyCloudLayerState(
+        const QString& layerId,
+        const famp::cloud::CloudLayer& state);
     void updateCloudData(const MyCloudList& cloud);
     void updateCloudToolActions();
     void initializeRecentFilesMenu();
@@ -221,6 +225,7 @@ private slots:
     void slotSetProjectCrs();
     void slotOpenCoordinateConverter();
     void slotOpenCloudCoordinateViewer();
+    void slotReprojectCloud();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();

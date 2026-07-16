@@ -15,6 +15,7 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("PROJ")));
     EXPECT_TRUE(content.contains(QStringLiteral("局部/真实坐标")));
     EXPECT_TRUE(content.contains(QStringLiteral("双精度变换")));
+    EXPECT_TRUE(content.contains(QStringLiteral("重投影所选点云")));
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
     EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));

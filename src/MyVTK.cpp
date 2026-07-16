@@ -171,6 +171,11 @@ MyVTK::~MyVTK()
         m_renderManager->renderer()->RemoveActor(visual.label);
     }
     measurementVisuals.clear();
+    if (AABB_Polydata)
+    {
+        AABB_Polydata->Delete();
+        AABB_Polydata = nullptr;
+    }
     delete m_renderManager;
     delete m_pointCloudManager;
     delete m_projectionManager;
@@ -739,6 +744,10 @@ void MyVTK::triggeredSignalOverLookProj()
 
 void MyVTK::getAABBPolydata(vtkPolyData * polyData)
 {
+    if (AABB_Polydata == polyData)
+        return;
+    if (AABB_Polydata)
+        AABB_Polydata->Delete();
     this->AABB_Polydata = polyData;
 }
 
@@ -945,6 +954,22 @@ vtkActor * MyVTK::appendCloudActor()
 vtkActor * MyVTK::appendAABBActor()
 {
     return m_pointCloudManager->appendAABBActor(AABB_Polydata);
+}
+
+bool MyVTK::updateCloudActors(
+    vtkActor * cloudActor,
+    vtkActor * aabbActor,
+    const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud)
+{
+    if (!m_pointCloudManager->updateCloudActors(
+            cloudActor, aabbActor, cloud))
+    {
+        return false;
+    }
+    clearMeasurements(false);
+    m_renderManager->render();
+    update();
+    return true;
 }
 
 void MyVTK::display(vtkActor * actor)

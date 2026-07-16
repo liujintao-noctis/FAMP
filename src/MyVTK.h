@@ -132,6 +132,10 @@ public:
     void setBackView(); //后视图
     vtkActor * appendCloudActor();      //添加点云演员
     vtkActor * appendAABBActor();       //添加AABB包围盒演员
+    bool updateCloudActors(
+        vtkActor * cloudActor,
+        vtkActor * aabbActor,
+        const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
     void display(vtkActor * actor);     //显示点云
     void removeCloudDisplay(vtkActor * actor);      //移除点云演员显示
     void removeAABBDisplay(vtkActor * actor);       //移除AABB演员显示
