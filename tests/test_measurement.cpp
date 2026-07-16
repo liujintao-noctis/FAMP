@@ -1,8 +1,9 @@
 #include <gtest/gtest.h>
 
-#include <limits>
 #include <algorithm>
+#include <limits>
 
+#include "CloudLayer.h"
 #include "Measurement.h"
 #include "MeasurementItem.h"
 
@@ -152,4 +153,31 @@ TEST(Measurement3DTest, ComputesAngleAndRejectsNonFiniteCoordinates)
     EXPECT_FALSE(famp::measurement::finitePoints(invalid));
     EXPECT_TRUE(std::isnan(famp::measurement::value(
         famp::measurement::Kind::Angle, invalid)));
+}
+
+TEST(Measurement3DTest, ValidatesStablePersistentRecords)
+{
+    famp::measurement::Record3D record;
+    record.id = famp::measurement::createRecordId();
+    record.layerId = famp::cloud::createLayerId();
+    record.crs = QStringLiteral("epsg:3857");
+    record.kind = famp::measurement::Kind::Distance;
+    record.points = {QVector3D(0.0F, 0.0F, 0.0F),
+                     QVector3D(3.0F, 4.0F, 0.0F)};
+    QString error;
+    EXPECT_TRUE(famp::measurement::validateRecord3D(record, &error))
+        << error.toStdString();
+    EXPECT_EQ(famp::measurement::kindName(record.kind),
+              QStringLiteral("distance"));
+
+    famp::measurement::Kind parsed = famp::measurement::Kind::Area;
+    EXPECT_TRUE(famp::measurement::kindFromName(
+        QStringLiteral("ANGLE"), parsed));
+    EXPECT_EQ(parsed, famp::measurement::Kind::Angle);
+    EXPECT_FALSE(famp::measurement::kindFromName(
+        QStringLiteral("volume"), parsed));
+
+    record.points.resize(1);
+    EXPECT_FALSE(famp::measurement::validateRecord3D(record, &error));
+    EXPECT_FALSE(error.isEmpty());
 }

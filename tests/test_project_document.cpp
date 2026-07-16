@@ -164,6 +164,15 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     famp::project::Document source;
     source.projectCrs = QStringLiteral("EPSG:4490");
     source.clouds = {cloud};
+    famp::measurement::Record3D measurement;
+    measurement.id = famp::measurement::createRecordId();
+    measurement.layerId = cloud.layerId;
+    measurement.crs = QStringLiteral("epsg:4490");
+    measurement.kind = famp::measurement::Kind::Distance;
+    measurement.points = {
+        QVector3D(0.0F, 0.0F, 0.0F),
+        QVector3D(3.0F, 4.0F, 0.0F)};
+    source.measurements3d = {measurement};
     const QString projectPath = directory.filePath(QStringLiteral("schema3.famp"));
     QString error;
     ASSERT_TRUE(famp::project::save(
@@ -188,6 +197,13 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     EXPECT_EQ(result.attributes.front().valueCount, 3);
     EXPECT_EQ(result.archaeologyFields.value(QStringLiteral("context")),
               QStringLiteral("Locus-12"));
+    ASSERT_EQ(loaded.measurements3d.size(), 1);
+    const auto& loadedMeasurement = loaded.measurements3d.front();
+    EXPECT_EQ(loadedMeasurement.id, measurement.id);
+    EXPECT_EQ(loadedMeasurement.layerId, cloud.layerId);
+    EXPECT_EQ(loadedMeasurement.crs, QStringLiteral("EPSG:4490"));
+    EXPECT_EQ(loadedMeasurement.kind, famp::measurement::Kind::Distance);
+    EXPECT_EQ(loadedMeasurement.points, measurement.points);
 }
 
 TEST(ProjectDocumentTest, MigratesSchemaTwoLayerDefaultsDeterministically)
@@ -210,6 +226,7 @@ TEST(ProjectDocumentTest, MigratesSchemaTwoLayerDefaultsDeterministically)
     QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
     file.close();
     root.insert(QStringLiteral("schemaVersion"), 2);
+    root.remove(QStringLiteral("measurements3d"));
     QJsonArray clouds = root.value(QStringLiteral("clouds")).toArray();
     QJsonObject serialized = clouds.at(0).toObject();
     for (const QString& field : {
@@ -238,6 +255,72 @@ TEST(ProjectDocumentTest, MigratesSchemaTwoLayerDefaultsDeterministically)
     EXPECT_EQ(first.clouds.front().name, QStringLiteral("legacy.pcd"));
     EXPECT_FALSE(first.clouds.front().locked);
     EXPECT_TRUE(first.clouds.front().attributes.isEmpty());
+    EXPECT_TRUE(first.measurements3d.isEmpty());
+}
+
+TEST(ProjectDocumentTest, RejectsMeasurementForUnknownLayerBeforeWriting)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("known.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.layerId = famp::cloud::createLayerId();
+    famp::measurement::Record3D measurement;
+    measurement.id = famp::measurement::createRecordId();
+    measurement.layerId = famp::cloud::createLayerId();
+    measurement.kind = famp::measurement::Kind::Distance;
+    measurement.points = {
+        QVector3D(0.0F, 0.0F, 0.0F),
+        QVector3D(1.0F, 0.0F, 0.0F)};
+
+    famp::project::Document document;
+    document.clouds = {cloud};
+    document.measurements3d = {measurement};
+    const QString projectPath = directory.filePath(
+        QStringLiteral("unknown-layer.famp"));
+    QString error;
+    EXPECT_FALSE(famp::project::save(
+        projectPath, document, QStringLiteral("0.6.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(QFileInfo::exists(projectPath));
+}
+
+TEST(ProjectDocumentTest, RejectsMeasurementWithStaleCoordinateSystem)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("crs.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.layerId = famp::cloud::createLayerId();
+    cloud.crs = QStringLiteral("EPSG:4490");
+    famp::measurement::Record3D measurement;
+    measurement.id = famp::measurement::createRecordId();
+    measurement.layerId = cloud.layerId;
+    measurement.crs = QStringLiteral("EPSG:3857");
+    measurement.points = {
+        QVector3D(0.0F, 0.0F, 0.0F),
+        QVector3D(1.0F, 0.0F, 0.0F)};
+
+    famp::project::Document document;
+    document.clouds = {cloud};
+    document.measurements3d = {measurement};
+    const QString projectPath = directory.filePath(
+        QStringLiteral("stale-crs.famp"));
+    QString error;
+    EXPECT_FALSE(famp::project::save(
+        projectPath, document, QStringLiteral("0.6.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(QFileInfo::exists(projectPath));
 }
 
 TEST(ProjectDocumentTest, RejectsDuplicateLayerIdsBeforeWriting)

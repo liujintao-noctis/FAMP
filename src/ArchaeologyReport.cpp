@@ -7,6 +7,7 @@
 #include <QJsonArray>
 #include <QPrinter>
 #include <QSaveFile>
+#include <QSet>
 #include <QTemporaryDir>
 #include <QTextDocument>
 #include <QTextStream>
@@ -17,11 +18,27 @@ namespace famp::report
 {
 namespace
 {
+constexpr qsizetype MaxMeasurements3d = 10000;
+
 struct MeasurementRow
 {
     QString kind;
     QString value;
 };
+
+QString measurementKindText(famp::measurement::Kind kind)
+{
+    switch (kind)
+    {
+    case famp::measurement::Kind::Distance:
+        return QStringLiteral("距离");
+    case famp::measurement::Kind::Area:
+        return QStringLiteral("面积");
+    case famp::measurement::Kind::Angle:
+        return QStringLiteral("角度");
+    }
+    return QStringLiteral("未知");
+}
 
 void setError(QString* errorMessage, const QString& message)
 {
@@ -159,6 +176,33 @@ QString toHtml(const Data& data, QString* errorMessage)
             return {};
         }
     }
+    if (data.measurements3d.size() > MaxMeasurements3d)
+    {
+        setError(errorMessage,
+                 QStringLiteral("报告中的三维测量数量超过安全上限。"));
+        return {};
+    }
+    QSet<QString> measurementIds;
+    for (const auto& measurement : data.measurements3d)
+    {
+        QString validationError;
+        const QString normalizedId = measurement.id.trimmed().toLower();
+        if (measurementIds.contains(normalizedId))
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的三维测量 ID 重复。"));
+            return {};
+        }
+        if (!famp::measurement::validateRecord3D(
+                measurement, &validationError))
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的三维测量无效：%1")
+                         .arg(validationError));
+            return {};
+        }
+        measurementIds.insert(normalizedId);
+    }
     QVector<MeasurementRow> measurements;
     collectMeasurements(data.graphicsState.value(QStringLiteral("items")).toArray(),
                         measurements);
@@ -198,7 +242,8 @@ QString toHtml(const Data& data, QString* errorMessage)
         totalPoints += static_cast<qulonglong>(cloud.pointCount);
     stream << "</table><p><b>汇总：</b>" << data.clouds.size()
            << " 个点云，共 " << totalPoints << " 个点；"
-           << measurements.size() << " 项二维测量。</p>";
+           << measurements.size() << " 项二维测量，"
+           << data.measurements3d.size() << " 项三维测量。</p>";
     stream << "<h2>二维测量成果</h2><table><tr><th>#</th><th>类型</th><th>结果</th></tr>";
     for (qsizetype index = 0; index < measurements.size(); ++index)
     {
@@ -208,6 +253,27 @@ QString toHtml(const Data& data, QString* errorMessage)
     }
     if (measurements.isEmpty())
         stream << "<tr><td colspan=\"3\">无测量成果</td></tr>";
+    stream << "</table><h2>三维点云测量成果</h2>"
+              "<table><tr><th>#</th><th>类型</th><th>图层 ID</th>"
+              "<th>坐标系</th><th>点数</th><th>结果</th></tr>";
+    for (qsizetype index = 0; index < data.measurements3d.size(); ++index)
+    {
+        const auto& measurement = data.measurements3d.at(index);
+        stream << "<tr><td>" << index + 1 << "</td><td>"
+               << escaped(measurementKindText(measurement.kind))
+               << "</td><td>" << escaped(measurement.layerId)
+               << "</td><td>"
+               << escaped(measurement.crs.isEmpty()
+                              ? QStringLiteral("未声明")
+                              : measurement.crs)
+               << "</td><td>" << measurement.points.size()
+               << "</td><td>"
+               << escaped(famp::measurement::formatSummary(
+                      measurement.kind, measurement.points))
+               << "</td></tr>";
+    }
+    if (data.measurements3d.isEmpty())
+        stream << "<tr><td colspan=\"6\">无三维测量成果</td></tr>";
     stream << "</table><p class=\"muted\">本报告由 FAMP 自动生成；点云坐标与测量成果应结合现场控制点和项目坐标系复核。</p>"
               "</body></html>";
     if (errorMessage)

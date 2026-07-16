@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -27,6 +28,8 @@ constexpr int MaxAttributeSummaries = 256;
 constexpr int MaxArchaeologyFields = 128;
 constexpr int MaxArchaeologyKeyLength = 128;
 constexpr int MaxArchaeologyValueLength = 16 * 1024;
+constexpr int MaxMeasurements3d = 10000;
+constexpr int MaxMeasurementPoints = 10000;
 constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
 
 void setError(QString* errorMessage, const QString& message)
@@ -312,6 +315,122 @@ bool deserializeArchaeologyFields(
     return true;
 }
 
+QJsonArray serializeMeasurements3d(
+    const QVector<famp::measurement::Record3D>& measurements)
+{
+    QJsonArray result;
+    for (const auto& measurement : measurements)
+    {
+        QJsonArray points;
+        for (const QVector3D& point : measurement.points)
+        {
+            points.append(QJsonArray{
+                static_cast<double>(point.x()),
+                static_cast<double>(point.y()),
+                static_cast<double>(point.z())});
+        }
+        result.append(QJsonObject{
+            {QStringLiteral("id"), measurement.id.trimmed().toLower()},
+            {QStringLiteral("layerId"),
+             measurement.layerId.trimmed().toLower()},
+            {QStringLiteral("crs"),
+             measurement.crs.trimmed().isEmpty()
+                 ? QString()
+                 : famp::crs::normalizedEpsg(measurement.crs)},
+            {QStringLiteral("kind"),
+             famp::measurement::kindName(measurement.kind)},
+            {QStringLiteral("points"), points}});
+    }
+    return result;
+}
+
+bool deserializeMeasurements3d(
+    const QJsonValue& value,
+    const QHash<QString, QString>& layerCrsById,
+    QVector<famp::measurement::Record3D>& measurements)
+{
+    if (value.isUndefined())
+    {
+        measurements.clear();
+        return true;
+    }
+    if (!value.isArray() || value.toArray().size() > MaxMeasurements3d)
+        return false;
+
+    QVector<famp::measurement::Record3D> candidate;
+    QSet<QString> ids;
+    for (const QJsonValue& item : value.toArray())
+    {
+        if (!item.isObject())
+            return false;
+        const QJsonObject object = item.toObject();
+        const QJsonValue idValue = object.value(QStringLiteral("id"));
+        const QJsonValue layerIdValue = object.value(QStringLiteral("layerId"));
+        const QJsonValue crsValue = object.value(QStringLiteral("crs"));
+        const QJsonValue kindValue = object.value(QStringLiteral("kind"));
+        const QJsonValue pointsValue = object.value(QStringLiteral("points"));
+        if (!idValue.isString() || !layerIdValue.isString()
+            || !crsValue.isString() || !kindValue.isString()
+            || !pointsValue.isArray()
+            || pointsValue.toArray().size() > MaxMeasurementPoints)
+        {
+            return false;
+        }
+
+        famp::measurement::Record3D record;
+        record.id = idValue.toString().trimmed().toLower();
+        record.layerId = layerIdValue.toString().trimmed().toLower();
+        const QString storedCrs = crsValue.toString();
+        record.crs = storedCrs.trimmed().isEmpty()
+            ? QString() : famp::crs::normalizedEpsg(storedCrs);
+        if ((!storedCrs.trimmed().isEmpty() && record.crs.isEmpty())
+            || !famp::measurement::kindFromName(
+                kindValue.toString(), record.kind))
+        {
+            return false;
+        }
+        record.points.reserve(pointsValue.toArray().size());
+        for (const QJsonValue& pointValue : pointsValue.toArray())
+        {
+            if (!pointValue.isArray() || pointValue.toArray().size() != 3)
+                return false;
+            const QJsonArray coordinates = pointValue.toArray();
+            if (!coordinates.at(0).isDouble()
+                || !coordinates.at(1).isDouble()
+                || !coordinates.at(2).isDouble())
+            {
+                return false;
+            }
+            const double x = coordinates.at(0).toDouble();
+            const double y = coordinates.at(1).toDouble();
+            const double z = coordinates.at(2).toDouble();
+            if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z)
+                || std::abs(x) > std::numeric_limits<float>::max()
+                || std::abs(y) > std::numeric_limits<float>::max()
+                || std::abs(z) > std::numeric_limits<float>::max())
+            {
+                return false;
+            }
+            record.points.append(QVector3D(
+                static_cast<float>(x),
+                static_cast<float>(y),
+                static_cast<float>(z)));
+        }
+
+        if (ids.contains(record.id)
+            || !layerCrsById.contains(record.layerId)
+            || layerCrsById.value(record.layerId) != record.crs
+            || !famp::measurement::validateRecord3D(record))
+        {
+            return false;
+        }
+        ids.insert(record.id);
+        candidate.append(record);
+    }
+    measurements = candidate;
+    return true;
+}
+
 bool validSha256Hex(const QString& value)
 {
     if (value.isEmpty())
@@ -428,6 +547,7 @@ bool save(const QString& projectPath,
     QJsonArray cloudReferences;
     QStringList uniquePaths;
     QSet<QString> uniqueLayerIds;
+    QHash<QString, QString> layerCrsById;
     QVector<CloudReference> references = document.clouds;
     if (references.isEmpty())
     {
@@ -521,6 +641,7 @@ bool save(const QString& projectPath,
 
         uniquePaths.append(normalizedCloudPath);
         uniqueLayerIds.insert(layerId);
+        layerCrsById.insert(layerId, layerCrs);
         const QString relativePath = QDir::fromNativeSeparators(
             projectDirectory.relativeFilePath(normalizedCloudPath));
         cloudFiles.append(relativePath);
@@ -566,6 +687,29 @@ bool save(const QString& projectPath,
         cloudReferences.append(serializedReference);
     }
 
+    if (document.measurements3d.size() > MaxMeasurements3d)
+    {
+        setError(errorMessage, QStringLiteral("三维测量成果数量超过安全上限。"));
+        return false;
+    }
+    QSet<QString> measurementIds;
+    for (const auto& measurement : document.measurements3d)
+    {
+        const QString id = measurement.id.trimmed().toLower();
+        const QString layerId = measurement.layerId.trimmed().toLower();
+        const QString measurementCrs = measurement.crs.trimmed().isEmpty()
+            ? QString() : famp::crs::normalizedEpsg(measurement.crs);
+        if (measurementIds.contains(id)
+            || !uniqueLayerIds.contains(layerId)
+            || layerCrsById.value(layerId) != measurementCrs
+            || !famp::measurement::validateRecord3D(measurement))
+        {
+            setError(errorMessage, QStringLiteral("项目包含无效或重复的三维测量成果。"));
+            return false;
+        }
+        measurementIds.insert(id);
+    }
+
     QJsonObject root;
     root.insert(QStringLiteral("format"), QStringLiteral("FAMP Project"));
     root.insert(QStringLiteral("schemaVersion"), SchemaVersion);
@@ -577,6 +721,8 @@ bool save(const QString& projectPath,
     root.insert(QStringLiteral("cloudFiles"), cloudFiles);
     root.insert(QStringLiteral("clouds"), cloudReferences);
     root.insert(QStringLiteral("graphicsState"), document.graphicsState);
+    root.insert(QStringLiteral("measurements3d"),
+                serializeMeasurements3d(document.measurements3d));
     root.insert(QStringLiteral("windowGeometry"),
                 QString::fromLatin1(document.windowGeometry.toBase64()));
     root.insert(QStringLiteral("windowState"),
@@ -885,12 +1031,27 @@ bool load(const QString& projectPath,
         }
     }
 
+    QHash<QString, QString> loadedLayerCrsById;
+    for (const CloudReference& reference : cloudReferences)
+        loadedLayerCrsById.insert(reference.layerId, reference.crs);
+    QVector<famp::measurement::Record3D> measurements3d;
+    if (schemaVersion >= 3
+        && !deserializeMeasurements3d(
+            root.value(QStringLiteral("measurements3d")),
+            loadedLayerCrsById,
+            measurements3d))
+    {
+        setError(errorMessage, QStringLiteral("项目中的三维测量成果无效。"));
+        return false;
+    }
+
     Document loaded;
     loaded.cloudFiles = cloudFiles;
     loaded.clouds = cloudReferences;
     loaded.mapScale = mapScale;
     loaded.projectCrs = projectCrs;
     loaded.graphicsState = graphicsState;
+    loaded.measurements3d = measurements3d;
     loaded.windowGeometry = windowGeometry;
     loaded.windowState = windowState;
     loaded.xoyLabelVisible = xoyLabelVisible;
