@@ -27,6 +27,9 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("测量面积")));
     EXPECT_TRUE(content.contains(QStringLiteral("中央三维点云")));
     EXPECT_TRUE(content.contains(QStringLiteral("实时预览")));
+    EXPECT_TRUE(content.contains(QStringLiteral("三维结果")));
+    EXPECT_TRUE(content.contains(QStringLiteral("关联图层 ID")));
+    EXPECT_TRUE(content.contains(QStringLiteral("重新显示图层")));
     EXPECT_TRUE(content.contains(QStringLiteral("PDF")));
     EXPECT_TRUE(content.contains(QStringLiteral("SVG")));
     EXPECT_TRUE(content.contains(QStringLiteral("自定义纸张")));

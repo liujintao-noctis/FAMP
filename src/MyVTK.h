@@ -16,6 +16,7 @@
 #include <QtWidgets/QMainWindow>
 #include <QDebug>
 #include <QMessageBox>
+#include <QHash>
 #include <QVector>
 #include <QVector3D>
 #include <QFileDialog>
@@ -71,8 +72,15 @@ public:
 private:
     struct MeasurementVisual
     {
+        famp::measurement::Record3D record;
         vtkSmartPointer<vtkActor> geometry;
         vtkSmartPointer<vtkBillboardTextActor3D> label;
+    };
+
+    struct CloudActorMetadata
+    {
+        QString layerId;
+        QString crs;
     };
 
     // 管理器实例
@@ -97,6 +105,8 @@ private:
     bool measurementActive = false;
     famp::measurement::Kind measurementKind =
         famp::measurement::Kind::Distance;
+    QString measurementLayerId;
+    QString measurementCrs;
     QVector<QVector3D> measurementPoints;
     QVector3D measurementHoverPoint;
     bool measurementHasHoverPoint = false;
@@ -104,6 +114,7 @@ private:
     vtkSmartPointer<vtkCallbackCommand> measurementCallback;
     std::vector<unsigned long> measurementObserverTags;
     std::vector<vtkActor*> cloudActors;
+    QHash<vtkActor*, CloudActorMetadata> cloudActorMetadata;
     vtkSmartPointer<vtkPolyDataMapper> measurementPreviewMapper;
     vtkSmartPointer<vtkActor> measurementPreviewActor;
     vtkSmartPointer<vtkBillboardTextActor3D> measurementPreviewLabel;
@@ -114,14 +125,21 @@ private:
                                          void* clientData,
                                          void* callData);
     bool handleMeasurementEvent(unsigned long eventId);
-    bool pickMeasurementPoint(QVector3D& point);
+    bool pickMeasurementPoint(QVector3D& point,
+                              QString& layerId,
+                              QString& crs);
     void beginMeasurement(famp::measurement::Kind kind, bool announce);
     void updateMeasurementPreview();
     void finishMeasurement();
     void resetMeasurementInteraction(bool notify);
     void rebuildMeasurementPickList();
-    void addMeasurementVisual(const QVector<QVector3D>& points,
-                              const QString& label);
+    void addMeasurementVisual(const famp::measurement::Record3D& record);
+    bool hasRegisteredLayer(const QString& layerId) const;
+    bool recordMatchesRegisteredLayer(
+        const famp::measurement::Record3D& record,
+        QString* errorMessage = nullptr) const;
+    bool isLayerVisible(const QString& layerId) const;
+    void updateMeasurementVisibility(const QString& layerId, bool visible);
 
 public:
     void setFrontView();    //正视图
@@ -136,6 +154,11 @@ public:
         vtkActor * cloudActor,
         vtkActor * aabbActor,
         const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& cloud);
+    bool setCloudActorMetadata(vtkActor * actor,
+                               const QString& layerId,
+                               const QString& crs,
+                               QString* errorMessage = nullptr);
+    void unregisterCloudActor(vtkActor * actor);
     void display(vtkActor * actor);     //显示点云
     void removeCloudDisplay(vtkActor * actor);      //移除点云演员显示
     void removeAABBDisplay(vtkActor * actor);       //移除AABB演员显示
@@ -185,6 +208,13 @@ public slots:
     void cancelMeasurement();
     void deactivateMeasurement();
     int measurementCount() const;
+    QVector<famp::measurement::Record3D> measurements() const;
+    bool addMeasurement(const famp::measurement::Record3D& record,
+                        QString* errorMessage = nullptr);
+    bool removeMeasurement(const QString& recordId);
+    bool setMeasurements(
+        const QVector<famp::measurement::Record3D>& records,
+        QString* errorMessage = nullptr);
     void clearMeasurements(bool announce = true);
 
 signals:
@@ -201,5 +231,7 @@ signals:
     void sendProjCloud2GraphicsView(pcl::PointCloud<pcl::PointXYZRGB>::Ptr incloud);    //将投影后的点云发送到GraphicsView
     void sendAABBBoxXYZMAX(float x, float y, float z);      //将AABB的边界框发送到GraphicsView
     void measurementModeEnded();
+    void measurementCompleted(const famp::measurement::Record3D& record);
+    void measurementsChanged();
     void measurementStatus(const QString& message);
 };

@@ -7,11 +7,14 @@
  *****************************************************************/
 
 #include "MyVTK.h"
+#include "CloudLayer.h"
+#include "CrsService.h"
 #include "VTKRenderManager.h"
 #include "VTKPointCloudManager.h"
 #include "VTKProjectionManager.h"
 
 #include <QDebug>
+#include <QSet>
 #include <QTimer>
 
 #include <vtkCellArray.h>
@@ -27,6 +30,12 @@
 
 namespace
 {
+void setError(QString* errorMessage, const QString& message)
+{
+    if (errorMessage)
+        *errorMessage = message;
+}
+
 vtkSmartPointer<vtkPolyData> measurementPolyData(
     const QVector<QVector3D>& points,
     famp::measurement::Kind kind)
@@ -230,12 +239,29 @@ bool MyVTK::handleMeasurementEvent(unsigned long eventId)
     }
 
     QVector3D pickedPoint;
-    if (!pickMeasurementPoint(pickedPoint))
+    QString pickedLayerId;
+    QString pickedCrs;
+    if (!pickMeasurementPoint(pickedPoint, pickedLayerId, pickedCrs))
     {
         if (eventId == vtkCommand::LeftButtonPressEvent)
         {
             emit measurementStatus(
                 tr("未拾取到点云点，请点击可见点云；可放大后重试。"));
+        }
+        else if (measurementHasHoverPoint)
+        {
+            measurementHasHoverPoint = false;
+            updateMeasurementPreview();
+        }
+        return eventId == vtkCommand::LeftButtonPressEvent;
+    }
+
+    if (!measurementLayerId.isEmpty() && pickedLayerId != measurementLayerId)
+    {
+        if (eventId == vtkCommand::LeftButtonPressEvent)
+        {
+            emit measurementStatus(
+                tr("同一项三维测量只能使用同一点云图层的点。"));
         }
         else if (measurementHasHoverPoint)
         {
@@ -263,6 +289,11 @@ bool MyVTK::handleMeasurementEvent(unsigned long eventId)
     if (measurementPoints.isEmpty()
         || (measurementPoints.back() - pickedPoint).lengthSquared() > 1.0e-12f)
     {
+        if (measurementPoints.isEmpty())
+        {
+            measurementLayerId = pickedLayerId;
+            measurementCrs = pickedCrs;
+        }
         measurementPoints.append(pickedPoint);
     }
     measurementHasHoverPoint = false;
@@ -282,7 +313,9 @@ bool MyVTK::handleMeasurementEvent(unsigned long eventId)
     return true;
 }
 
-bool MyVTK::pickMeasurementPoint(QVector3D& point)
+bool MyVTK::pickMeasurementPoint(QVector3D& point,
+                                 QString& layerId,
+                                 QString& crs)
 {
     vtkRenderWindowInteractor* interactor =
         m_renderManager->renderWindowInteractor();
@@ -298,6 +331,14 @@ bool MyVTK::pickMeasurementPoint(QVector3D& point)
         return false;
     }
 
+    vtkActor* actor = measurementPicker->GetActor();
+    const auto metadata = cloudActorMetadata.constFind(actor);
+    if (!actor || metadata == cloudActorMetadata.cend()
+        || metadata->layerId.isEmpty())
+    {
+        return false;
+    }
+
     const double* picked = measurementPicker->GetPickPosition();
     if (!picked || !std::isfinite(picked[0])
         || !std::isfinite(picked[1]) || !std::isfinite(picked[2]))
@@ -307,6 +348,8 @@ bool MyVTK::pickMeasurementPoint(QVector3D& point)
     point = QVector3D(static_cast<float>(picked[0]),
                       static_cast<float>(picked[1]),
                       static_cast<float>(picked[2]));
+    layerId = metadata->layerId;
+    crs = metadata->crs;
     return true;
 }
 
@@ -315,6 +358,8 @@ void MyVTK::beginMeasurement(famp::measurement::Kind kind, bool announce)
     resetMeasurementInteraction(false);
     measurementActive = true;
     measurementKind = kind;
+    measurementLayerId.clear();
+    measurementCrs.clear();
     measurementPoints.clear();
     measurementHasHoverPoint = false;
     setCursor(Qt::CrossCursor);
@@ -377,6 +422,8 @@ void MyVTK::resetMeasurementInteraction(bool notify)
 {
     const bool wasActive = measurementActive;
     measurementActive = false;
+    measurementLayerId.clear();
+    measurementCrs.clear();
     measurementPoints.clear();
     measurementHasHoverPoint = false;
     unsetCursor();
@@ -450,30 +497,50 @@ void MyVTK::finishMeasurement()
         return;
     }
 
+    famp::measurement::Record3D record;
+    record.id = famp::measurement::createRecordId();
+    record.layerId = measurementLayerId;
+    record.crs = measurementCrs;
+    record.kind = measurementKind;
+    record.points = measurementPoints;
+    QString validationError;
+    if (!famp::measurement::validateRecord3D(record, &validationError))
+    {
+        emit measurementStatus(validationError);
+        return;
+    }
+
     const QString resultText = famp::measurement::formatSummary(
-        measurementKind, measurementPoints);
-    addMeasurementVisual(measurementPoints, resultText);
+        record.kind, record.points);
     resetMeasurementInteraction(true);
+    emit measurementCompleted(record);
     emit measurementStatus(tr("点云测量完成：%1").arg(resultText));
 }
 
-void MyVTK::addMeasurementVisual(const QVector<QVector3D>& points,
-                                 const QString& labelText)
+void MyVTK::addMeasurementVisual(
+    const famp::measurement::Record3D& record)
 {
     MeasurementVisual visual;
+    visual.record = record;
     auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
-    mapper->SetInputData(measurementPolyData(points, measurementKind));
+    mapper->SetInputData(measurementPolyData(record.points, record.kind));
     mapper->ScalarVisibilityOff();
     visual.geometry = vtkSmartPointer<vtkActor>::New();
     visual.geometry->SetMapper(mapper);
     styleMeasurementActor(visual.geometry, 0.0, 0.8, 1.0);
 
     visual.label = vtkSmartPointer<vtkBillboardTextActor3D>::New();
+    const QString labelText = famp::measurement::formatSummary(
+        record.kind, record.points);
     const QByteArray encodedLabel = labelText.toUtf8();
     visual.label->SetInput(encodedLabel.constData());
-    const QVector3D& position = points.back();
+    const QVector3D& position = record.points.back();
     visual.label->SetPosition(position.x(), position.y(), position.z());
     styleMeasurementLabel(visual.label, 0.2, 0.9, 1.0);
+
+    const bool visible = isLayerVisible(record.layerId);
+    visual.geometry->SetVisibility(visible);
+    visual.label->SetVisibility(visible);
 
     m_renderManager->renderer()->AddActor(visual.geometry);
     m_renderManager->renderer()->AddActor(visual.label);
@@ -483,6 +550,105 @@ void MyVTK::addMeasurementVisual(const QVector<QVector3D>& points,
 int MyVTK::measurementCount() const
 {
     return static_cast<int>(measurementVisuals.size());
+}
+
+QVector<famp::measurement::Record3D> MyVTK::measurements() const
+{
+    QVector<famp::measurement::Record3D> records;
+    records.reserve(static_cast<qsizetype>(measurementVisuals.size()));
+    for (const MeasurementVisual& visual : measurementVisuals)
+        records.append(visual.record);
+    return records;
+}
+
+bool MyVTK::addMeasurement(
+    const famp::measurement::Record3D& record,
+    QString* errorMessage)
+{
+    QString validationError;
+    if (!famp::measurement::validateRecord3D(record, &validationError))
+    {
+        setError(errorMessage, validationError);
+        return false;
+    }
+    if (!recordMatchesRegisteredLayer(record, errorMessage))
+        return false;
+    const auto duplicate = std::find_if(
+        measurementVisuals.cbegin(), measurementVisuals.cend(),
+        [&record](const MeasurementVisual& visual) {
+            return visual.record.id.compare(
+                record.id, Qt::CaseInsensitive) == 0;
+        });
+    if (duplicate != measurementVisuals.cend())
+    {
+        setError(errorMessage, tr("三维测量 ID 重复。"));
+        return false;
+    }
+
+    addMeasurementVisual(record);
+    m_renderManager->render();
+    if (errorMessage)
+        errorMessage->clear();
+    emit measurementsChanged();
+    return true;
+}
+
+bool MyVTK::removeMeasurement(const QString& recordId)
+{
+    const auto found = std::find_if(
+        measurementVisuals.begin(), measurementVisuals.end(),
+        [&recordId](const MeasurementVisual& visual) {
+            return visual.record.id.compare(
+                recordId.trimmed(), Qt::CaseInsensitive) == 0;
+        });
+    if (found == measurementVisuals.end())
+        return false;
+
+    m_renderManager->renderer()->RemoveActor(found->geometry);
+    m_renderManager->renderer()->RemoveActor(found->label);
+    measurementVisuals.erase(found);
+    m_renderManager->render();
+    emit measurementsChanged();
+    return true;
+}
+
+bool MyVTK::setMeasurements(
+    const QVector<famp::measurement::Record3D>& records,
+    QString* errorMessage)
+{
+    QSet<QString> ids;
+    for (const auto& record : records)
+    {
+        QString validationError;
+        const QString normalizedId = record.id.trimmed().toLower();
+        if (!famp::measurement::validateRecord3D(record, &validationError))
+        {
+            setError(errorMessage, validationError);
+            return false;
+        }
+        if (ids.contains(normalizedId))
+        {
+            setError(errorMessage, tr("三维测量 ID 重复。"));
+            return false;
+        }
+        if (!recordMatchesRegisteredLayer(record, errorMessage))
+            return false;
+        ids.insert(normalizedId);
+    }
+
+    for (const MeasurementVisual& visual : measurementVisuals)
+    {
+        m_renderManager->renderer()->RemoveActor(visual.geometry);
+        m_renderManager->renderer()->RemoveActor(visual.label);
+    }
+    measurementVisuals.clear();
+    for (const auto& record : records)
+        addMeasurementVisual(record);
+    m_renderManager->render();
+    if (errorMessage)
+        errorMessage->clear();
+    emit measurementsChanged();
+    return true;
 }
 
 void MyVTK::clearMeasurements(bool announce)
@@ -499,6 +665,8 @@ void MyVTK::clearMeasurements(bool announce)
     measurementVisuals.clear();
     if (m_renderManager)
         m_renderManager->render();
+    if (count > 0)
+        emit measurementsChanged();
 
     if (!announce)
         return;
@@ -506,6 +674,72 @@ void MyVTK::clearMeasurements(bool announce)
         emit measurementStatus(tr("当前点云视图没有测量结果。"));
     else
         emit measurementStatus(tr("已清除 %1 个点云测量结果。").arg(count));
+}
+
+bool MyVTK::hasRegisteredLayer(const QString& layerId) const
+{
+    const QString normalized = layerId.trimmed().toLower();
+    for (auto iterator = cloudActorMetadata.cbegin();
+         iterator != cloudActorMetadata.cend(); ++iterator)
+    {
+        if (iterator->layerId == normalized)
+            return true;
+    }
+    return false;
+}
+
+bool MyVTK::recordMatchesRegisteredLayer(
+    const famp::measurement::Record3D& record,
+    QString* errorMessage) const
+{
+    const QString normalizedLayerId = record.layerId.trimmed().toLower();
+    const QString normalizedCrs = record.crs.trimmed().isEmpty()
+        ? QString() : famp::crs::normalizedEpsg(record.crs);
+    bool foundLayer = false;
+    for (auto iterator = cloudActorMetadata.cbegin();
+         iterator != cloudActorMetadata.cend(); ++iterator)
+    {
+        if (iterator->layerId != normalizedLayerId)
+            continue;
+        foundLayer = true;
+        if (iterator->crs == normalizedCrs)
+        {
+            if (errorMessage)
+                errorMessage->clear();
+            return true;
+        }
+    }
+    setError(errorMessage,
+             foundLayer
+                 ? tr("三维测量坐标系与关联点云图层不一致。")
+                 : tr("三维测量关联的点云图层未加载。"));
+    return false;
+}
+
+bool MyVTK::isLayerVisible(const QString& layerId) const
+{
+    const QString normalized = layerId.trimmed().toLower();
+    return std::any_of(
+        cloudActors.cbegin(), cloudActors.cend(),
+        [this, &normalized](vtkActor* actor) {
+            const auto metadata = cloudActorMetadata.constFind(actor);
+            return metadata != cloudActorMetadata.cend()
+                && metadata->layerId == normalized;
+        });
+}
+
+void MyVTK::updateMeasurementVisibility(
+    const QString& layerId,
+    bool visible)
+{
+    const QString normalized = layerId.trimmed().toLower();
+    for (MeasurementVisual& visual : measurementVisuals)
+    {
+        if (visual.record.layerId.trimmed().toLower() != normalized)
+            continue;
+        visual.geometry->SetVisibility(visible);
+        visual.label->SetVisibility(visible);
+    }
 }
 
 void MyVTK::rebuildMeasurementPickList()
@@ -940,6 +1174,7 @@ vtkActor * MyVTK::appendCloudActor()
         // projection actors also pass through display(), but picking those
         // would produce measurements unrelated to the loaded cloud points.
         cloudActors.push_back(cloudActor);
+        cloudActorMetadata.insert(cloudActor, {});
         rebuildMeasurementPickList();
     }
     if (polyData)
@@ -966,28 +1201,125 @@ bool MyVTK::updateCloudActors(
     {
         return false;
     }
-    clearMeasurements(false);
     m_renderManager->render();
     update();
     return true;
 }
 
+bool MyVTK::setCloudActorMetadata(vtkActor* actor,
+                                  const QString& layerId,
+                                  const QString& crs,
+                                  QString* errorMessage)
+{
+    const QString normalizedLayerId = layerId.trimmed().toLower();
+    if (!actor || !famp::cloud::isValidLayerId(normalizedLayerId))
+    {
+        setError(errorMessage, tr("点云演员或图层 ID 无效。"));
+        return false;
+    }
+    const QString normalizedCrs = crs.trimmed().isEmpty()
+        ? QString() : famp::crs::normalizedEpsg(crs);
+    if (!crs.trimmed().isEmpty() && normalizedCrs.isEmpty())
+    {
+        setError(errorMessage, tr("点云图层坐标系无效。"));
+        return false;
+    }
+
+    CloudActorMetadata metadata;
+    metadata.layerId = normalizedLayerId;
+    metadata.crs = normalizedCrs;
+    cloudActorMetadata.insert(actor, metadata);
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+void MyVTK::unregisterCloudActor(vtkActor* actor)
+{
+    if (!actor)
+        return;
+    const auto metadata = cloudActorMetadata.constFind(actor);
+    const QString layerId = metadata == cloudActorMetadata.cend()
+        ? QString() : metadata->layerId;
+    if (measurementActive && !layerId.isEmpty()
+        && measurementLayerId == layerId)
+    {
+        resetMeasurementInteraction(true);
+        emit measurementStatus(tr("点云图层已移除，当前三维测量已取消。"));
+    }
+
+    cloudActors.erase(std::remove(cloudActors.begin(), cloudActors.end(), actor),
+                      cloudActors.end());
+    cloudActorMetadata.remove(actor);
+    rebuildMeasurementPickList();
+    m_renderManager->removeCloudDisplay(actor);
+
+    bool removedMeasurement = false;
+    if (!layerId.isEmpty() && !hasRegisteredLayer(layerId))
+    {
+        for (auto iterator = measurementVisuals.begin();
+             iterator != measurementVisuals.end();)
+        {
+            if (iterator->record.layerId.compare(
+                    layerId, Qt::CaseInsensitive) != 0)
+            {
+                ++iterator;
+                continue;
+            }
+            m_renderManager->renderer()->RemoveActor(iterator->geometry);
+            m_renderManager->renderer()->RemoveActor(iterator->label);
+            iterator = measurementVisuals.erase(iterator);
+            removedMeasurement = true;
+        }
+    }
+    m_renderManager->render();
+    update();
+    if (removedMeasurement)
+        emit measurementsChanged();
+}
+
 void MyVTK::display(vtkActor * actor)
 {
+    if (!actor)
+        return;
+    const auto metadata = cloudActorMetadata.constFind(actor);
+    if (metadata != cloudActorMetadata.cend()
+        && std::find(cloudActors.cbegin(), cloudActors.cend(), actor)
+            == cloudActors.cend())
+    {
+        cloudActors.push_back(actor);
+        rebuildMeasurementPickList();
+        if (!metadata->layerId.isEmpty())
+            updateMeasurementVisibility(metadata->layerId, true);
+    }
     m_renderManager->display(actor);
+    m_renderManager->render();
     this->update();
 }
 
 void MyVTK::removeCloudDisplay(vtkActor * actor)
 {
-    const bool removedPointCloud = std::find(
-        cloudActors.cbegin(), cloudActors.cend(), actor) != cloudActors.cend();
+    if (!actor)
+        return;
+    const auto metadata = cloudActorMetadata.constFind(actor);
+    if (metadata != cloudActorMetadata.cend()
+        && measurementActive
+        && !metadata->layerId.isEmpty()
+        && measurementLayerId == metadata->layerId)
+    {
+        resetMeasurementInteraction(true);
+        emit measurementStatus(tr("点云图层已隐藏，当前三维测量已取消。"));
+    }
     cloudActors.erase(std::remove(cloudActors.begin(), cloudActors.end(), actor),
                       cloudActors.end());
     rebuildMeasurementPickList();
-    if (removedPointCloud)
-        clearMeasurements(false);
+    if (metadata != cloudActorMetadata.cend()
+        && !metadata->layerId.isEmpty())
+    {
+        updateMeasurementVisibility(metadata->layerId, false);
+    }
     m_renderManager->removeCloudDisplay(actor);
+    m_renderManager->render();
     this->update();
 }
 

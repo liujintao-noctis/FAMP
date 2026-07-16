@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QPointF>
+#include <QMetaType>
 #include <QString>
 #include <QVector>
 #include <QVector3D>
@@ -13,6 +14,22 @@ enum class Kind
     Area,
     Angle
 };
+
+struct Record3D
+{
+    QString id;
+    QString layerId;
+    QString crs;
+    Kind kind = Kind::Distance;
+    QVector<QVector3D> points;
+};
+
+QString createRecordId();
+bool isValidRecordId(const QString& id);
+QString kindName(Kind kind);
+bool kindFromName(const QString& name, Kind& kind);
+bool validateRecord3D(const Record3D& record,
+                      QString* errorMessage = nullptr);
 
 bool sceneToMeters(const QVector<QPointF>& scenePoints,
                    const QPointF& sceneUnitsPerMeter,
@@ -36,3 +53,5 @@ double angleDegrees(const QVector<QVector3D>& meterPoints) noexcept;
 double value(Kind kind, const QVector<QVector3D>& meterPoints) noexcept;
 QString formatSummary(Kind kind, const QVector<QVector3D>& meterPoints);
 }
+
+Q_DECLARE_METATYPE(famp::measurement::Record3D)

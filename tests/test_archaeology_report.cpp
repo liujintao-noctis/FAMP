@@ -31,6 +31,17 @@ famp::report::Data sampleReport()
         QJsonArray{0.0, 0.0}, QJsonArray{2.0, 0.0},
         QJsonArray{2.0, 3.0}, QJsonArray{0.0, 3.0}});
     data.graphicsState.insert(QStringLiteral("items"), QJsonArray{measurement});
+    famp::measurement::Record3D measurement3d;
+    measurement3d.id =
+        QStringLiteral("00000000-0000-0000-0000-000000000001");
+    measurement3d.layerId =
+        QStringLiteral("00000000-0000-0000-0000-000000000002");
+    measurement3d.crs = QStringLiteral("EPSG:4490");
+    measurement3d.kind = famp::measurement::Kind::Distance;
+    measurement3d.points = {
+        QVector3D(0.0F, 0.0F, 0.0F),
+        QVector3D(0.0F, 0.0F, 12.0F)};
+    data.measurements3d = {measurement3d};
     return data;
 }
 }
@@ -46,6 +57,10 @@ TEST(ArchaeologyReportTest, GeneratesEscapedStructuredHtml)
     EXPECT_TRUE(html.contains(QStringLiteral("面积")));
     EXPECT_TRUE(html.contains(QStringLiteral("6")));
     EXPECT_TRUE(html.contains(QStringLiteral("10")));
+    EXPECT_TRUE(html.contains(QStringLiteral("三维点云测量成果")));
+    EXPECT_TRUE(html.contains(QStringLiteral("12.000 m")));
+    EXPECT_TRUE(html.contains(
+        QStringLiteral("00000000-0000-0000-0000-000000000002")));
 }
 
 TEST(ArchaeologyReportTest, SavesUnicodeHtmlAndPdf)
@@ -82,4 +97,13 @@ TEST(ArchaeologyReportTest, RejectsInvalidCloudSpatialReference)
     QString error;
     EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
     EXPECT_TRUE(error.contains(QStringLiteral("空间参考")));
+}
+
+TEST(ArchaeologyReportTest, RejectsInvalidThreeDimensionalMeasurement)
+{
+    auto data = sampleReport();
+    data.measurements3d[0].id = QStringLiteral("invalid-id");
+    QString error;
+    EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
+    EXPECT_TRUE(error.contains(QStringLiteral("三维测量")));
 }

@@ -52,6 +52,7 @@
 #include <QKeySequence>
 #include <QLineEdit>
 #include <QSettings>
+#include <QSet>
 #include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QSpinBox>
@@ -374,10 +375,39 @@ void MainWindow::initializeCrsActions()
             this, [this]() {
                 const int count = ui.graphicsView->measurementCount()
                     + myVTK->measurementCount();
-                ui.graphicsView->clearMeasurements(false);
-                myVTK->clearMeasurements(false);
+                const QVector<famp::measurement::Record3D> measurements3d =
+                    myVTK->measurements();
+                if (count > 0)
+                {
+                    QUndoStack* stack = ui.graphicsView->commandStack();
+                    stack->beginMacro(tr("清除测量结果"));
+                    ui.graphicsView->clearMeasurements(false);
+                    if (!measurements3d.isEmpty())
+                    {
+                        stack->push(famp::graphics::makeCallbackCommand(
+                            [this, measurements3d]() {
+                                QString error;
+                                if (!myVTK->setMeasurements(
+                                        measurements3d, &error))
+                                {
+                                    emit sendStr2Console(
+                                        tr("恢复三维测量失败：%1").arg(error));
+                                }
+                            },
+                            [this]() {
+                                QString error;
+                                if (!myVTK->setMeasurements({}, &error))
+                                {
+                                    emit sendStr2Console(
+                                        tr("清除三维测量失败：%1").arg(error));
+                                }
+                            },
+                            tr("清除三维测量结果")));
+                    }
+                    stack->endMacro();
+                }
                 const QString message = count > 0
-                    ? tr("已清除 %1 个测量结果。二维结果可通过撤销恢复。")
+                    ? tr("已清除 %1 个测量结果，可通过撤销恢复。")
                           .arg(count)
                     : tr("当前点云和制图画布没有测量结果。");
                 statusBar()->showMessage(message, 8000);
@@ -405,6 +435,30 @@ void MainWindow::initializeCrsActions()
                 statusBar()->showMessage(message, 8000);
                 emit sendStr2Console(message);
             });
+    connect(myVTK, &MyVTK::measurementCompleted,
+            this, [this](const famp::measurement::Record3D& record) {
+                QString commandText = tr("添加三维距离测量");
+                if (record.kind == famp::measurement::Kind::Area)
+                    commandText = tr("添加三维面积测量");
+                else if (record.kind == famp::measurement::Kind::Angle)
+                    commandText = tr("添加三维角度测量");
+                ui.graphicsView->commandStack()->push(
+                    famp::graphics::makeCallbackCommand(
+                        [this, id = record.id]() {
+                            myVTK->removeMeasurement(id);
+                        },
+                        [this, record]() {
+                            QString error;
+                            if (!myVTK->addMeasurement(record, &error))
+                            {
+                                emit sendStr2Console(
+                                    tr("添加三维测量失败：%1").arg(error));
+                            }
+                        },
+                        commandText));
+            });
+    connect(myVTK, &MyVTK::measurementsChanged,
+            this, &MainWindow::markProjectDirty);
 
     crsStatusLabel = new QLabel(this);
     crsStatusLabel->setMinimumWidth(150);
@@ -468,6 +522,7 @@ void MainWindow::slotExportArchaeologyReport()
     report.applicationVersion = QCoreApplication::applicationVersion();
     report.generatedAt = QDateTime::currentDateTime();
     report.graphicsState = project.graphicsState;
+    report.measurements3d = project.measurements3d;
     for (int row = 0; row < model->rowCount(); ++row)
     {
         const QStandardItem* projectItem = model->item(row);
@@ -521,6 +576,7 @@ bool MainWindow::currentProjectDocument(
     document.graphicsState = ui.graphicsView->saveProjectState(errorMessage);
     if (document.graphicsState.isEmpty())
         return false;
+    document.measurements3d = myVTK->measurements();
     document.windowGeometry = saveGeometry();
     document.windowState = saveState(famp::project::SchemaVersion);
     document.xoyLabelVisible = xoy_label && !xoy_label->isHidden();
@@ -651,6 +707,7 @@ bool MainWindow::loadProjectFromPath(const QString& path, bool isRecovery)
 
     loadingProject = true;
     clearWorkspace();
+    pendingProjectMeasurements3d = document.measurements3d;
     const int scaleIndex = scaleCombox->findText(document.mapScale);
     if (scaleIndex >= 0)
         scaleCombox->setCurrentIndex(scaleIndex);
@@ -774,12 +831,12 @@ void MainWindow::removeCloudFromWorkspace(const MyCloudList& cloud)
 {
     if (cloud.cloudactor)
     {
-        myVTK->removeCloudDisplay(cloud.cloudactor);
+        myVTK->unregisterCloudActor(cloud.cloudactor);
         cloud.cloudactor->Delete();
     }
     if (cloud.AABBactor)
     {
-        myVTK->removeCloudDisplay(cloud.AABBactor);
+        myVTK->removeAABBDisplay(cloud.AABBactor);
         cloud.AABBactor->Delete();
     }
     pointCloudList.erase(
@@ -797,6 +854,7 @@ void MainWindow::clearWorkspace()
     model->clear();
     model->setHorizontalHeaderLabels(QStringList() << QString());
     ui.graphicsView->clearSceneAndHistory();
+    pendingProjectMeasurements3d.clear();
 
     inCloud.reset();
     delete myCloud;
@@ -1154,7 +1212,8 @@ void MainWindow::slotReprojectCloud()
         &dialog);
     QLabel explanation(
         tr("程序将逐点转换真实坐标并重新中心化，以保留大坐标下的局部精度。"
-           "结果会原子保存为新的 PCD，当前图层切换到新文件；可通过撤销恢复。"),
+           "结果会原子保存为新的 PCD，当前图层切换到新文件。"
+           "该图层原有三维测量将随重投影移除，撤销时一并恢复。"),
         &dialog);
     explanation.setWordWrap(true);
     layout.addRow(tr("源 CRS"), &sourceCrsEdit);
@@ -1333,6 +1392,18 @@ void MainWindow::slotReprojectCloud()
     taskManager->succeed(task.id, tr("点云重投影完成"));
 
     const famp::cloud::CloudLayer before = cloud.layer;
+    const QVector<famp::measurement::Record3D> beforeMeasurements =
+        myVTK->measurements();
+    QVector<famp::measurement::Record3D> afterMeasurements;
+    afterMeasurements.reserve(beforeMeasurements.size());
+    for (const auto& measurement : beforeMeasurements)
+    {
+        if (measurement.layerId.compare(
+                before.id, Qt::CaseInsensitive) != 0)
+        {
+            afterMeasurements.append(measurement);
+        }
+    }
     famp::cloud::CloudLayer after = before;
     after.points = result.points;
     after.sourcePoints.reset();
@@ -1345,11 +1416,21 @@ void MainWindow::slotReprojectCloud()
     const QString layerId = before.id;
     ui.graphicsView->commandStack()->push(
         famp::graphics::makeCallbackCommand(
-            [this, layerId, before]() {
-                applyCloudLayerState(layerId, before);
+            [this, layerId, before, beforeMeasurements]() {
+                if (!applyCloudLayerState(layerId, before))
+                    return;
+                QString error;
+                if (!myVTK->setMeasurements(beforeMeasurements, &error))
+                    emit sendStr2Console(
+                        tr("恢复重投影前测量失败：%1").arg(error));
             },
-            [this, layerId, after]() {
-                applyCloudLayerState(layerId, after);
+            [this, layerId, after, afterMeasurements]() {
+                if (!applyCloudLayerState(layerId, after))
+                    return;
+                QString error;
+                if (!myVTK->setMeasurements(afterMeasurements, &error))
+                    emit sendStr2Console(
+                        tr("更新重投影后测量失败：%1").arg(error));
             },
             tr("重投影点云 %1 → %2")
                 .arg(result.sourceCrs, result.targetCrs)));
@@ -1407,6 +1488,12 @@ bool MainWindow::applyCloudLayerState(
     if (found == pointCloudList.end()
         || !myVTK->updateCloudActors(
             found->cloudactor, found->AABBactor, state.points))
+    {
+        return false;
+    }
+
+    if (!myVTK->setCloudActorMetadata(
+            found->cloudactor, state.id, state.crs, &validationError))
     {
         return false;
     }
@@ -2949,6 +3036,17 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
         emit sendStr2Console(
             tr("点云显示设置已恢复默认值：%1").arg(displayError));
     }
+    QString actorMetadataError;
+    if (!myVTK->setCloudActorMetadata(
+            pointCloud.cloudactor,
+            pointCloud.layer.id,
+            pointCloud.layer.crs,
+            &actorMetadataError))
+    {
+        emit sendStr2Console(
+            tr("点云测量元数据初始化失败：%1")
+                .arg(actorMetadataError));
+    }
     pointCloudList.push_back(pointCloud);
 
     //发送给Console消息
@@ -2985,6 +3083,8 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
 
     if (cloudVisible)
         myVTK->display(pointCloudList.back().cloudactor);       //显示点云
+    else
+        myVTK->removeCloudDisplay(pointCloudList.back().cloudactor);
     //myVTK->display(pointCloudList.back().AABBactor);     //显示AABB
     myVTK->initCamera();
     myVTK->update();
@@ -3042,6 +3142,43 @@ void MainWindow::finishCloudLoadBatch()
     const QStringList failurePaths = cloudLoadFailurePaths;
     const QStringList failureMessages = cloudLoadFailureMessages;
     const bool cancelled = cloudLoadCancelled;
+    bool measurementRestoreIncomplete = false;
+
+    if (projectBatch)
+    {
+        QSet<QString> loadedLayerIds;
+        for (const MyCloudList& cloud : pointCloudList)
+            loadedLayerIds.insert(cloud.layer.id.trimmed().toLower());
+        QVector<famp::measurement::Record3D> restorableMeasurements;
+        restorableMeasurements.reserve(pendingProjectMeasurements3d.size());
+        for (const auto& measurement : pendingProjectMeasurements3d)
+        {
+            if (loadedLayerIds.contains(
+                    measurement.layerId.trimmed().toLower()))
+            {
+                restorableMeasurements.append(measurement);
+            }
+            else
+            {
+                measurementRestoreIncomplete = true;
+            }
+        }
+        QString measurementError;
+        if (!myVTK->setMeasurements(
+                restorableMeasurements, &measurementError))
+        {
+            measurementRestoreIncomplete = true;
+            emit sendStr2Console(
+                tr("恢复项目三维测量失败：%1")
+                    .arg(measurementError));
+        }
+        else if (measurementRestoreIncomplete)
+        {
+            emit sendStr2Console(
+                tr("部分三维测量所属点云未加载，已跳过这些测量。"));
+        }
+        pendingProjectMeasurements3d.clear();
+    }
 
     cloudLoadBusy = false;
     cloudLoadProjectBatch = false;
@@ -3076,7 +3213,8 @@ void MainWindow::finishCloudLoadBatch()
     if (projectBatch)
     {
         loadingProject = false;
-        projectDirty = projectRecovery || cancelled || !failurePaths.isEmpty();
+        projectDirty = projectRecovery || cancelled || !failurePaths.isEmpty()
+            || measurementRestoreIncomplete;
         updateWindowTitle();
         emit sendStr2Console(
             cancelled

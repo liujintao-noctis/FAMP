@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CloudCoordinates.h"
+#include "Measurement.h"
 
 #include <QDateTime>
 #include <QJsonObject>
@@ -29,6 +30,7 @@ struct Data
     QDateTime generatedAt;
     QVector<CloudEntry> clouds;
     QJsonObject graphicsState;
+    QVector<famp::measurement::Record3D> measurements3d;
 };
 
 QString toHtml(const Data& data, QString* errorMessage = nullptr);

@@ -1,5 +1,10 @@
 #include "Measurement.h"
 
+#include "CloudLayer.h"
+#include "CrsService.h"
+
+#include <QUuid>
+
 #include <cmath>
 #include <algorithm>
 #include <limits>
@@ -9,12 +14,102 @@ namespace famp::measurement
 {
 namespace
 {
+constexpr int MaxRecordPoints = 10000;
+
 void setError(QString* errorMessage, const QString& message)
 {
     if (errorMessage)
         *errorMessage = message;
 }
+}
 
+QString createRecordId()
+{
+    return QUuid::createUuid().toString(QUuid::WithoutBraces).toLower();
+}
+
+bool isValidRecordId(const QString& id)
+{
+    const QString trimmed = id.trimmed();
+    const QUuid uuid(trimmed);
+    return !uuid.isNull()
+        && uuid.toString(QUuid::WithoutBraces)
+               .compare(trimmed, Qt::CaseInsensitive) == 0;
+}
+
+QString kindName(Kind kind)
+{
+    switch (kind)
+    {
+    case Kind::Distance:
+        return QStringLiteral("distance");
+    case Kind::Area:
+        return QStringLiteral("area");
+    case Kind::Angle:
+        return QStringLiteral("angle");
+    }
+    return {};
+}
+
+bool kindFromName(const QString& name, Kind& kind)
+{
+    const QString normalized = name.trimmed().toLower();
+    if (normalized == QStringLiteral("distance"))
+        kind = Kind::Distance;
+    else if (normalized == QStringLiteral("area"))
+        kind = Kind::Area;
+    else if (normalized == QStringLiteral("angle"))
+        kind = Kind::Angle;
+    else
+        return false;
+    return true;
+}
+
+bool validateRecord3D(const Record3D& record, QString* errorMessage)
+{
+    if (!isValidRecordId(record.id))
+    {
+        setError(errorMessage, QStringLiteral("三维测量 ID 无效。"));
+        return false;
+    }
+    if (!famp::cloud::isValidLayerId(record.layerId))
+    {
+        setError(errorMessage, QStringLiteral("三维测量关联的点云图层 ID 无效。"));
+        return false;
+    }
+    if (!record.crs.trimmed().isEmpty()
+        && famp::crs::normalizedEpsg(record.crs).isEmpty())
+    {
+        setError(errorMessage, QStringLiteral("三维测量坐标系无效。"));
+        return false;
+    }
+    if (kindName(record.kind).isEmpty())
+    {
+        setError(errorMessage, QStringLiteral("三维测量类型无效。"));
+        return false;
+    }
+    const int minimum = minimumPointCount(record.kind);
+    if (record.points.size() < minimum
+        || record.points.size() > MaxRecordPoints
+        || (record.kind == Kind::Angle && record.points.size() != 3)
+        || !finitePoints(record.points))
+    {
+        setError(errorMessage, QStringLiteral("三维测量点集无效。"));
+        return false;
+    }
+    const double result = value(record.kind, record.points);
+    if (!std::isfinite(result) || result <= 1.0e-9)
+    {
+        setError(errorMessage, QStringLiteral("三维测量结果为零或无效。"));
+        return false;
+    }
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+namespace
+{
 bool finitePoint(const QPointF& point)
 {
     return std::isfinite(point.x()) && std::isfinite(point.y());

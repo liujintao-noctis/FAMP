@@ -131,6 +131,7 @@ private:
     bool cloudLoadProjectRecovery;
     bool cloudLoadCancelled;
     QHash<QString, famp::project::CloudReference> projectCloudReferences;
+    QVector<famp::measurement::Record3D> pendingProjectMeasurements3d;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局

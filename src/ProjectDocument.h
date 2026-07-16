@@ -3,6 +3,7 @@
 #include "CloudAttributes.h"
 #include "CloudCoordinates.h"
 #include "CloudDisplaySettings.h"
+#include "Measurement.h"
 
 #include <QByteArray>
 #include <QJsonObject>
@@ -39,6 +40,7 @@ struct Document
     QString mapScale = QStringLiteral("1:50");
     QString projectCrs;
     QJsonObject graphicsState;
+    QVector<famp::measurement::Record3D> measurements3d;
     QByteArray windowGeometry;
     QByteArray windowState;
     bool xoyLabelVisible = true;
