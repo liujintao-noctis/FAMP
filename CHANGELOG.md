@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-07-17
+
+### Fixed
+
+- “工具”菜单的距离、面积和角度测量现已连接中央 VTK 点云视图，支持点拾取、实时节点/连线/标签预览、右键完成、Esc 取消及状态栏/控制台结果输出，同时保留二维制图画布测量。
+
 ## [0.5.1] - 2026-07-12
 
 ### Changed
@@ -102,7 +108,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.3.1...v0.4.0

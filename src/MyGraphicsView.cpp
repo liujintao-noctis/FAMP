@@ -1835,7 +1835,8 @@ void MyGraphicsView::showEvent(QShowEvent *event)
     setMetricScreen(windowHandle->screen());
 }
 
-void MyGraphicsView::beginMeasurement(famp::measurement::Kind kind)
+void MyGraphicsView::beginMeasurement(famp::measurement::Kind kind,
+                                      bool announce)
 {
     resetMeasurementInteraction(false);
     measurementActive = true;
@@ -1853,22 +1854,28 @@ void MyGraphicsView::beginMeasurement(famp::measurement::Kind kind)
         instructions = tr("面积测量：依次点击边界点，右键或双击闭合，Esc 取消。");
     else
         instructions = tr("角度测量：依次点击第一边点、顶点和第二边点，Esc 取消。");
-    emit measurementStatus(instructions);
+    if (announce)
+        emit measurementStatus(instructions);
 }
 
-void MyGraphicsView::startDistanceMeasurement()
+void MyGraphicsView::startDistanceMeasurement(bool announce)
 {
-    beginMeasurement(famp::measurement::Kind::Distance);
+    beginMeasurement(famp::measurement::Kind::Distance, announce);
 }
 
-void MyGraphicsView::startAreaMeasurement()
+void MyGraphicsView::startAreaMeasurement(bool announce)
 {
-    beginMeasurement(famp::measurement::Kind::Area);
+    beginMeasurement(famp::measurement::Kind::Area, announce);
 }
 
-void MyGraphicsView::startAngleMeasurement()
+void MyGraphicsView::startAngleMeasurement(bool announce)
 {
-    beginMeasurement(famp::measurement::Kind::Angle);
+    beginMeasurement(famp::measurement::Kind::Angle, announce);
+}
+
+void MyGraphicsView::deactivateMeasurement()
+{
+    resetMeasurementInteraction(false);
 }
 
 void MyGraphicsView::cancelMeasurement()
@@ -2025,7 +2032,18 @@ void MyGraphicsView::finishMeasurement()
     emit measurementStatus(tr("测量完成：%1").arg(resultText));
 }
 
-void MyGraphicsView::clearMeasurements()
+int MyGraphicsView::measurementCount() const
+{
+    int count = 0;
+    for (QGraphicsItem* item : scene->items())
+    {
+        if (item && item->type() == MeasurementItem::Type)
+            ++count;
+    }
+    return count;
+}
+
+void MyGraphicsView::clearMeasurements(bool announce)
 {
     if (measurementActive)
         resetMeasurementInteraction(true);
@@ -2038,15 +2056,19 @@ void MyGraphicsView::clearMeasurements()
     }
     if (handles.isEmpty())
     {
-        emit measurementStatus(tr("当前画布没有测量结果。"));
+        if (announce)
+            emit measurementStatus(tr("当前画布没有测量结果。"));
         return;
     }
 
     const int count = handles.size();
     history->push(famp::graphics::makeRemoveItemsCommand(
         scene, handles, tr("清除测量结果")));
-    emit measurementStatus(tr("已清除 %1 个测量结果，可通过撤销恢复。")
-                               .arg(count));
+    if (announce)
+    {
+        emit measurementStatus(tr("已清除 %1 个测量结果，可通过撤销恢复。")
+                                   .arg(count));
+    }
 }
 
 void MyGraphicsView::rescaleMeasurementItems()

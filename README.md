@@ -6,7 +6,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 
 项目使用 CMake 和 vcpkg 管理跨平台构建。规范的本地 CMake 入口是 `src/CMakeLists.txt`，构建产物统一放在仓库根目录的 `build/`。根目录 `CMakeLists.txt` 仍可使用，但它只负责设置工程并转发到 `src/`。
 
-当前应用版本为 `0.5.1`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.5.1`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
+当前应用版本为 `0.5.2`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.5.2`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
 
 ## 当前功能
 
@@ -22,6 +22,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 - 将 PCD/LAS/PLY/XYZ 文件拖入主窗口，或从“文件 → 最近打开”恢复最近 8 个有效文件。
 - 使用 `Ctrl+Shift+Left/Right` 将选中的二维图元绕中心每次旋转 5°。
 - 使用 `Ctrl+Z` 和 `Ctrl+Shift+Z`/`Ctrl+Y` 撤销或重做最近 100 步编辑，包括二维图元新增/删除/变换/组合、文字字体、制图比例尺和项目 CRS。
+- 在中央三维点云视图直接拾取点，实时显示节点、连线和结果标签，可测量三维折线距离、任意朝向多边形面积/周长和三点夹角；测量过程及结果同时输出到状态栏和控制台。
 - 在二维画布按当前制图比例尺测量多段线距离、多边形面积/周长和三点夹角，结果可随成果一起导出，并支持撤销、重做和集中清除。
 - 通过“帮助”菜单查看离线快速入门、快捷键和 Qt/VTK/PCL 版本。
 - 将完整二维画布按 A4/A3/自定义纸张、横向/纵向和 150/300/600 DPI 原子导出为 PDF、SVG、PNG 或 BMP，可保持当前制图比例尺或自动适合页面，并可在保存前打开打印预览。

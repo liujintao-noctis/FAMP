@@ -14,6 +14,81 @@
 #include <QDebug>
 #include <QTimer>
 
+#include <vtkCellArray.h>
+#include <vtkCommand.h>
+#include <vtkPoints.h>
+#include <vtkPolyDataMapper.h>
+#include <vtkTextProperty.h>
+
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <utility>
+
+namespace
+{
+vtkSmartPointer<vtkPolyData> measurementPolyData(
+    const QVector<QVector3D>& points,
+    famp::measurement::Kind kind)
+{
+    auto polyData = vtkSmartPointer<vtkPolyData>::New();
+    auto pointsData = vtkSmartPointer<vtkPoints>::New();
+    auto vertices = vtkSmartPointer<vtkCellArray>::New();
+    auto lines = vtkSmartPointer<vtkCellArray>::New();
+
+    pointsData->SetNumberOfPoints(points.size());
+    for (int index = 0; index < points.size(); ++index)
+    {
+        const QVector3D& point = points.at(index);
+        pointsData->SetPoint(index, point.x(), point.y(), point.z());
+        vertices->InsertNextCell(1);
+        vertices->InsertCellPoint(index);
+    }
+
+    if (points.size() >= 2)
+    {
+        std::vector<vtkIdType> ids;
+        ids.reserve(static_cast<std::size_t>(points.size()) + 1U);
+        for (int index = 0; index < points.size(); ++index)
+            ids.push_back(index);
+        if (kind == famp::measurement::Kind::Area && points.size() >= 3)
+            ids.push_back(0);
+        lines->InsertNextCell(static_cast<vtkIdType>(ids.size()), ids.data());
+    }
+
+    polyData->SetPoints(pointsData);
+    polyData->SetVerts(vertices);
+    polyData->SetLines(lines);
+    return polyData;
+}
+
+void styleMeasurementActor(vtkActor* actor,
+                           double red,
+                           double green,
+                           double blue)
+{
+    actor->GetProperty()->SetColor(red, green, blue);
+    actor->GetProperty()->SetLineWidth(3.0);
+    actor->GetProperty()->SetPointSize(9.0);
+    actor->GetProperty()->SetRenderLinesAsTubes(true);
+    actor->GetProperty()->SetRenderPointsAsSpheres(true);
+    actor->PickableOff();
+}
+
+void styleMeasurementLabel(vtkBillboardTextActor3D* label,
+                           double red,
+                           double green,
+                           double blue)
+{
+    label->GetTextProperty()->SetColor(red, green, blue);
+    label->GetTextProperty()->SetFontSize(18);
+    label->GetTextProperty()->BoldOn();
+    label->GetTextProperty()->SetBackgroundColor(0.05, 0.05, 0.05);
+    label->GetTextProperty()->SetBackgroundOpacity(0.65);
+    label->PickableOff();
+}
+}
+
 MyVTK::MyVTK(QWidget *parent)
     : FAMP_QVTK_WIDGET(parent)
 {
@@ -42,6 +117,28 @@ MyVTK::MyVTK(QWidget *parent)
     isClipSucessed = false;
     isProjectionSuccess = false;
 
+    measurementPicker = vtkSmartPointer<vtkPointPicker>::New();
+    measurementPicker->PickFromListOn();
+    measurementPicker->SetTolerance(0.015);
+    measurementCallback = vtkSmartPointer<vtkCallbackCommand>::New();
+    measurementCallback->SetClientData(this);
+    measurementCallback->SetCallback(&MyVTK::measurementEventCallback);
+    vtkRenderWindowInteractor* interactor =
+        m_renderManager->renderWindowInteractor();
+    if (interactor)
+    {
+        constexpr unsigned long events[] = {
+            vtkCommand::LeftButtonPressEvent,
+            vtkCommand::RightButtonPressEvent,
+            vtkCommand::MouseMoveEvent,
+            vtkCommand::KeyPressEvent};
+        for (const unsigned long eventId : events)
+        {
+            measurementObserverTags.push_back(interactor->AddObserver(
+                eventId, measurementCallback, 1.0));
+        }
+    }
+
     // Defer the first Render() until Qt has shown the widget and created the
     // native OpenGL surface. Rendering from the constructor can crash on
     // Windows with QVTKOpenGLNativeWidget.
@@ -59,6 +156,21 @@ MyVTK::MyVTK(QWidget *parent)
 
 MyVTK::~MyVTK()
 {
+    if (m_renderManager && m_renderManager->renderWindowInteractor())
+    {
+        for (const unsigned long tag : measurementObserverTags)
+            m_renderManager->renderWindowInteractor()->RemoveObserver(tag);
+    }
+    if (measurementPreviewActor)
+        m_renderManager->renderer()->RemoveActor(measurementPreviewActor);
+    if (measurementPreviewLabel)
+        m_renderManager->renderer()->RemoveActor(measurementPreviewLabel);
+    for (const MeasurementVisual& visual : measurementVisuals)
+    {
+        m_renderManager->renderer()->RemoveActor(visual.geometry);
+        m_renderManager->renderer()->RemoveActor(visual.label);
+    }
+    measurementVisuals.clear();
     delete m_renderManager;
     delete m_pointCloudManager;
     delete m_projectionManager;
@@ -70,6 +182,335 @@ MyVTK::~MyVTK()
 vtkCamera * MyVTK::getCamera() const
 {
     return m_renderManager->camera();
+}
+
+void MyVTK::measurementEventCallback(vtkObject*,
+                                     unsigned long eventId,
+                                     void* clientData,
+                                     void*)
+{
+    auto* self = static_cast<MyVTK*>(clientData);
+    if (!self || !self->measurementCallback)
+        return;
+    self->measurementCallback->SetAbortFlag(
+        self->handleMeasurementEvent(eventId) ? 1 : 0);
+}
+
+bool MyVTK::handleMeasurementEvent(unsigned long eventId)
+{
+    if (!measurementActive)
+        return false;
+
+    if (eventId == vtkCommand::KeyPressEvent)
+    {
+        const char* key = m_renderManager->renderWindowInteractor()->GetKeySym();
+        if (key && std::strcmp(key, "Escape") == 0)
+        {
+            cancelMeasurement();
+            return true;
+        }
+        return false;
+    }
+
+    if (eventId == vtkCommand::RightButtonPressEvent)
+    {
+        finishMeasurement();
+        return true;
+    }
+
+    if (eventId != vtkCommand::LeftButtonPressEvent
+        && eventId != vtkCommand::MouseMoveEvent)
+    {
+        return false;
+    }
+
+    QVector3D pickedPoint;
+    if (!pickMeasurementPoint(pickedPoint))
+    {
+        if (eventId == vtkCommand::LeftButtonPressEvent)
+        {
+            emit measurementStatus(
+                tr("未拾取到点云点，请点击可见点云；可放大后重试。"));
+        }
+        else if (measurementHasHoverPoint)
+        {
+            measurementHasHoverPoint = false;
+            updateMeasurementPreview();
+        }
+        return eventId == vtkCommand::LeftButtonPressEvent;
+    }
+
+    if (eventId == vtkCommand::MouseMoveEvent)
+    {
+        if (measurementHasHoverPoint
+            && (measurementHoverPoint - pickedPoint).lengthSquared() <= 1.0e-12f)
+        {
+            return false;
+        }
+        measurementHoverPoint = pickedPoint;
+        measurementHasHoverPoint = true;
+        updateMeasurementPreview();
+        // Keep camera pan/zoom interaction available while measurement mode is
+        // active. Left presses are still intercepted, so they cannot rotate.
+        return false;
+    }
+
+    if (measurementPoints.isEmpty()
+        || (measurementPoints.back() - pickedPoint).lengthSquared() > 1.0e-12f)
+    {
+        measurementPoints.append(pickedPoint);
+    }
+    measurementHasHoverPoint = false;
+    updateMeasurementPreview();
+    emit measurementStatus(
+        tr("点云测量：已拾取第 %1 点 (%2, %3, %4) m")
+            .arg(measurementPoints.size())
+            .arg(pickedPoint.x(), 0, 'f', 3)
+            .arg(pickedPoint.y(), 0, 'f', 3)
+            .arg(pickedPoint.z(), 0, 'f', 3));
+
+    if (measurementKind == famp::measurement::Kind::Angle
+        && measurementPoints.size() >= 3)
+    {
+        finishMeasurement();
+    }
+    return true;
+}
+
+bool MyVTK::pickMeasurementPoint(QVector3D& point)
+{
+    vtkRenderWindowInteractor* interactor =
+        m_renderManager->renderWindowInteractor();
+    if (!interactor || !measurementPicker || cloudActors.empty())
+        return false;
+
+    const int* position = interactor->GetEventPosition();
+    if (!position
+        || measurementPicker->Pick(position[0], position[1], 0.0,
+                                   m_renderManager->renderer()) == 0
+        || measurementPicker->GetPointId() < 0)
+    {
+        return false;
+    }
+
+    const double* picked = measurementPicker->GetPickPosition();
+    if (!picked || !std::isfinite(picked[0])
+        || !std::isfinite(picked[1]) || !std::isfinite(picked[2]))
+    {
+        return false;
+    }
+    point = QVector3D(static_cast<float>(picked[0]),
+                      static_cast<float>(picked[1]),
+                      static_cast<float>(picked[2]));
+    return true;
+}
+
+void MyVTK::beginMeasurement(famp::measurement::Kind kind, bool announce)
+{
+    resetMeasurementInteraction(false);
+    measurementActive = true;
+    measurementKind = kind;
+    measurementPoints.clear();
+    measurementHasHoverPoint = false;
+    setCursor(Qt::CrossCursor);
+
+    measurementPreviewMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    measurementPreviewMapper->ScalarVisibilityOff();
+    measurementPreviewActor = vtkSmartPointer<vtkActor>::New();
+    measurementPreviewActor->SetMapper(measurementPreviewMapper);
+    styleMeasurementActor(measurementPreviewActor, 1.0, 0.82, 0.0);
+    m_renderManager->renderer()->AddActor(measurementPreviewActor);
+
+    measurementPreviewLabel =
+        vtkSmartPointer<vtkBillboardTextActor3D>::New();
+    styleMeasurementLabel(measurementPreviewLabel, 1.0, 0.9, 0.2);
+    measurementPreviewLabel->SetVisibility(false);
+    m_renderManager->renderer()->AddActor(measurementPreviewLabel);
+    m_renderManager->render();
+
+    if (!announce)
+        return;
+    QString instructions;
+    if (kind == famp::measurement::Kind::Distance)
+        instructions = tr("点云距离测量：左键拾取节点，右键完成，Esc 取消。");
+    else if (kind == famp::measurement::Kind::Area)
+        instructions = tr("点云面积测量：左键拾取边界点，右键闭合，Esc 取消。");
+    else
+        instructions = tr("点云角度测量：依次拾取第一边点、顶点和第二边点。");
+    emit measurementStatus(instructions);
+}
+
+void MyVTK::startDistanceMeasurement(bool announce)
+{
+    beginMeasurement(famp::measurement::Kind::Distance, announce);
+}
+
+void MyVTK::startAreaMeasurement(bool announce)
+{
+    beginMeasurement(famp::measurement::Kind::Area, announce);
+}
+
+void MyVTK::startAngleMeasurement(bool announce)
+{
+    beginMeasurement(famp::measurement::Kind::Angle, announce);
+}
+
+void MyVTK::cancelMeasurement()
+{
+    if (!measurementActive)
+        return;
+    resetMeasurementInteraction(true);
+    emit measurementStatus(tr("已取消点云测量。"));
+}
+
+void MyVTK::deactivateMeasurement()
+{
+    resetMeasurementInteraction(false);
+}
+
+void MyVTK::resetMeasurementInteraction(bool notify)
+{
+    const bool wasActive = measurementActive;
+    measurementActive = false;
+    measurementPoints.clear();
+    measurementHasHoverPoint = false;
+    unsetCursor();
+
+    if (measurementPreviewActor)
+        m_renderManager->renderer()->RemoveActor(measurementPreviewActor);
+    if (measurementPreviewLabel)
+        m_renderManager->renderer()->RemoveActor(measurementPreviewLabel);
+    measurementPreviewActor = nullptr;
+    measurementPreviewMapper = nullptr;
+    measurementPreviewLabel = nullptr;
+
+    if (m_renderManager)
+        m_renderManager->render();
+    if (notify && wasActive)
+        emit measurementModeEnded();
+}
+
+void MyVTK::updateMeasurementPreview()
+{
+    if (!measurementActive || !measurementPreviewMapper)
+        return;
+
+    QVector<QVector3D> previewPoints = measurementPoints;
+    if (measurementHasHoverPoint
+        && (previewPoints.isEmpty()
+            || (previewPoints.back() - measurementHoverPoint).lengthSquared()
+                > 1.0e-12f))
+    {
+        previewPoints.append(measurementHoverPoint);
+    }
+    measurementPreviewMapper->SetInputData(
+        measurementPolyData(previewPoints, measurementKind));
+
+    if (previewPoints.size()
+            >= famp::measurement::minimumPointCount(measurementKind)
+        && famp::measurement::finitePoints(previewPoints))
+    {
+        const QByteArray label = famp::measurement::formatSummary(
+            measurementKind, previewPoints).toUtf8();
+        measurementPreviewLabel->SetInput(label.constData());
+        const QVector3D& position = previewPoints.back();
+        measurementPreviewLabel->SetPosition(
+            position.x(), position.y(), position.z());
+        measurementPreviewLabel->SetVisibility(true);
+    }
+    else
+    {
+        measurementPreviewLabel->SetVisibility(false);
+    }
+    m_renderManager->render();
+}
+
+void MyVTK::finishMeasurement()
+{
+    if (!measurementActive)
+        return;
+    if (measurementPoints.size()
+        < famp::measurement::minimumPointCount(measurementKind))
+    {
+        emit measurementStatus(
+            tr("点云测量点不足：距离至少 2 点，面积和角度至少 3 点。"));
+        return;
+    }
+
+    const double result = famp::measurement::value(
+        measurementKind, measurementPoints);
+    if (!std::isfinite(result) || result <= 1.0e-9)
+    {
+        emit measurementStatus(tr("点云测量结果为零或无效，请重新拾取。"));
+        return;
+    }
+
+    const QString resultText = famp::measurement::formatSummary(
+        measurementKind, measurementPoints);
+    addMeasurementVisual(measurementPoints, resultText);
+    resetMeasurementInteraction(true);
+    emit measurementStatus(tr("点云测量完成：%1").arg(resultText));
+}
+
+void MyVTK::addMeasurementVisual(const QVector<QVector3D>& points,
+                                 const QString& labelText)
+{
+    MeasurementVisual visual;
+    auto mapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    mapper->SetInputData(measurementPolyData(points, measurementKind));
+    mapper->ScalarVisibilityOff();
+    visual.geometry = vtkSmartPointer<vtkActor>::New();
+    visual.geometry->SetMapper(mapper);
+    styleMeasurementActor(visual.geometry, 0.0, 0.8, 1.0);
+
+    visual.label = vtkSmartPointer<vtkBillboardTextActor3D>::New();
+    const QByteArray encodedLabel = labelText.toUtf8();
+    visual.label->SetInput(encodedLabel.constData());
+    const QVector3D& position = points.back();
+    visual.label->SetPosition(position.x(), position.y(), position.z());
+    styleMeasurementLabel(visual.label, 0.2, 0.9, 1.0);
+
+    m_renderManager->renderer()->AddActor(visual.geometry);
+    m_renderManager->renderer()->AddActor(visual.label);
+    measurementVisuals.push_back(std::move(visual));
+}
+
+int MyVTK::measurementCount() const
+{
+    return static_cast<int>(measurementVisuals.size());
+}
+
+void MyVTK::clearMeasurements(bool announce)
+{
+    if (measurementActive)
+        resetMeasurementInteraction(true);
+
+    const int count = measurementCount();
+    for (const MeasurementVisual& visual : measurementVisuals)
+    {
+        m_renderManager->renderer()->RemoveActor(visual.geometry);
+        m_renderManager->renderer()->RemoveActor(visual.label);
+    }
+    measurementVisuals.clear();
+    if (m_renderManager)
+        m_renderManager->render();
+
+    if (!announce)
+        return;
+    if (count == 0)
+        emit measurementStatus(tr("当前点云视图没有测量结果。"));
+    else
+        emit measurementStatus(tr("已清除 %1 个点云测量结果。").arg(count));
+}
+
+void MyVTK::rebuildMeasurementPickList()
+{
+    measurementPicker->InitializePickList();
+    for (vtkActor* actor : cloudActors)
+    {
+        if (actor)
+            measurementPicker->AddPickList(actor);
+    }
 }
 
 float MyVTK::getAABBCoordinateMax(pcl::PointCloud<pcl::PointXYZRGB>::Ptr inCloud)
@@ -482,6 +923,16 @@ vtkActor * MyVTK::appendCloudActor()
     vtkPolyData * polyData = nullptr;
     vtkActor * cloudActor = m_pointCloudManager->appendCloudActor(
         m_renderManager->renderer(), orignalCloud, &polyData);
+    if (cloudActor
+        && std::find(cloudActors.cbegin(), cloudActors.cend(), cloudActor)
+            == cloudActors.cend())
+    {
+        // Only actual point-cloud actors belong in the picker list.  AABB and
+        // projection actors also pass through display(), but picking those
+        // would produce measurements unrelated to the loaded cloud points.
+        cloudActors.push_back(cloudActor);
+        rebuildMeasurementPickList();
+    }
     if (polyData)
     {
         emit sendAABBPolydata(polyData);
@@ -504,6 +955,13 @@ void MyVTK::display(vtkActor * actor)
 
 void MyVTK::removeCloudDisplay(vtkActor * actor)
 {
+    const bool removedPointCloud = std::find(
+        cloudActors.cbegin(), cloudActors.cend(), actor) != cloudActors.cend();
+    cloudActors.erase(std::remove(cloudActors.begin(), cloudActors.end(), actor),
+                      cloudActors.end());
+    rebuildMeasurementPickList();
+    if (removedPointCloud)
+        clearMeasurements(false);
     m_renderManager->removeCloudDisplay(actor);
     this->update();
 }

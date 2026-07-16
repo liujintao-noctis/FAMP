@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <limits>
 #include <utility>
 
 namespace famp::measurement
@@ -156,6 +157,127 @@ QString formatValue(Kind kind, double value)
 }
 
 QString formatSummary(Kind kind, const QVector<QPointF>& meterPoints)
+{
+    const QString primary = formatValue(kind, value(kind, meterPoints));
+    if (kind != Kind::Area || primary == QStringLiteral("无效测量"))
+        return primary;
+
+    return QStringLiteral("面积 %1 · 周长 %2")
+        .arg(primary,
+             formatValue(Kind::Distance, polygonPerimeter(meterPoints)));
+}
+
+bool finitePoints(const QVector<QVector3D>& meterPoints) noexcept
+{
+    return std::all_of(meterPoints.cbegin(), meterPoints.cend(),
+                       [](const QVector3D& point) {
+                           return std::isfinite(point.x())
+                               && std::isfinite(point.y())
+                               && std::isfinite(point.z());
+                       });
+}
+
+double polylineLength(const QVector<QVector3D>& meterPoints) noexcept
+{
+    if (!finitePoints(meterPoints))
+        return std::numeric_limits<double>::quiet_NaN();
+
+    double length = 0.0;
+    for (int index = 1; index < meterPoints.size(); ++index)
+    {
+        const QVector3D& current = meterPoints.at(index);
+        const QVector3D& previous = meterPoints.at(index - 1);
+        length += std::hypot(
+            std::hypot(static_cast<double>(current.x()) - previous.x(),
+                       static_cast<double>(current.y()) - previous.y()),
+            static_cast<double>(current.z()) - previous.z());
+    }
+    return length;
+}
+
+double polygonArea(const QVector<QVector3D>& meterPoints) noexcept
+{
+    if (meterPoints.size() < 3)
+        return 0.0;
+    if (!finitePoints(meterPoints))
+        return std::numeric_limits<double>::quiet_NaN();
+
+    // Newell's method gives the area of a planar polygon in arbitrary 3D
+    // orientation without projecting it onto a particular coordinate plane.
+    double normalX = 0.0;
+    double normalY = 0.0;
+    double normalZ = 0.0;
+    for (int index = 0; index < meterPoints.size(); ++index)
+    {
+        const QVector3D& current = meterPoints.at(index);
+        const QVector3D& next = meterPoints.at(
+            (index + 1) % meterPoints.size());
+        normalX += (static_cast<double>(current.y()) - next.y())
+            * (static_cast<double>(current.z()) + next.z());
+        normalY += (static_cast<double>(current.z()) - next.z())
+            * (static_cast<double>(current.x()) + next.x());
+        normalZ += (static_cast<double>(current.x()) - next.x())
+            * (static_cast<double>(current.y()) + next.y());
+    }
+    return 0.5 * std::hypot(std::hypot(normalX, normalY), normalZ);
+}
+
+double polygonPerimeter(const QVector<QVector3D>& meterPoints) noexcept
+{
+    if (meterPoints.size() < 2)
+        return 0.0;
+    const double openLength = polylineLength(meterPoints);
+    if (!std::isfinite(openLength))
+        return openLength;
+
+    const QVector3D& first = meterPoints.front();
+    const QVector3D& last = meterPoints.back();
+    return openLength
+        + std::hypot(
+            std::hypot(static_cast<double>(first.x()) - last.x(),
+                       static_cast<double>(first.y()) - last.y()),
+            static_cast<double>(first.z()) - last.z());
+}
+
+double angleDegrees(const QVector<QVector3D>& meterPoints) noexcept
+{
+    if (meterPoints.size() != 3)
+        return 0.0;
+    if (!finitePoints(meterPoints))
+        return std::numeric_limits<double>::quiet_NaN();
+
+    const QVector3D first = meterPoints.at(0) - meterPoints.at(1);
+    const QVector3D second = meterPoints.at(2) - meterPoints.at(1);
+    const double firstLength = std::hypot(
+        std::hypot(static_cast<double>(first.x()), first.y()), first.z());
+    const double secondLength = std::hypot(
+        std::hypot(static_cast<double>(second.x()), second.y()), second.z());
+    if (firstLength <= 1.0e-12 || secondLength <= 1.0e-12)
+        return 0.0;
+
+    const double dot = static_cast<double>(first.x()) * second.x()
+        + static_cast<double>(first.y()) * second.y()
+        + static_cast<double>(first.z()) * second.z();
+    const double cosine = std::clamp(
+        dot / (firstLength * secondLength), -1.0, 1.0);
+    return std::acos(cosine) * 180.0 / std::acos(-1.0);
+}
+
+double value(Kind kind, const QVector<QVector3D>& meterPoints) noexcept
+{
+    switch (kind)
+    {
+    case Kind::Distance:
+        return polylineLength(meterPoints);
+    case Kind::Area:
+        return polygonArea(meterPoints);
+    case Kind::Angle:
+        return angleDegrees(meterPoints);
+    }
+    return 0.0;
+}
+
+QString formatSummary(Kind kind, const QVector<QVector3D>& meterPoints)
 {
     const QString primary = formatValue(kind, value(kind, meterPoints));
     if (kind != Kind::Area || primary == QStringLiteral("无效测量"))

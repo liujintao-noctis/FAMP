@@ -328,28 +328,69 @@ void MainWindow::initializeCrsActions()
         QStringLiteral("actClearMeasurements"));
 
     connect(distanceMeasureAction, &QAction::triggered,
-            ui.graphicsView, [this](bool checked) {
-                if (checked)
-                    ui.graphicsView->startDistanceMeasurement();
+            this, [this](bool checked) {
+                if (!checked)
+                    return;
+                ui.graphicsView->startDistanceMeasurement(false);
+                myVTK->startDistanceMeasurement(false);
+                const QString message = tr(
+                    "距离测量已启用：可在中央点云或右侧制图画布左键选点，右键完成，Esc 取消。");
+                statusBar()->showMessage(message, 10000);
+                emit sendStr2Console(message);
             });
     connect(areaMeasureAction, &QAction::triggered,
-            ui.graphicsView, [this](bool checked) {
-                if (checked)
-                    ui.graphicsView->startAreaMeasurement();
+            this, [this](bool checked) {
+                if (!checked)
+                    return;
+                ui.graphicsView->startAreaMeasurement(false);
+                myVTK->startAreaMeasurement(false);
+                const QString message = tr(
+                    "面积测量已启用：可在中央点云或右侧制图画布左键选取边界，右键闭合，Esc 取消。");
+                statusBar()->showMessage(message, 10000);
+                emit sendStr2Console(message);
             });
     connect(angleMeasureAction, &QAction::triggered,
-            ui.graphicsView, [this](bool checked) {
-                if (checked)
-                    ui.graphicsView->startAngleMeasurement();
+            this, [this](bool checked) {
+                if (!checked)
+                    return;
+                ui.graphicsView->startAngleMeasurement(false);
+                myVTK->startAngleMeasurement(false);
+                const QString message = tr(
+                    "角度测量已启用：依次选取第一边点、顶点和第二边点，可在点云或制图画布操作。");
+                statusBar()->showMessage(message, 10000);
+                emit sendStr2Console(message);
             });
     connect(clearMeasurementsAction, &QAction::triggered,
-            ui.graphicsView, &MyGraphicsView::clearMeasurements);
+            this, [this]() {
+                const int count = ui.graphicsView->measurementCount()
+                    + myVTK->measurementCount();
+                ui.graphicsView->clearMeasurements(false);
+                myVTK->clearMeasurements(false);
+                const QString message = count > 0
+                    ? tr("已清除 %1 个测量结果。二维结果可通过撤销恢复。")
+                          .arg(count)
+                    : tr("当前点云和制图画布没有测量结果。");
+                statusBar()->showMessage(message, 8000);
+                emit sendStr2Console(message);
+            });
     connect(ui.graphicsView, &MyGraphicsView::measurementModeEnded,
             this, [this]() {
+                myVTK->deactivateMeasurement();
+                if (QAction* checked = measurementActionGroup->checkedAction())
+                    checked->setChecked(false);
+            });
+    connect(myVTK, &MyVTK::measurementModeEnded,
+            this, [this]() {
+                ui.graphicsView->deactivateMeasurement();
                 if (QAction* checked = measurementActionGroup->checkedAction())
                     checked->setChecked(false);
             });
     connect(ui.graphicsView, &MyGraphicsView::measurementStatus,
+            this, [this](const QString& message) {
+                statusBar()->showMessage(message, 8000);
+                emit sendStr2Console(message);
+            });
+    connect(myVTK, &MyVTK::measurementStatus,
             this, [this](const QString& message) {
                 statusBar()->showMessage(message, 8000);
                 emit sendStr2Console(message);

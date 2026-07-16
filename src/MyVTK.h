@@ -10,11 +10,13 @@
 
 #include "QstringAndStringConvert.h"
 #include "QDlgClip.h"
+#include "Measurement.h"
 
 #include <QObject>
 #include <QtWidgets/QMainWindow>
 #include <QDebug>
 #include <QMessageBox>
+#include <QVector>
 #include <QVector3D>
 #include <QFileDialog>
 
@@ -36,6 +38,12 @@
 #include <vtkRenderWindow.h>
 #include <vtkRenderWindowInteractor.h>
 #include <vtkProperty.h>
+#include <vtkBillboardTextActor3D.h>
+#include <vtkCallbackCommand.h>
+#include <vtkPointPicker.h>
+#include <vtkPolyDataMapper.h>
+
+#include <vector>
 
 #if VTK_MAJOR_VERSION >= 9
 #include <QVTKOpenGLNativeWidget.h>
@@ -61,6 +69,12 @@ public:
     ~MyVTK();
 
 private:
+    struct MeasurementVisual
+    {
+        vtkSmartPointer<vtkActor> geometry;
+        vtkSmartPointer<vtkBillboardTextActor3D> label;
+    };
+
     // 管理器实例
     VTKRenderManager *m_renderManager;
     VTKPointCloudManager *m_pointCloudManager;
@@ -79,6 +93,35 @@ private:
     QDlgClip * vtkDlgClip;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr currentItemCloud;        //获得DB Tree下的点云
+
+    bool measurementActive = false;
+    famp::measurement::Kind measurementKind =
+        famp::measurement::Kind::Distance;
+    QVector<QVector3D> measurementPoints;
+    QVector3D measurementHoverPoint;
+    bool measurementHasHoverPoint = false;
+    vtkSmartPointer<vtkPointPicker> measurementPicker;
+    vtkSmartPointer<vtkCallbackCommand> measurementCallback;
+    std::vector<unsigned long> measurementObserverTags;
+    std::vector<vtkActor*> cloudActors;
+    vtkSmartPointer<vtkPolyDataMapper> measurementPreviewMapper;
+    vtkSmartPointer<vtkActor> measurementPreviewActor;
+    vtkSmartPointer<vtkBillboardTextActor3D> measurementPreviewLabel;
+    std::vector<MeasurementVisual> measurementVisuals;
+
+    static void measurementEventCallback(vtkObject* caller,
+                                         unsigned long eventId,
+                                         void* clientData,
+                                         void* callData);
+    bool handleMeasurementEvent(unsigned long eventId);
+    bool pickMeasurementPoint(QVector3D& point);
+    void beginMeasurement(famp::measurement::Kind kind, bool announce);
+    void updateMeasurementPreview();
+    void finishMeasurement();
+    void resetMeasurementInteraction(bool notify);
+    void rebuildMeasurementPickList();
+    void addMeasurementVisual(const QVector<QVector3D>& points,
+                              const QString& label);
 
 public:
     void setFrontView();    //正视图
@@ -132,6 +175,13 @@ public slots:
     void slotActProjXOY_triggered();    //投影到XOY面按钮
     void slotActOverLookProj_triggered();       //俯视投影按钮
     void setDlgClipVisible(bool enable);        //设置弹出的对话框是否隐藏
+    void startDistanceMeasurement(bool announce = true);
+    void startAreaMeasurement(bool announce = true);
+    void startAngleMeasurement(bool announce = true);
+    void cancelMeasurement();
+    void deactivateMeasurement();
+    int measurementCount() const;
+    void clearMeasurements(bool announce = true);
 
 signals:
     void sendAABBPolydata(vtkPolyData * polyData);              //发送AABBPolydata
@@ -146,4 +196,6 @@ signals:
     void sendIsOverLookProj(bool isproj);       //发送判断是否进行俯视投影
     void sendProjCloud2GraphicsView(pcl::PointCloud<pcl::PointXYZRGB>::Ptr incloud);    //将投影后的点云发送到GraphicsView
     void sendAABBBoxXYZMAX(float x, float y, float z);      //将AABB的边界框发送到GraphicsView
+    void measurementModeEnded();
+    void measurementStatus(const QString& message);
 };
