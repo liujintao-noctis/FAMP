@@ -140,6 +140,8 @@ else()
 endif()
 
 add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
+    ArchaeologyMetadata.cpp
+    ArchaeologyMetadataDialog.cpp
     ArchaeologyReport.cpp
     AdditionalCloudLoader.cpp
     Cloud.cpp
@@ -181,6 +183,8 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     VTKProjectionManager.cpp
     main.cpp
     Cloud.h
+    ArchaeologyMetadata.h
+    ArchaeologyMetadataDialog.h
     ArchaeologyReport.h
     AdditionalCloudLoader.h
     CloudAttributes.h

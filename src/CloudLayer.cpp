@@ -1,7 +1,8 @@
 #include "CloudLayer.h"
 
+#include "ArchaeologyMetadata.h"
+
 #include <QFileInfo>
-#include <QSet>
 #include <QUuid>
 
 #include <cmath>
@@ -9,9 +10,6 @@
 namespace
 {
 constexpr int MaxLayerNameLength = 512;
-constexpr int MaxArchaeologyFields = 128;
-constexpr int MaxArchaeologyKeyLength = 128;
-constexpr int MaxArchaeologyValueLength = 16 * 1024;
 
 void setError(QString* errorMessage, const QString& message)
 {
@@ -123,25 +121,9 @@ bool validateLayer(const CloudLayer& layer,
     }
     if (!famp::display::validateSettings(layer.display, errorMessage))
         return false;
-    if (layer.archaeologyFields.size() > MaxArchaeologyFields)
-    {
-        setError(errorMessage, QStringLiteral("考古字段数量超过 128 个安全上限。"));
+    if (!famp::archaeology::validateFields(
+            layer.archaeologyFields, errorMessage))
         return false;
-    }
-    QSet<QString> archaeologyKeys;
-    for (auto iterator = layer.archaeologyFields.cbegin();
-         iterator != layer.archaeologyFields.cend(); ++iterator)
-    {
-        const QString key = iterator.key().trimmed().toCaseFolded();
-        if (key.isEmpty() || archaeologyKeys.contains(key)
-            || iterator.key().size() > MaxArchaeologyKeyLength
-            || iterator.value().size() > MaxArchaeologyValueLength)
-        {
-            setError(errorMessage, QStringLiteral("点云图层的考古字段无效。"));
-            return false;
-        }
-        archaeologyKeys.insert(key);
-    }
     if (errorMessage)
         errorMessage->clear();
     return true;

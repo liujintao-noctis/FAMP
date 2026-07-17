@@ -7,6 +7,7 @@
  *****************************************************************/
 
 #include "MainWindow.h"
+#include "ArchaeologyMetadataDialog.h"
 #include "ArchaeologyReport.h"
 #include "FAMPController.h"
 #include "CrsService.h"
@@ -93,6 +94,7 @@ MainWindow::MainWindow(QWidget *parent)
     , coordinateConverterAction(nullptr)
     , cloudCoordinateAction(nullptr)
     , reprojectCloudAction(nullptr)
+    , archaeologyMetadataAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -280,6 +282,10 @@ void MainWindow::initializeCrsActions()
     reprojectCloudAction = toolsMenu->addAction(tr("重投影所选点云…"));
     reprojectCloudAction->setObjectName(QStringLiteral("actReprojectCloud"));
     reprojectCloudAction->setEnabled(false);
+    archaeologyMetadataAction = toolsMenu->addAction(tr("考古图层属性…"));
+    archaeologyMetadataAction->setObjectName(
+        QStringLiteral("actArchaeologyMetadata"));
+    archaeologyMetadataAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
@@ -288,6 +294,8 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotOpenCloudCoordinateViewer);
     connect(reprojectCloudAction, &QAction::triggered,
             this, &MainWindow::slotReprojectCloud);
+    connect(archaeologyMetadataAction, &QAction::triggered,
+            this, &MainWindow::slotEditArchaeologyMetadata);
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -532,10 +540,13 @@ void MainWindow::slotExportArchaeologyReport()
         const MyCloudList cloud = cloudItem->data(Qt::UserRole + 2)
                                       .value<MyCloudList>();
         famp::report::CloudEntry entry;
+        entry.name = cloud.layer.name;
         entry.path = cloudItem->data(Qt::UserRole).toString();
+        entry.crs = cloud.layer.crs;
         entry.pointCount = cloud.layer.points ? cloud.layer.points->size() : 0;
         entry.visible = cloudItem->checkState() == Qt::Checked;
         entry.spatial = cloud.layer.spatial;
+        entry.archaeologyFields = cloud.layer.archaeologyFields;
         report.clouds.append(entry);
     }
 
@@ -884,6 +895,8 @@ void MainWindow::clearWorkspace()
         cloudCoordinateAction->setEnabled(false);
     if (reprojectCloudAction)
         reprojectCloudAction->setEnabled(false);
+    if (archaeologyMetadataAction)
+        archaeologyMetadataAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -1530,6 +1543,31 @@ bool MainWindow::applyCloudLayerState(
     return true;
 }
 
+bool MainWindow::applyCloudMetadataState(
+    const QString& layerId,
+    const famp::cloud::CloudLayer& state)
+{
+    QString validationError;
+    if (state.id != layerId
+        || !famp::cloud::validateLayer(state, true, &validationError))
+    {
+        return false;
+    }
+    auto found = std::find_if(
+        pointCloudList.begin(), pointCloudList.end(),
+        [&layerId](const MyCloudList& cloud) {
+            return cloud.layer.id == layerId;
+        });
+    if (found == pointCloudList.end())
+        return false;
+
+    found->layer = state;
+    updateCloudData(*found);
+    updateCloudToolActions();
+    markProjectDirty();
+    return true;
+}
+
 void MainWindow::updateCloudData(const MyCloudList& cloud)
 {
     for (MyCloudList& stored : pointCloudList)
@@ -1581,6 +1619,67 @@ void MainWindow::updateCloudToolActions()
     if (reprojectCloudAction)
         reprojectCloudAction->setEnabled(
             available && !cloud.layer.locked && !cloudLoadBusy);
+    if (archaeologyMetadataAction)
+        archaeologyMetadataAction->setEnabled(
+            available && !cloud.layer.locked && !cloudLoadBusy);
+}
+
+void MainWindow::slotEditArchaeologyMetadata()
+{
+    MyCloudList cloud;
+    QString path;
+    if (!selectedCloudData(cloud, &path))
+    {
+        QMessageBox::information(
+            this, tr("考古图层属性"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (cloud.layer.locked)
+    {
+        QMessageBox::information(
+            this, tr("考古图层属性"), tr("所选图层已锁定，无法修改。"));
+        return;
+    }
+
+    QMap<QString, QString> updatedFields;
+    if (!famp::archaeology::editFields(
+            this, cloud.layer.name, path,
+            cloud.layer.archaeologyFields, updatedFields)
+        || updatedFields == cloud.layer.archaeologyFields)
+    {
+        return;
+    }
+
+    const famp::cloud::CloudLayer before = cloud.layer;
+    famp::cloud::CloudLayer after = before;
+    after.archaeologyFields = updatedFields;
+    ++after.revision;
+    const QString layerId = before.id;
+    ui.graphicsView->commandStack()->push(
+        famp::graphics::makeCallbackCommand(
+            [this, layerId, before]() {
+                if (!applyCloudMetadataState(layerId, before))
+                {
+                    emit sendStr2Console(
+                        tr("恢复考古图层属性失败：%1").arg(before.name));
+                }
+            },
+            [this, layerId, after]() {
+                if (!applyCloudMetadataState(layerId, after))
+                {
+                    emit sendStr2Console(
+                        tr("更新考古图层属性失败：%1").arg(after.name));
+                }
+            },
+            tr("更新考古图层属性：%1").arg(before.name)));
+    statusBar()->showMessage(
+        tr("已保存 %1 个考古字段，可撤销。")
+            .arg(updatedFields.size()),
+        5000);
+    emit sendStr2Console(
+        tr("已更新考古图层属性：%1（%2 个字段）")
+            .arg(before.name)
+            .arg(updatedFields.size()));
 }
 
 void MainWindow::slotOpenCloudCoordinateViewer()
@@ -3260,6 +3359,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         registerCloudAction->setEnabled(false);
     if (busy && reprojectCloudAction)
         reprojectCloudAction->setEnabled(false);
+    if (busy && archaeologyMetadataAction)
+        archaeologyMetadataAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

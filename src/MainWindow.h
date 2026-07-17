@@ -98,6 +98,7 @@ private:
     QAction * coordinateConverterAction;
     QAction * cloudCoordinateAction;
     QAction * reprojectCloudAction;
+    QAction * archaeologyMetadataAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -155,6 +156,9 @@ private:
     void setCloudLoadUiBusy(bool busy);
     bool selectedCloudData(MyCloudList& cloud, QString* path = nullptr) const;
     bool applyCloudLayerState(
+        const QString& layerId,
+        const famp::cloud::CloudLayer& state);
+    bool applyCloudMetadataState(
         const QString& layerId,
         const famp::cloud::CloudLayer& state);
     void updateCloudData(const MyCloudList& cloud);
@@ -227,6 +231,7 @@ private slots:
     void slotOpenCoordinateConverter();
     void slotOpenCloudCoordinateViewer();
     void slotReprojectCloud();
+    void slotEditArchaeologyMetadata();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();
