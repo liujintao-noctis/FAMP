@@ -23,6 +23,9 @@
 #include "LasLoader.h"
 #include "PcdLoader.h"
 #include "ProcessingRecipe.h"
+#include "ProfileAnalysis.h"
+#include "ProfileDialog.h"
+#include "ProfileIO.h"
 #include "RecentFiles.h"
 #include "TerrainAnalysis.h"
 #include "TerrainDialog.h"
@@ -172,6 +175,22 @@ struct TerrainTaskOutput
             && error.isEmpty() && !cancelled;
     }
 };
+
+struct ProfileTaskOutput
+{
+    famp::profile::Result analysis;
+    QStringList savedPaths;
+    QStringList warnings;
+    QString error;
+    bool sidecarSaved = false;
+    bool cancelled = false;
+
+    bool succeeded() const
+    {
+        return analysis.succeeded() && sidecarSaved
+            && error.isEmpty() && !cancelled;
+    }
+};
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -192,6 +211,7 @@ MainWindow::MainWindow(QWidget *parent)
     , archaeologyMetadataAction(nullptr)
     , controlPointsAction(nullptr)
     , terrainAnalysisAction(nullptr)
+    , cloudProfileAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -390,6 +410,9 @@ void MainWindow::initializeCrsActions()
     terrainAnalysisAction->setObjectName(
         QStringLiteral("actTerrainAnalysis"));
     terrainAnalysisAction->setEnabled(false);
+    cloudProfileAction = toolsMenu->addAction(tr("点云高程剖面…"));
+    cloudProfileAction->setObjectName(QStringLiteral("actCloudProfile"));
+    cloudProfileAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
@@ -404,6 +427,69 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotEditControlPoints);
     connect(terrainAnalysisAction, &QAction::triggered,
             this, &MainWindow::slotGenerateTerrain);
+    connect(cloudProfileAction, &QAction::triggered,
+            this, &MainWindow::slotStartCloudProfile);
+    connect(myVTK, &MyVTK::profileLineSelectionCancelled,
+            this, [this]() {
+                pendingProfileLayerId.clear();
+                pendingProfilePointCloud = nullptr;
+            });
+    connect(myVTK, &MyVTK::profileLineSelected,
+            this,
+            [this](const QString& layerId,
+                   const QVector3D& localStart,
+                   const QVector3D& localEnd) {
+                if (layerId != pendingProfileLayerId)
+                {
+                    pendingProfileLayerId.clear();
+                    pendingProfilePointCloud = nullptr;
+                    emit sendStr2Console(
+                        tr("剖面线关联图层已变化，本次生成已取消。"));
+                    return;
+                }
+                const auto current = std::find_if(
+                    pointCloudList.cbegin(), pointCloudList.cend(),
+                    [&layerId](const MyCloudList& cloud) {
+                        return cloud.layer.id.compare(
+                            layerId, Qt::CaseInsensitive) == 0;
+                    });
+                QString effectiveCrs;
+                if (current != pointCloudList.cend())
+                {
+                    effectiveCrs = current->layer.crs.trimmed();
+                    if (effectiveCrs.isEmpty())
+                        effectiveCrs = projectCrs.trimmed();
+                    if (!effectiveCrs.isEmpty())
+                        effectiveCrs = famp::crs::normalizedEpsg(effectiveCrs);
+                }
+                if (current == pointCloudList.cend()
+                    || current->layer.points.get() != pendingProfilePointCloud
+                    || current->layer.spatial.origin
+                        != pendingProfileSpatial.origin
+                    || current->layer.spatial.transform
+                        != pendingProfileSpatial.transform
+                    || effectiveCrs.compare(
+                        pendingProfileSourceCrs, Qt::CaseInsensitive) != 0)
+                {
+                    pendingProfileLayerId.clear();
+                    pendingProfilePointCloud = nullptr;
+                    const QString message = tr(
+                        "拾取期间点云数据或空间参考发生变化，请重新选择剖面线。");
+                    statusBar()->showMessage(message, 8000);
+                    emit sendStr2Console(message);
+                    return;
+                }
+                const QString sourceCrs = pendingProfileSourceCrs;
+                const QString crsDescription = pendingProfileCrsDescription;
+                const QString unitName = pendingProfileHorizontalUnitName;
+                const double unitToMetre =
+                    pendingProfileHorizontalUnitToMetre;
+                pendingProfileLayerId.clear();
+                pendingProfilePointCloud = nullptr;
+                generateCloudProfile(
+                    layerId, localStart, localEnd, sourceCrs,
+                    crsDescription, unitName, unitToMetre);
+            });
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -1734,6 +1820,8 @@ void MainWindow::updateCloudToolActions()
     if (terrainAnalysisAction)
         terrainAnalysisAction->setEnabled(
             available && !cloud.layer.locked && !cloudLoadBusy);
+    if (cloudProfileAction)
+        cloudProfileAction->setEnabled(available && !cloudLoadBusy);
 }
 
 void MainWindow::slotEditArchaeologyMetadata()
@@ -1903,6 +1991,404 @@ void MainWindow::slotEditControlPoints()
             .arg(result.solution.quality.enabledPointCount)
             .arg(result.solution.quality.rootMeanSquare, 0, 'g', 8)
             .arg(result.solution.quality.maximum, 0, 'g', 8));
+}
+
+void MainWindow::slotStartCloudProfile()
+{
+    MyCloudList cloud;
+    if (!selectedCloudData(cloud))
+    {
+        QMessageBox::information(
+            this, tr("点云高程剖面"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (!cloud.layer.visible)
+    {
+        QMessageBox::information(
+            this, tr("点云高程剖面"),
+            tr("所选点云当前已隐藏，请先显示图层后再拾取剖面线。"));
+        return;
+    }
+
+    QString sourceCrs = cloud.layer.crs.trimmed();
+    if (sourceCrs.isEmpty())
+        sourceCrs = projectCrs.trimmed();
+    double horizontalUnitToMetre = 1.0;
+    QString horizontalUnitName = tr("米（用户确认的本地平面坐标）");
+    QString crsDescription = tr("未声明 CRS；将按本地米制平面坐标处理");
+    if (!sourceCrs.isEmpty())
+    {
+        famp::crs::Info info;
+        QString crsError;
+        if (!famp::crs::inspect(sourceCrs, info, &crsError))
+        {
+            QMessageBox::warning(this, tr("点云高程剖面"), crsError);
+            return;
+        }
+        if (info.geographic)
+        {
+            QMessageBox::warning(
+                this, tr("点云高程剖面"),
+                tr("所选点云使用地理经纬度坐标系 %1。剖面走廊和沿线距离不能直接以角度计算；"
+                   "请先使用“工具 → 重投影所选点云…”转换到合适的投影坐标系。")
+                    .arg(info.identifier));
+            return;
+        }
+        if (!info.projected)
+        {
+            QMessageBox::warning(
+                this, tr("点云高程剖面"),
+                tr("坐标系 %1 不是受支持的二维投影坐标系。请先重投影点云。")
+                    .arg(info.identifier));
+            return;
+        }
+        sourceCrs = info.identifier;
+        horizontalUnitToMetre = info.horizontalUnitToMetre;
+        horizontalUnitName = QStringLiteral("%1（1 单位 = %2 米）")
+                                 .arg(info.horizontalUnitName)
+                                 .arg(info.horizontalUnitToMetre, 0, 'g', 12);
+        crsDescription = QStringLiteral("%1 — %2")
+                             .arg(info.identifier, info.name);
+    }
+    else
+    {
+        const auto confirmation = QMessageBox::question(
+            this, tr("确认本地坐标单位"),
+            tr("所选点云和项目都未声明 CRS。是否确认其真实 X/Y/Z 坐标是以米为单位的平面坐标？\n\n"
+               "如果坐标实际是经纬度或其他单位，请先取消并设置/重投影坐标系。"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (confirmation != QMessageBox::Yes)
+            return;
+    }
+
+    ui.graphicsView->deactivateMeasurement();
+    myVTK->deactivateMeasurement();
+    if (QAction* checked = measurementActionGroup->checkedAction())
+        checked->setChecked(false);
+    pendingProfileLayerId = cloud.layer.id;
+    pendingProfileSourceCrs = sourceCrs;
+    pendingProfileCrsDescription = crsDescription;
+    pendingProfileHorizontalUnitName = horizontalUnitName;
+    pendingProfileHorizontalUnitToMetre = horizontalUnitToMetre;
+    pendingProfilePointCloud = cloud.layer.points.get();
+    pendingProfileSpatial = cloud.layer.spatial;
+    if (!myVTK->startProfileLineSelection(cloud.layer.id))
+    {
+        pendingProfileLayerId.clear();
+        pendingProfilePointCloud = nullptr;
+    }
+}
+
+void MainWindow::generateCloudProfile(
+    const QString& layerId,
+    const QVector3D& localStartVector,
+    const QVector3D& localEndVector,
+    const QString& sourceCrs,
+    const QString& crsDescription,
+    const QString& horizontalUnitName,
+    double horizontalUnitToMetre)
+{
+    const auto found = std::find_if(
+        pointCloudList.cbegin(), pointCloudList.cend(),
+        [&layerId](const MyCloudList& cloud) {
+            return cloud.layer.id.compare(
+                layerId, Qt::CaseInsensitive) == 0;
+        });
+    if (found == pointCloudList.cend() || !found->layer.points
+        || found->layer.points->size() < 2)
+    {
+        QMessageBox::warning(
+            this, tr("点云高程剖面"),
+            tr("剖面线关联的点云图层已移除或数据不足。"));
+        return;
+    }
+    const MyCloudList cloud = *found;
+    const famp::cloud::Point3d localStart{
+        static_cast<double>(localStartVector.x()),
+        static_cast<double>(localStartVector.y()),
+        static_cast<double>(localStartVector.z())};
+    const famp::cloud::Point3d localEnd{
+        static_cast<double>(localEndVector.x()),
+        static_cast<double>(localEndVector.y()),
+        static_cast<double>(localEndVector.z())};
+    famp::profile::Baseline baseline;
+    QString coordinateError;
+    if (!famp::cloud::localToReal(
+            cloud.layer.spatial, localStart, baseline.start, &coordinateError)
+        || !famp::cloud::localToReal(
+            cloud.layer.spatial, localEnd, baseline.end, &coordinateError))
+    {
+        QMessageBox::warning(this, tr("点云高程剖面"), coordinateError);
+        return;
+    }
+    const double baselineLength = std::hypot(
+        baseline.end[0] - baseline.start[0],
+        baseline.end[1] - baseline.start[1]);
+    if (!std::isfinite(baselineLength) || baselineLength <= 1.0e-12)
+    {
+        QMessageBox::warning(
+            this, tr("点云高程剖面"),
+            tr("剖面线水平长度为零，请重新拾取两个端点。"));
+        return;
+    }
+
+    const QFileInfo sourceInfo(cloud.layer.sourcePath);
+    const QDir initialDirectory = sourceInfo.absoluteDir().exists()
+        ? sourceInfo.absoluteDir()
+        : QDir(QFileInfo(currentProjectPath).absolutePath());
+    QString baseName = sourceInfo.completeBaseName();
+    if (baseName.isEmpty())
+        baseName = cloud.layer.name;
+    if (baseName.trimmed().isEmpty())
+        baseName = QStringLiteral("profile");
+    const QString initialSidecarPath = initialDirectory.filePath(
+        baseName + QStringLiteral("_profile.famp-profile"));
+    famp::profileui::ProfileDialog dialog(
+        cloud.layer.name, crsDescription, horizontalUnitName,
+        horizontalUnitToMetre, baseline, initialSidecarPath, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    famp::profileui::Options options = dialog.options();
+    options.sidecarPath = QFileInfo(options.sidecarPath).absoluteFilePath();
+    QString validationError;
+    if (!famp::profileui::validateOptions(options, &validationError))
+    {
+        QMessageBox::warning(
+            this, tr("点云高程剖面"), validationError);
+        return;
+    }
+    const famp::profileui::ExportPaths exportPaths =
+        famp::profileui::derivedExportPaths(options.sidecarPath);
+
+    QStringList existingOutputs;
+    const auto addExisting = [&existingOutputs](bool selected,
+                                                const QString& path) {
+        if (selected && QFileInfo::exists(path))
+            existingOutputs.append(path);
+    };
+    addExisting(true, exportPaths.sidecar);
+    addExisting(options.exportBinsCsv, exportPaths.binsCsv);
+    addExisting(options.exportSamplesCsv, exportPaths.samplesCsv);
+    addExisting(options.exportSvg, exportPaths.svg);
+    if (!existingOutputs.isEmpty())
+    {
+        const auto overwrite = QMessageBox::question(
+            this, tr("覆盖点云剖面成果"),
+            tr("以下成果文件已经存在，将被原子替换：\n%1\n\n是否继续？")
+                .arg(existingOutputs.join(QLatin1Char('\n'))),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (overwrite != QMessageBox::Yes)
+            return;
+    }
+
+    const famp::tasks::Handle task = taskManager->start(
+        tr("生成点云高程剖面"), cloud.layer.name);
+    if (!task.isValid())
+    {
+        QMessageBox::warning(
+            this, tr("点云高程剖面"), tr("无法创建后台剖面分析任务。"));
+        return;
+    }
+    QProgressDialog progress(
+        tr("正在提取点云高程剖面…"), tr("取消"), 0, 100, this);
+    progress.setWindowTitle(tr("点云高程剖面"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+    connect(&progress, &QProgressDialog::canceled, this, [this, task]() {
+        taskManager->requestCancellation(task.id);
+    });
+    const QMetaObject::Connection progressConnection = connect(
+        taskManager, &famp::tasks::TaskManager::taskChanged,
+        &progress, [this, task, &progress](quint64 id) {
+            if (id != task.id)
+                return;
+            famp::tasks::Snapshot snapshot;
+            if (!taskManager->snapshot(id, snapshot))
+                return;
+            progress.setValue(static_cast<int>(std::clamp(
+                snapshot.progress * 100.0, 0.0, 100.0)));
+            if (!snapshot.message.isEmpty())
+                progress.setLabelText(snapshot.message);
+        });
+
+    QFutureWatcher<ProfileTaskOutput> watcher;
+    connect(&watcher, &QFutureWatcher<ProfileTaskOutput>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input =
+        cloud.layer.points;
+    const famp::cloud::SpatialReference spatial = cloud.layer.spatial;
+    const QString sourcePath = cloud.layer.sourcePath;
+    const QString layerName = cloud.layer.name;
+    watcher.setFuture(QtConcurrent::run(
+        [this, task, input, spatial, localStart, localEnd, options,
+         exportPaths, sourcePath, sourceCrs, horizontalUnitName,
+         layerId, layerName]() {
+            ProfileTaskOutput output;
+            const auto shouldCancel = task.cancellationCheck();
+            output.analysis = famp::profile::extract(
+                input, spatial, localStart, localEnd, options.analysis,
+                shouldCancel,
+                [this, task](double value) {
+                    taskManager->setProgress(
+                        task.id, value * 0.82,
+                        tr("正在提取剖面：%1%")
+                            .arg(static_cast<int>(value * 100.0)));
+                });
+            if (output.analysis.cancelled
+                || famp::tasks::isCancellationRequested(shouldCancel))
+            {
+                output.cancelled = true;
+                output.error = tr("点云剖面分析已取消，未写入未完成文件。");
+                return output;
+            }
+            if (!output.analysis.succeeded())
+            {
+                output.error = output.analysis.error.isEmpty()
+                    ? tr("点云剖面分析失败。") : output.analysis.error;
+                return output;
+            }
+            output.analysis.sourceLayerId = layerId;
+            output.analysis.sourceLayerName = layerName;
+            output.analysis.sourcePath = sourcePath;
+            output.analysis.sourceCrs = sourceCrs;
+            output.analysis.horizontalUnitName = horizontalUnitName;
+            taskManager->setProgress(
+                task.id, 0.84, tr("正在原子保存点云剖面项目边车…"));
+            QString saveError;
+            if (!famp::profileio::saveResultAtomically(
+                    exportPaths.sidecar, output.analysis,
+                    &saveError, shouldCancel))
+            {
+                output.cancelled =
+                    famp::tasks::isCancellationRequested(shouldCancel);
+                output.error = saveError;
+                return output;
+            }
+            output.sidecarSaved = true;
+            output.savedPaths.append(exportPaths.sidecar);
+
+            const int exportCount = static_cast<int>(options.exportBinsCsv)
+                + static_cast<int>(options.exportSamplesCsv)
+                + static_cast<int>(options.exportSvg);
+            int exportIndex = 0;
+            const auto exportOne = [&](const QString& label,
+                                       const QString& path,
+                                       const auto& operation) {
+                taskManager->setProgress(
+                    task.id,
+                    0.86 + 0.13 * exportIndex / std::max(1, exportCount),
+                    tr("正在导出%1…").arg(label));
+                ++exportIndex;
+                QString exportError;
+                if (operation(&exportError))
+                {
+                    output.savedPaths.append(path);
+                    return true;
+                }
+                if (famp::tasks::isCancellationRequested(shouldCancel))
+                {
+                    output.cancelled = true;
+                    output.error = exportError;
+                    return false;
+                }
+                output.warnings.append(
+                    tr("%1 导出失败：%2").arg(label, exportError));
+                return true;
+            };
+            if (options.exportBinsCsv
+                && !exportOne(
+                    tr("采样段 CSV"), exportPaths.binsCsv,
+                    [&](QString* error) {
+                        return famp::profileio::exportBinsCsvAtomically(
+                            exportPaths.binsCsv, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportSamplesCsv
+                && !exportOne(
+                    tr("原始点 CSV"), exportPaths.samplesCsv,
+                    [&](QString* error) {
+                        return famp::profileio::exportSamplesCsvAtomically(
+                            exportPaths.samplesCsv, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportSvg
+                && !exportOne(
+                    tr("剖面 SVG"), exportPaths.svg,
+                    [&](QString* error) {
+                        return famp::profileio::exportSvgAtomically(
+                            exportPaths.svg, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            taskManager->setProgress(task.id, 1.0, tr("点云剖面成果已生成"));
+            return output;
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const ProfileTaskOutput result = watcher.result();
+    disconnect(progressConnection);
+
+    if (result.cancelled)
+    {
+        QString message = result.error.isEmpty()
+            ? tr("点云剖面分析已取消。") : result.error;
+        if (!result.savedPaths.isEmpty())
+        {
+            message += tr(" 已完成的成果文件已保留：%1")
+                           .arg(result.savedPaths.join(QStringLiteral("；")));
+        }
+        taskManager->acknowledgeCancellation(task.id, message);
+        statusBar()->showMessage(message, 8000);
+        emit sendStr2Console(message);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        const QString message = result.error.isEmpty()
+            ? tr("点云高程剖面生成失败。") : result.error;
+        taskManager->fail(task.id, message);
+        QMessageBox::warning(
+            this, tr("点云高程剖面生成失败"), message);
+        emit sendStr2Console(message);
+        return;
+    }
+    taskManager->succeed(task.id, tr("点云高程剖面生成完成"));
+    const QString summary = tr(
+        "点云剖面完成：长度 %1 米，走廊宽度 %2 米，从 %3 个源点中提取 %4 点，"
+        "%5/%6 个采样段有效，代表高程为%7。成果：%8")
+        .arg(result.analysis.length
+                 * result.analysis.horizontalUnitToMetre, 0, 'g', 10)
+        .arg(result.analysis.corridorWidth
+                 * result.analysis.horizontalUnitToMetre, 0, 'g', 10)
+        .arg(result.analysis.sourcePointCount)
+        .arg(result.analysis.selectedPointCount)
+        .arg(result.analysis.populatedBinCount)
+        .arg(result.analysis.bins.size())
+        .arg(famp::profile::statisticName(result.analysis.statistic))
+        .arg(result.savedPaths.join(QStringLiteral("；")));
+    statusBar()->showMessage(tr("点云高程剖面生成完成。"), 8000);
+    emit sendStr2Console(summary);
+    if (!result.warnings.isEmpty())
+    {
+        const QString warningText = result.warnings.join(QLatin1Char('\n'));
+        QMessageBox::warning(
+            this, tr("剖面成果已生成，但有提示"), warningText);
+        emit sendStr2Console(warningText);
+    }
+    famp::profileui::ProfileResultDialog resultDialog(
+        result.analysis, result.savedPaths, this);
+    resultDialog.exec();
 }
 
 void MainWindow::slotGenerateTerrain()
@@ -2153,7 +2639,7 @@ void MainWindow::slotGenerateTerrain()
             }
             if (options.exportGridCsv
                 && !exportOne(
-                    tr(" DEM CSV"), exportPaths.gridCsv,
+                    tr("DEM CSV"), exportPaths.gridCsv,
                     [&](QString* error) {
                         return famp::terrainio::exportGridCsvAtomically(
                             exportPaths.gridCsv, output.analysis.grid,

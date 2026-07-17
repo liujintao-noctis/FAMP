@@ -119,6 +119,15 @@ private:
     vtkSmartPointer<vtkActor> measurementPreviewActor;
     vtkSmartPointer<vtkBillboardTextActor3D> measurementPreviewLabel;
     std::vector<MeasurementVisual> measurementVisuals;
+    bool profileSelectionActive = false;
+    QString profileSelectionLayerId;
+    QVector<QVector3D> profileSelectionDisplayPoints;
+    QVector<QVector3D> profileSelectionLocalPoints;
+    QVector3D profileSelectionHoverPoint;
+    bool profileSelectionHasHoverPoint = false;
+    vtkSmartPointer<vtkPolyDataMapper> profileSelectionPreviewMapper;
+    vtkSmartPointer<vtkActor> profileSelectionPreviewActor;
+    vtkSmartPointer<vtkBillboardTextActor3D> profileSelectionPreviewLabel;
 
     static void measurementEventCallback(vtkObject* caller,
                                          unsigned long eventId,
@@ -127,11 +136,15 @@ private:
     bool handleMeasurementEvent(unsigned long eventId);
     bool pickMeasurementPoint(QVector3D& point,
                               QString& layerId,
-                              QString& crs);
+                              QString& crs,
+                              QVector3D* localPoint = nullptr);
     void beginMeasurement(famp::measurement::Kind kind, bool announce);
     void updateMeasurementPreview();
     void finishMeasurement();
     void resetMeasurementInteraction(bool notify);
+    bool handleProfileSelectionEvent(unsigned long eventId);
+    void updateProfileSelectionPreview();
+    void resetProfileSelection(bool notify);
     void rebuildMeasurementPickList();
     void addMeasurementVisual(const famp::measurement::Record3D& record);
     bool hasRegisteredLayer(const QString& layerId) const;
@@ -216,6 +229,8 @@ public slots:
         const QVector<famp::measurement::Record3D>& records,
         QString* errorMessage = nullptr);
     void clearMeasurements(bool announce = true);
+    bool startProfileLineSelection(const QString& layerId);
+    void cancelProfileLineSelection();
 
 signals:
     void sendAABBPolydata(vtkPolyData * polyData);              //发送AABBPolydata
@@ -234,4 +249,8 @@ signals:
     void measurementCompleted(const famp::measurement::Record3D& record);
     void measurementsChanged();
     void measurementStatus(const QString& message);
+    void profileLineSelected(const QString& layerId,
+                             const QVector3D& localStart,
+                             const QVector3D& localEnd);
+    void profileLineSelectionCancelled();
 };

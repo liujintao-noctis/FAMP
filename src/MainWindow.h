@@ -101,6 +101,7 @@ private:
     QAction * archaeologyMetadataAction;
     QAction * controlPointsAction;
     QAction * terrainAnalysisAction;
+    QAction * cloudProfileAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -135,6 +136,13 @@ private:
     bool cloudLoadCancelled;
     QHash<QString, famp::project::CloudReference> projectCloudReferences;
     QVector<famp::measurement::Record3D> pendingProjectMeasurements3d;
+    QString pendingProfileLayerId;
+    QString pendingProfileSourceCrs;
+    QString pendingProfileCrsDescription;
+    QString pendingProfileHorizontalUnitName;
+    double pendingProfileHorizontalUnitToMetre = 1.0;
+    const pcl::PointCloud<pcl::PointXYZRGB>* pendingProfilePointCloud = nullptr;
+    famp::cloud::SpatialReference pendingProfileSpatial;
 
     QLabel *xoy_label;      //在GraphicsView左上方添加XOY坐标的图片
     QHBoxLayout *layout;    //添加一个垂直布局
@@ -188,6 +196,13 @@ private:
     void applyProjectCrs(const QString& crs);
     void removeRecoveryProject();
     void checkForRecoveryProject();
+    void generateCloudProfile(const QString& layerId,
+                              const QVector3D& localStart,
+                              const QVector3D& localEnd,
+                              const QString& sourceCrs,
+                              const QString& crsDescription,
+                              const QString& horizontalUnitName,
+                              double horizontalUnitToMetre);
 
 private slots:
     //GrapView显示浮动
@@ -236,6 +251,7 @@ private slots:
     void slotEditArchaeologyMetadata();
     void slotEditControlPoints();
     void slotGenerateTerrain();
+    void slotStartCloudProfile();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();
