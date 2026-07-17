@@ -6,7 +6,7 @@ FAMP（Field Archaeology Mapping Program）是一款基于 C++17、Qt、VTK 和 
 
 项目使用 CMake 和 vcpkg 管理跨平台构建。规范的本地 CMake 入口是 `src/CMakeLists.txt`，构建产物统一放在仓库根目录的 `build/`。根目录 `CMakeLists.txt` 仍可使用，但它只负责设置工程并转发到 `src/`。
 
-当前应用版本为 `0.5.2`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.5.2`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
+当前应用版本为 `0.6.0`。`cmake/FampVersion.cmake` 是 CMake 和 C++ 程序使用的版本号来源；配置时会生成 `Version.h`，程序会把版本写入 Qt 应用元数据并在主窗口标题栏显示为 `FAMP 0.6.0`。发布新版本时，还需要同步更新 `vcpkg.json` 中的 `version-string`。
 
 ## 当前功能
 
@@ -344,6 +344,13 @@ QT_DEBUG_PLUGINS=1 ./build/bin/FAMP
 ### Linux 没有图形桌面
 
 FAMP 是 GUI 程序，需要有效的 X11/Wayland 桌面会话。SSH 或无头环境中没有 `DISPLAY` 时，不能把普通启动失败当成编译失败；测试仍可通过 `ctest` 单独运行。
+如果只需要在无头环境检查程序能否进入 Qt 事件循环，可以使用：
+
+```bash
+QT_QPA_PLATFORM=offscreen timeout 6 ./build/bin/FAMP
+```
+
+退出码 `124` 代表进程保持运行；`QOpenGLWidget` 无法创建上下文的警告在无头模式下属于预期现象。此命令不验证 VTK 实际渲染，最终的可视化检查仍应在有 OpenGL 的图形桌面中完成。
 
 ### Windows 启动时提示缺少 DLL 或 `qwindows.dll`
 

@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-07-17
+
 ### Added
 
 - 新增统一 `CloudLayer` 点云图层模型、类型安全的逐点属性容器和线程安全的可取消任务状态机，为后续重投影、多格式属性与地形分析提供稳定基础。
@@ -128,7 +130,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.4.0...v0.5.0
