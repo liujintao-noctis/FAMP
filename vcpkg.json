@@ -1,6 +1,6 @@
 {
   "name": "famp",
-  "version-string": "0.5.2",
+  "version-string": "0.6.0",
   "description": "Field Archaeology Mapping Program",
   "builtin-baseline": "a0b1c8d3a477c1cb4813d8e127a56961707ca42b",
   "dependencies": [
