@@ -1,6 +1,7 @@
 #include "GraphicsSceneDocument.h"
 
 #include "CompassItem.h"
+#include "ContourItem.h"
 #include "FormTabulationItem.h"
 #include "MeasurementItem.h"
 #include "MyItem.h"
@@ -211,6 +212,38 @@ bool serializeItem(const QGraphicsItem* item,
                       point(measurement->sceneUnitsPerMeter()));
         return true;
     }
+    if (const auto* contours = dynamic_cast<const ContourItem*>(item))
+    {
+        const ContourItemData& data = contours->contourData();
+        if (!ContourItem::validateData(data, errorMessage))
+            return false;
+        result.insert(QStringLiteral("type"), QStringLiteral("terrainContours"));
+        result.insert(QStringLiteral("origin"),
+                      QJsonArray{data.originX, data.originY});
+        result.insert(QStringLiteral("horizontalUnitToMetre"),
+                      data.horizontalUnitToMetre);
+        result.insert(QStringLiteral("sourceCrs"), data.sourceCrs);
+        result.insert(QStringLiteral("sourceLayerId"), data.sourceLayerId);
+        result.insert(QStringLiteral("sourceLayerName"), data.sourceLayerName);
+        result.insert(QStringLiteral("demPath"), data.demPath);
+        result.insert(QStringLiteral("interval"), data.interval);
+        result.insert(QStringLiteral("baseElevation"), data.baseElevation);
+        result.insert(QStringLiteral("sceneUnitsPerMeter"),
+                      point(contours->sceneUnitsPerMeter()));
+        QJsonArray lines;
+        for (const auto& line : data.relativeLines)
+        {
+            QJsonArray linePoints;
+            for (const auto& linePoint : line.points)
+                linePoints.append(QJsonArray{linePoint[0], linePoint[1]});
+            QJsonObject lineObject;
+            lineObject.insert(QStringLiteral("elevation"), line.elevation);
+            lineObject.insert(QStringLiteral("points"), linePoints);
+            lines.append(lineObject);
+        }
+        result.insert(QStringLiteral("lines"), lines);
+        return true;
+    }
     if (const auto* curve = dynamic_cast<const MyItem*>(item))
     {
         if (curve->points().isEmpty()
@@ -317,6 +350,76 @@ QGraphicsItem* deserializeItem(const QJsonValue& value,
         }
         item = std::make_unique<MeasurementItem>(
             kind, meterPoints, sceneUnitsPerMeter);
+    }
+    else if (type == QStringLiteral("terrainContours"))
+    {
+        QPointF origin;
+        QPointF sceneUnitsPerMeter;
+        const QJsonValue linesValue = object.value(QStringLiteral("lines"));
+        if (!readPoint(object.value(QStringLiteral("origin")), origin)
+            || !readPoint(object.value(QStringLiteral("sceneUnitsPerMeter")),
+                          sceneUnitsPerMeter)
+            || sceneUnitsPerMeter.x() <= 0.0
+            || sceneUnitsPerMeter.y() <= 0.0
+            || !linesValue.isArray())
+        {
+            setError(errorMessage, QStringLiteral("等高线图元元数据无效。"));
+            return nullptr;
+        }
+        ContourItemData data;
+        data.originX = origin.x();
+        data.originY = origin.y();
+        data.horizontalUnitToMetre = object.value(
+            QStringLiteral("horizontalUnitToMetre")).toDouble(
+                std::numeric_limits<double>::quiet_NaN());
+        data.sourceCrs = object.value(QStringLiteral("sourceCrs")).toString();
+        data.sourceLayerId = object.value(
+            QStringLiteral("sourceLayerId")).toString();
+        data.sourceLayerName = object.value(
+            QStringLiteral("sourceLayerName")).toString();
+        data.demPath = object.value(QStringLiteral("demPath")).toString();
+        data.interval = object.value(QStringLiteral("interval")).toDouble(
+            std::numeric_limits<double>::quiet_NaN());
+        data.baseElevation = object.value(
+            QStringLiteral("baseElevation")).toDouble(
+                std::numeric_limits<double>::quiet_NaN());
+        quint64 totalPoints = 0;
+        for (const QJsonValue& lineValue : linesValue.toArray())
+        {
+            if (!lineValue.isObject())
+            {
+                setError(errorMessage, QStringLiteral("等高线图元线条无效。"));
+                return nullptr;
+            }
+            const QJsonObject lineObject = lineValue.toObject();
+            const double elevation = lineObject.value(
+                QStringLiteral("elevation")).toDouble(
+                    std::numeric_limits<double>::quiet_NaN());
+            QVector<QPointF> parsedPoints;
+            if (!std::isfinite(elevation)
+                || !readPoints(lineObject.value(QStringLiteral("points")),
+                               2, parsedPoints))
+            {
+                setError(errorMessage, QStringLiteral("等高线图元线条无效。"));
+                return nullptr;
+            }
+            totalPoints += static_cast<quint64>(parsedPoints.size());
+            if (totalPoints > ContourItem::MaximumDisplayPoints)
+            {
+                setError(errorMessage, QStringLiteral("等高线图元点数超过安全上限。"));
+                return nullptr;
+            }
+            famp::terrain::ContourLine line;
+            line.elevation = elevation;
+            line.points.reserve(parsedPoints.size());
+            for (const QPointF& parsedPoint : parsedPoints)
+                line.points.append({parsedPoint.x(), parsedPoint.y()});
+            data.relativeLines.append(std::move(line));
+        }
+        if (!ContourItem::validateData(data, errorMessage))
+            return nullptr;
+        item = std::make_unique<ContourItem>(
+            std::move(data), sceneUnitsPerMeter);
     }
     else if (type == QStringLiteral("projection"))
     {
@@ -435,8 +538,10 @@ bool restoreScene(QGraphicsScene* scene,
         setError(errorMessage, QStringLiteral("二维画布不存在。"));
         return false;
     }
-    if (document.value(QStringLiteral("schemaVersion")).toInt(-1)
-        != SchemaVersion)
+    const int schemaVersion = document.value(
+        QStringLiteral("schemaVersion")).toInt(-1);
+    if (schemaVersion < MinimumSupportedSchemaVersion
+        || schemaVersion > SchemaVersion)
     {
         setError(errorMessage, QStringLiteral("不支持的二维画布格式版本。"));
         return false;

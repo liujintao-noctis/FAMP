@@ -138,6 +138,8 @@ bool MyGraphicsView::restoreProjectState(const QJsonObject& state,
     itemHandles.clear();
     metricGridVisible = state.value(QStringLiteral("metricGridVisible"))
                             .toBool(false);
+    rescaleMeasurementItems();
+    rescaleTerrainItems();
     viewport()->update();
     emit selectionAvailabilityChanged(false);
     return true;
@@ -205,6 +207,46 @@ void MyGraphicsView::addItemWithHistory(QGraphicsItem* item,
         return;
     history->push(famp::graphics::makeAddItemCommand(
         scene, handleForItem(item), text));
+}
+
+bool MyGraphicsView::addTerrainContours(
+    const QVector<famp::terrain::ContourLine>& lines,
+    double horizontalUnitToMetre,
+    const QString& sourceCrs,
+    const QString& sourceLayerId,
+    const QString& sourceLayerName,
+    const QString& demPath,
+    double interval,
+    double baseElevation,
+    QString* errorMessage)
+{
+    ContourItemData data;
+    if (!ContourItem::createDataFromAbsolute(
+            lines, horizontalUnitToMetre, sourceCrs, sourceLayerId,
+            sourceLayerName, demPath, interval, baseElevation,
+            data, errorMessage))
+    {
+        return false;
+    }
+    auto* item = new ContourItem(std::move(data), deltaOffset);
+    item->setPos(scene->sceneRect().center() - item->boundingRect().center());
+    addItemWithHistory(item, tr("添加 DEM 等高线"));
+    scene->clearSelection();
+    item->setSelected(true);
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
+int MyGraphicsView::terrainContourCount() const
+{
+    int count = 0;
+    for (QGraphicsItem* item : scene->items())
+    {
+        if (item && item->type() == ContourItem::Type)
+            ++count;
+    }
+    return count;
 }
 
 void MyGraphicsView::invalidateHistory(const QString& reason)
@@ -1005,6 +1047,7 @@ void MyGraphicsView::ReDraw(QPointF offset)
     }
 
     rescaleMeasurementItems();
+    rescaleTerrainItems();
 
 }
 
@@ -2077,6 +2120,15 @@ void MyGraphicsView::rescaleMeasurementItems()
     {
         if (auto* measurementItem = dynamic_cast<MeasurementItem*>(item))
             measurementItem->setSceneUnitsPerMeter(deltaOffset);
+    }
+}
+
+void MyGraphicsView::rescaleTerrainItems()
+{
+    for (QGraphicsItem* item : scene->items())
+    {
+        if (auto* contourItem = dynamic_cast<ContourItem*>(item))
+            contourItem->setSceneUnitsPerMeter(deltaOffset);
     }
 }
 

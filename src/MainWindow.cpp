@@ -24,6 +24,9 @@
 #include "PcdLoader.h"
 #include "ProcessingRecipe.h"
 #include "RecentFiles.h"
+#include "TerrainAnalysis.h"
+#include "TerrainDialog.h"
+#include "TerrainIO.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -153,6 +156,22 @@ bool transformLayerMeasurements(
         errorMessage->clear();
     return true;
 }
+
+struct TerrainTaskOutput
+{
+    famp::terrain::Result analysis;
+    QStringList savedPaths;
+    QStringList warnings;
+    QString error;
+    bool sidecarSaved = false;
+    bool cancelled = false;
+
+    bool succeeded() const
+    {
+        return analysis.succeeded() && sidecarSaved
+            && error.isEmpty() && !cancelled;
+    }
+};
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -172,6 +191,7 @@ MainWindow::MainWindow(QWidget *parent)
     , reprojectCloudAction(nullptr)
     , archaeologyMetadataAction(nullptr)
     , controlPointsAction(nullptr)
+    , terrainAnalysisAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -366,6 +386,10 @@ void MainWindow::initializeCrsActions()
     controlPointsAction = toolsMenu->addAction(tr("控制点与空间配准…"));
     controlPointsAction->setObjectName(QStringLiteral("actControlPoints"));
     controlPointsAction->setEnabled(false);
+    terrainAnalysisAction = toolsMenu->addAction(tr("DEM 与等高线…"));
+    terrainAnalysisAction->setObjectName(
+        QStringLiteral("actTerrainAnalysis"));
+    terrainAnalysisAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
@@ -378,6 +402,8 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotEditArchaeologyMetadata);
     connect(controlPointsAction, &QAction::triggered,
             this, &MainWindow::slotEditControlPoints);
+    connect(terrainAnalysisAction, &QAction::triggered,
+            this, &MainWindow::slotGenerateTerrain);
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -983,6 +1009,8 @@ void MainWindow::clearWorkspace()
         archaeologyMetadataAction->setEnabled(false);
     if (controlPointsAction)
         controlPointsAction->setEnabled(false);
+    if (terrainAnalysisAction)
+        terrainAnalysisAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -1703,6 +1731,9 @@ void MainWindow::updateCloudToolActions()
     if (controlPointsAction)
         controlPointsAction->setEnabled(
             available && !cloud.layer.locked && !cloudLoadBusy);
+    if (terrainAnalysisAction)
+        terrainAnalysisAction->setEnabled(
+            available && !cloud.layer.locked && !cloudLoadBusy);
 }
 
 void MainWindow::slotEditArchaeologyMetadata()
@@ -1872,6 +1903,374 @@ void MainWindow::slotEditControlPoints()
             .arg(result.solution.quality.enabledPointCount)
             .arg(result.solution.quality.rootMeanSquare, 0, 'g', 8)
             .arg(result.solution.quality.maximum, 0, 'g', 8));
+}
+
+void MainWindow::slotGenerateTerrain()
+{
+    MyCloudList cloud;
+    QString sourcePath;
+    if (!selectedCloudData(cloud, &sourcePath))
+    {
+        QMessageBox::information(
+            this, tr("DEM 与等高线"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (cloud.layer.locked)
+    {
+        QMessageBox::information(
+            this, tr("DEM 与等高线"), tr("所选图层已锁定，无法生成地形成果。"));
+        return;
+    }
+
+    QString sourceCrs = cloud.layer.crs.trimmed();
+    if (sourceCrs.isEmpty())
+        sourceCrs = projectCrs.trimmed();
+    double horizontalUnitToMetre = 1.0;
+    QString horizontalUnitName = tr("米（用户确认的本地平面坐标）");
+    QString crsDescription = tr("未声明 CRS；将按本地米制平面坐标处理");
+    if (!sourceCrs.isEmpty())
+    {
+        famp::crs::Info info;
+        QString crsError;
+        if (!famp::crs::inspect(sourceCrs, info, &crsError))
+        {
+            QMessageBox::warning(this, tr("DEM 与等高线"), crsError);
+            return;
+        }
+        if (info.geographic)
+        {
+            QMessageBox::warning(
+                this, tr("DEM 与等高线"),
+                tr("所选点云使用地理经纬度坐标系 %1。DEM 网格不能直接以角度生成；"
+                   "请先使用“工具 → 重投影所选点云…”转换到合适的投影坐标系。")
+                    .arg(info.identifier));
+            return;
+        }
+        if (!info.projected)
+        {
+            QMessageBox::warning(
+                this, tr("DEM 与等高线"),
+                tr("坐标系 %1 不是受支持的二维投影坐标系。请先重投影点云。")
+                    .arg(info.identifier));
+            return;
+        }
+        sourceCrs = info.identifier;
+        horizontalUnitToMetre = info.horizontalUnitToMetre;
+        horizontalUnitName = QStringLiteral("%1（1 单位 = %2 米）")
+                                 .arg(info.horizontalUnitName)
+                                 .arg(info.horizontalUnitToMetre, 0, 'g', 12);
+        crsDescription = QStringLiteral("%1 — %2")
+                             .arg(info.identifier, info.name);
+    }
+    else
+    {
+        const auto confirmation = QMessageBox::question(
+            this, tr("确认本地坐标单位"),
+            tr("所选点云和项目都未声明 CRS。是否确认其真实 X/Y 坐标是以米为单位的平面坐标？\n\n"
+               "如果坐标实际是经纬度或其他单位，请先取消并设置/重投影坐标系。"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (confirmation != QMessageBox::Yes)
+            return;
+    }
+
+    const QFileInfo sourceInfo(sourcePath);
+    const QDir initialDirectory = sourceInfo.absoluteDir().exists()
+        ? sourceInfo.absoluteDir()
+        : QDir(QFileInfo(currentProjectPath).absolutePath());
+    QString baseName = sourceInfo.completeBaseName();
+    if (baseName.isEmpty())
+        baseName = cloud.layer.name;
+    if (baseName.trimmed().isEmpty())
+        baseName = QStringLiteral("terrain");
+    const QString initialSidecarPath = initialDirectory.filePath(
+        baseName + QStringLiteral("_dem.famp-dem"));
+    famp::terrainui::TerrainDialog dialog(
+        cloud.layer.name, crsDescription, horizontalUnitName,
+        horizontalUnitToMetre, initialSidecarPath, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    famp::terrainui::Options options = dialog.options();
+    options.sidecarPath = QFileInfo(options.sidecarPath).absoluteFilePath();
+    QString validationError;
+    if (!famp::terrainui::validateOptions(options, &validationError))
+    {
+        QMessageBox::warning(this, tr("DEM 与等高线"), validationError);
+        return;
+    }
+    const famp::terrainui::ExportPaths exportPaths =
+        famp::terrainui::derivedExportPaths(options.sidecarPath);
+
+    QStringList existingOutputs;
+    const auto addExisting = [&existingOutputs](bool selected,
+                                                const QString& path) {
+        if (selected && QFileInfo::exists(path))
+            existingOutputs.append(path);
+    };
+    addExisting(true, exportPaths.sidecar);
+    addExisting(options.exportAsciiGrid, exportPaths.asciiGrid);
+    addExisting(options.exportGridCsv, exportPaths.gridCsv);
+    addExisting(options.exportContourCsv, exportPaths.contourCsv);
+    addExisting(options.exportContourSvg, exportPaths.contourSvg);
+    if (!existingOutputs.isEmpty())
+    {
+        const auto overwrite = QMessageBox::question(
+            this, tr("覆盖地形成果"),
+            tr("以下成果文件已经存在，将被原子替换：\n%1\n\n是否继续？")
+                .arg(existingOutputs.join(QLatin1Char('\n'))),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (overwrite != QMessageBox::Yes)
+            return;
+    }
+
+    const famp::tasks::Handle task = taskManager->start(
+        tr("生成 DEM 与等高线"), cloud.layer.name);
+    if (!task.isValid())
+    {
+        QMessageBox::warning(
+            this, tr("DEM 与等高线"), tr("无法创建后台地形分析任务。"));
+        return;
+    }
+
+    QProgressDialog progress(
+        tr("正在生成 DEM 与等高线…"), tr("取消"), 0, 100, this);
+    progress.setWindowTitle(tr("DEM 与等高线"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+    connect(&progress, &QProgressDialog::canceled, this, [this, task]() {
+        taskManager->requestCancellation(task.id);
+    });
+    const QMetaObject::Connection progressConnection = connect(
+        taskManager, &famp::tasks::TaskManager::taskChanged,
+        &progress, [this, task, &progress](quint64 id) {
+            if (id != task.id)
+                return;
+            famp::tasks::Snapshot snapshot;
+            if (!taskManager->snapshot(id, snapshot))
+                return;
+            progress.setValue(static_cast<int>(std::clamp(
+                snapshot.progress * 100.0, 0.0, 100.0)));
+            if (!snapshot.message.isEmpty())
+                progress.setLabelText(snapshot.message);
+        });
+
+    QFutureWatcher<TerrainTaskOutput> watcher;
+    connect(&watcher, &QFutureWatcher<TerrainTaskOutput>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input =
+        cloud.layer.points;
+    const famp::cloud::SpatialReference spatial = cloud.layer.spatial;
+    const QString layerId = cloud.layer.id;
+    const QString layerName = cloud.layer.name;
+    watcher.setFuture(QtConcurrent::run(
+        [this, task, input, spatial, options, exportPaths,
+         sourceCrs, horizontalUnitName, layerId, layerName]() {
+            TerrainTaskOutput output;
+            const auto shouldCancel = task.cancellationCheck();
+            output.analysis = famp::terrain::analyze(
+                input, spatial, options.grid, options.contours,
+                shouldCancel,
+                [this, task](double value) {
+                    taskManager->setProgress(
+                        task.id, value * 0.84,
+                        tr("正在分析地形：%1%")
+                            .arg(static_cast<int>(value * 100.0)));
+                });
+            if (output.analysis.cancelled
+                || famp::tasks::isCancellationRequested(shouldCancel))
+            {
+                output.cancelled = true;
+                output.error = tr("地形分析已取消，未写入未完成文件。");
+                return output;
+            }
+            if (!output.analysis.succeeded())
+            {
+                output.error = output.analysis.error.isEmpty()
+                    ? tr("地形分析失败。") : output.analysis.error;
+                return output;
+            }
+
+            output.analysis.grid.sourceLayerId = layerId;
+            output.analysis.grid.sourceLayerName = layerName;
+            output.analysis.grid.sourceCrs = sourceCrs;
+            output.analysis.grid.horizontalUnitName = horizontalUnitName;
+            taskManager->setProgress(
+                task.id, 0.86, tr("正在原子保存 DEM 项目边车…"));
+            QString saveError;
+            if (!famp::terrainio::saveGridAtomically(
+                    exportPaths.sidecar, output.analysis.grid,
+                    &saveError, shouldCancel))
+            {
+                output.cancelled =
+                    famp::tasks::isCancellationRequested(shouldCancel);
+                output.error = saveError;
+                return output;
+            }
+            output.sidecarSaved = true;
+            output.savedPaths.append(exportPaths.sidecar);
+
+            const int exportCount = static_cast<int>(options.exportAsciiGrid)
+                + static_cast<int>(options.exportGridCsv)
+                + static_cast<int>(options.exportContourCsv)
+                + static_cast<int>(options.exportContourSvg);
+            int exportIndex = 0;
+            const auto exportOne = [&](const QString& label,
+                                       const QString& path,
+                                       const auto& operation) {
+                taskManager->setProgress(
+                    task.id,
+                    0.88 + 0.11 * exportIndex / std::max(1, exportCount),
+                    tr("正在导出%1…").arg(label));
+                ++exportIndex;
+                QString exportError;
+                if (operation(&exportError))
+                {
+                    output.savedPaths.append(path);
+                    return true;
+                }
+                if (famp::tasks::isCancellationRequested(shouldCancel))
+                {
+                    output.cancelled = true;
+                    output.error = exportError;
+                    return false;
+                }
+                output.warnings.append(
+                    tr("%1 导出失败：%2").arg(label, exportError));
+                return true;
+            };
+            if (options.exportAsciiGrid
+                && !exportOne(
+                    tr("ASCII Grid"), exportPaths.asciiGrid,
+                    [&](QString* error) {
+                        return famp::terrainio::exportAsciiGridAtomically(
+                            exportPaths.asciiGrid, output.analysis.grid,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportGridCsv
+                && !exportOne(
+                    tr(" DEM CSV"), exportPaths.gridCsv,
+                    [&](QString* error) {
+                        return famp::terrainio::exportGridCsvAtomically(
+                            exportPaths.gridCsv, output.analysis.grid,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportContourCsv
+                && !exportOne(
+                    tr("等高线 CSV"), exportPaths.contourCsv,
+                    [&](QString* error) {
+                        return famp::terrainio::exportContoursCsvAtomically(
+                            exportPaths.contourCsv, output.analysis.contours,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportContourSvg
+                && !exportOne(
+                    tr("等高线 SVG"), exportPaths.contourSvg,
+                    [&](QString* error) {
+                        return famp::terrainio::exportContoursSvgAtomically(
+                            exportPaths.contourSvg, output.analysis.contours,
+                            sourceCrs, error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            taskManager->setProgress(task.id, 1.0, tr("地形成果已生成"));
+            return output;
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const TerrainTaskOutput result = watcher.result();
+    disconnect(progressConnection);
+
+    if (result.cancelled)
+    {
+        QString message = result.error.isEmpty()
+            ? tr("地形分析已取消。") : result.error;
+        if (!result.savedPaths.isEmpty())
+        {
+            message += tr(" 已完成的成果文件已保留：%1")
+                           .arg(result.savedPaths.join(QStringLiteral("；")));
+        }
+        taskManager->acknowledgeCancellation(task.id, message);
+        statusBar()->showMessage(message, 8000);
+        emit sendStr2Console(message);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        const QString message = result.error.isEmpty()
+            ? tr("DEM 与等高线生成失败。") : result.error;
+        taskManager->fail(task.id, message);
+        QMessageBox::warning(this, tr("DEM 与等高线生成失败"), message);
+        emit sendStr2Console(message);
+        return;
+    }
+    taskManager->succeed(task.id, tr("DEM 与等高线生成完成"));
+
+    QStringList warnings = result.warnings;
+    bool addedToCanvas = false;
+    if (options.addToCanvas)
+    {
+        if (result.analysis.contours.isEmpty())
+        {
+            warnings.append(tr("DEM 高程范围不足，未生成可加入画布的等高线。"));
+        }
+        else
+        {
+            QString canvasError;
+            addedToCanvas = ui.graphicsView->addTerrainContours(
+                result.analysis.contours,
+                result.analysis.grid.horizontalUnitToMetre,
+                result.analysis.grid.sourceCrs,
+                result.analysis.grid.sourceLayerId,
+                result.analysis.grid.sourceLayerName,
+                exportPaths.sidecar,
+                result.analysis.contourInterval,
+                result.analysis.contourBase,
+                &canvasError);
+            if (!addedToCanvas)
+                warnings.append(tr("二维画布添加失败：%1").arg(canvasError));
+        }
+    }
+
+    quint64 contourPointCount = 0;
+    for (const auto& line : result.analysis.contours)
+        contourPointCount += static_cast<quint64>(line.points.size());
+    const QString summary = tr(
+        "地形分析完成：%1 × %2 网格，分辨率 %3 米，%4 个有效单元"
+        "（填补 %5），%6 条等高线/%7 个线点，等高距 %8。成果：%9%10")
+        .arg(result.analysis.grid.columns)
+        .arg(result.analysis.grid.rows)
+        .arg(result.analysis.grid.resolution
+                 * result.analysis.grid.horizontalUnitToMetre,
+             0, 'g', 8)
+        .arg(result.analysis.grid.populatedCellCount
+             + result.analysis.grid.filledCellCount)
+        .arg(result.analysis.grid.filledCellCount)
+        .arg(result.analysis.contours.size())
+        .arg(contourPointCount)
+        .arg(result.analysis.contourInterval, 0, 'g', 8)
+        .arg(result.savedPaths.join(QStringLiteral("；")))
+        .arg(addedToCanvas ? tr("；已加入二维画布") : QString());
+    statusBar()->showMessage(tr("DEM 与等高线生成完成。"), 8000);
+    emit sendStr2Console(summary);
+    if (!warnings.isEmpty())
+    {
+        const QString warningText = warnings.join(QLatin1Char('\n'));
+        QMessageBox::warning(
+            this, tr("地形成果已生成，但有提示"), warningText);
+        emit sendStr2Console(warningText);
+    }
 }
 
 void MainWindow::slotOpenCloudCoordinateViewer()

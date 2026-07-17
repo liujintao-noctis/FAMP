@@ -22,6 +22,14 @@ TEST(CrsServiceTest, InspectsKnownAndRejectsUnknownCrs)
     EXPECT_EQ(info.identifier, QStringLiteral("EPSG:4326"));
     EXPECT_TRUE(info.name.contains(QStringLiteral("WGS 84")));
     EXPECT_TRUE(info.geographic);
+    EXPECT_FALSE(info.projected);
+
+    ASSERT_TRUE(famp::crs::inspect(QStringLiteral("EPSG:3857"), info, &error))
+        << error.toStdString();
+    EXPECT_TRUE(info.projected);
+    EXPECT_FALSE(info.geographic);
+    EXPECT_FALSE(info.horizontalUnitName.isEmpty());
+    EXPECT_DOUBLE_EQ(info.horizontalUnitToMetre, 1.0);
 
     const famp::crs::Info original = info;
     EXPECT_FALSE(famp::crs::inspect(QStringLiteral("EPSG:99999999"), info, &error));

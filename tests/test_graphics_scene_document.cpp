@@ -1,6 +1,7 @@
 #include <gtest/gtest.h>
 
 #include "CompassItem.h"
+#include "ContourItem.h"
 #include "FormTabulationItem.h"
 #include "GraphicsSceneDocument.h"
 #include "MeasurementItem.h"
@@ -31,6 +32,19 @@ TEST(GraphicsSceneDocumentTest, RoundTripsSupportedItemsAndTransforms)
         QPointF(10.0, 12.0));
     source.addItem(measurement);
 
+    ContourItemData contourData;
+    QString contourError;
+    ASSERT_TRUE(ContourItem::createDataFromAbsolute(
+        {{10.0, {{{500000.0, 3400000.0},
+                   {500001.0, 3400001.0}}}}},
+        1.0, QStringLiteral("EPSG:4547"), QStringLiteral("layer-1"),
+        QStringLiteral("探方"), QStringLiteral("terrain.famp-dem"),
+        1.0, 0.0, contourData, &contourError))
+        << contourError.toStdString();
+    auto* contours = new ContourItem(contourData, QPointF(10.0, 12.0));
+    contours->setPos(20.0, 30.0);
+    source.addItem(contours);
+
     auto* table = new FormTabulationItem(
         QStringLiteral("李四"), QStringLiteral("2026-07-12"),
         QStringLiteral("1:50"), nullptr);
@@ -52,19 +66,20 @@ TEST(GraphicsSceneDocumentTest, RoundTripsSupportedItemsAndTransforms)
     ASSERT_FALSE(document.isEmpty()) << error.toStdString();
     EXPECT_EQ(document.value(QStringLiteral("schemaVersion")).toInt(),
               famp::graphicsdoc::SchemaVersion);
-    EXPECT_EQ(document.value(QStringLiteral("items")).toArray().size(), 4);
+    EXPECT_EQ(document.value(QStringLiteral("items")).toArray().size(), 5);
 
     QGraphicsScene restored;
     QList<QGraphicsItem*> restoredRoots;
     ASSERT_TRUE(famp::graphicsdoc::restoreScene(
         &restored, document, &restoredRoots, &error)) << error.toStdString();
-    EXPECT_EQ(restoredRoots.size(), 4);
+    EXPECT_EQ(restoredRoots.size(), 5);
     EXPECT_EQ(restored.sceneRect(), source.sceneRect());
 
     MyItem* restoredProjection = nullptr;
     MeasurementItem* restoredMeasurement = nullptr;
     FormTabulationItem* restoredTable = nullptr;
     QGraphicsItemGroup* restoredGroup = nullptr;
+    ContourItem* restoredContours = nullptr;
     for (QGraphicsItem* item : restoredRoots)
     {
         if (auto* candidate = dynamic_cast<MyItem*>(item))
@@ -75,6 +90,8 @@ TEST(GraphicsSceneDocumentTest, RoundTripsSupportedItemsAndTransforms)
             restoredTable = candidate;
         else if (auto* candidate = dynamic_cast<QGraphicsItemGroup*>(item))
             restoredGroup = candidate;
+        else if (auto* candidate = dynamic_cast<ContourItem*>(item))
+            restoredContours = candidate;
     }
 
     ASSERT_NE(restoredProjection, nullptr);
@@ -99,6 +116,35 @@ TEST(GraphicsSceneDocumentTest, RoundTripsSupportedItemsAndTransforms)
     ASSERT_NE(restoredGroup, nullptr);
     EXPECT_EQ(restoredGroup->childItems().size(), 2);
     EXPECT_EQ(restoredGroup->pos(), QPointF(-25.0, 40.0));
+
+    ASSERT_NE(restoredContours, nullptr);
+    EXPECT_EQ(restoredContours->contourData().sourceCrs,
+              QStringLiteral("EPSG:4547"));
+    EXPECT_EQ(restoredContours->contourData().sourceLayerName,
+              QStringLiteral("探方"));
+    EXPECT_EQ(restoredContours->sceneUnitsPerMeter(), QPointF(10.0, 12.0));
+    EXPECT_EQ(restoredContours->pos(), QPointF(20.0, 30.0));
+    EXPECT_DOUBLE_EQ(
+        restoredContours->absoluteLines().front().points.back()[0],
+        500001.0);
+}
+
+TEST(GraphicsSceneDocumentTest, RestoresLegacySchemaOneDocuments)
+{
+    QGraphicsScene source(QRectF(-100.0, -100.0, 200.0, 200.0));
+    source.addText(QStringLiteral("legacy"));
+    QString error;
+    QJsonObject document = famp::graphicsdoc::saveScene(&source, &error);
+    ASSERT_FALSE(document.isEmpty()) << error.toStdString();
+    document.insert(QStringLiteral("schemaVersion"), 1);
+
+    QGraphicsScene restored;
+    ASSERT_TRUE(famp::graphicsdoc::restoreScene(
+        &restored, document, nullptr, &error)) << error.toStdString();
+    ASSERT_EQ(restored.items().size(), 1);
+    EXPECT_EQ(dynamic_cast<QGraphicsTextItem*>(restored.items().front())
+                  ->toPlainText(),
+              QStringLiteral("legacy"));
 }
 
 TEST(GraphicsSceneDocumentTest, RoundTripsAngleMeasurement)

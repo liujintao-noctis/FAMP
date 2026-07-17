@@ -83,6 +83,10 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/CloudReprojection.cpp"
     "${FAMP_SRC_DIR}/ControlPoints.cpp"
     "${FAMP_SRC_DIR}/ControlPointDialog.cpp"
+    "${FAMP_SRC_DIR}/ContourItem.cpp"
+    "${FAMP_SRC_DIR}/TerrainAnalysis.cpp"
+    "${FAMP_SRC_DIR}/TerrainDialog.cpp"
+    "${FAMP_SRC_DIR}/TerrainIO.cpp"
     "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/CloudLayer.cpp"
@@ -104,6 +108,10 @@ add_executable(famp_tests
     test_cloud_reprojection.cpp
     test_control_points.cpp
     test_control_point_dialog.cpp
+    test_contour_item.cpp
+    test_terrain_analysis.cpp
+    test_terrain_dialog.cpp
+    test_terrain_io.cpp
     test_cloud_crop.cpp
     test_crs_service.cpp
     test_file_io.cpp

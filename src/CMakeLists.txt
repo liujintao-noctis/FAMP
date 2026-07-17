@@ -156,6 +156,10 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudReprojection.cpp
     ControlPoints.cpp
     ControlPointDialog.cpp
+    ContourItem.cpp
+    TerrainAnalysis.cpp
+    TerrainDialog.cpp
+    TerrainIO.cpp
     TaskCancellation.h
     TaskManager.cpp
     CompassItem.cpp
@@ -200,6 +204,10 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudReprojection.h
     ControlPoints.h
     ControlPointDialog.h
+    ContourItem.h
+    TerrainAnalysis.h
+    TerrainDialog.h
+    TerrainIO.h
     CompassItem.h
     CrsService.h
     FAMPController.h

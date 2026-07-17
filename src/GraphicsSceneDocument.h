@@ -9,7 +9,8 @@ class QGraphicsScene;
 
 namespace famp::graphicsdoc
 {
-inline constexpr int SchemaVersion = 1;
+inline constexpr int SchemaVersion = 2;
+inline constexpr int MinimumSupportedSchemaVersion = 1;
 inline constexpr int TransientItemDataKey = 0x46414D50;
 
 QJsonObject saveScene(QGraphicsScene* scene,

@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-07-17
+
+### Added
+
+- 新增所选点云的后台 DEM 与等高线工作流：使用双精度真实坐标，支持自动/手动网格分辨率、最低/最高/平均/中位数单元统计、最多 3 格封闭 NoData 空洞填补、自动/手动等高距与基准高程，以及 0–3 次折线平滑。
+- 新增版本化 `.famp-dem` 地形边车和原子 ASC、DEM CSV、等高线 CSV/SVG 导出；所有长写入均支持取消并保护已有目标文件。
+- 新增可撤销、可移动且随物理制图比例尺重绘的二维等高线图元；图元使用相对坐标避免大投影坐标降低 Qt 绘制精度，同时持久化真实原点、来源 CRS/图层和 DEM 路径。二维场景文档升级到 schema v2 并继续读取 schema v1。
+
+### Changed
+
+- CRS 检查现会读取投影坐标系的水平单位及米制换算因子；地理经纬度和其他非投影 CRS 会在生成 DEM 前被明确拒绝并引导先重投影。
+
 ## [0.6.0] - 2026-07-17
 
 ### Added
@@ -130,7 +142,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.0...v0.5.1
