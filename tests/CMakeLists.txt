@@ -81,6 +81,8 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/CloudProcessing.cpp"
     "${FAMP_SRC_DIR}/CloudRegistration.cpp"
     "${FAMP_SRC_DIR}/CloudReprojection.cpp"
+    "${FAMP_SRC_DIR}/ControlPoints.cpp"
+    "${FAMP_SRC_DIR}/ControlPointDialog.cpp"
     "${FAMP_SRC_DIR}/CloudCrop.cpp"
     "${FAMP_SRC_DIR}/CloudDisplaySettings.cpp"
     "${FAMP_SRC_DIR}/CloudLayer.cpp"
@@ -100,6 +102,8 @@ add_executable(famp_tests
     test_cloud_processing.cpp
     test_cloud_registration.cpp
     test_cloud_reprojection.cpp
+    test_control_points.cpp
+    test_control_point_dialog.cpp
     test_cloud_crop.cpp
     test_crs_service.cpp
     test_file_io.cpp

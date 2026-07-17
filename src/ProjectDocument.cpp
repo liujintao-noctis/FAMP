@@ -28,6 +28,7 @@ constexpr int MaxWindowStateBytes = 4 * 1024 * 1024;
 constexpr int MaxLayerNameLength = 512;
 constexpr int MaxAttributeSummaries = 256;
 constexpr int MaxArchaeologyFields = 128;
+constexpr int MaxControlPoints = 10000;
 constexpr int MaxMeasurements3d = 10000;
 constexpr int MaxMeasurementPoints = 10000;
 constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
@@ -491,6 +492,65 @@ bool readNumberArray(const QJsonValue& value, std::array<double, Size>& output)
     output = candidate;
     return true;
 }
+
+QJsonArray serializeControlPoints(
+    const QVector<famp::control::Point>& points)
+{
+    QJsonArray result;
+    for (const famp::control::Point& point : points)
+    {
+        result.append(QJsonObject{
+            {QStringLiteral("id"), point.id.trimmed().toLower()},
+            {QStringLiteral("name"), point.name.trimmed()},
+            {QStringLiteral("enabled"), point.enabled},
+            {QStringLiteral("local"), numberArray(point.local)},
+            {QStringLiteral("target"), numberArray(point.target)}});
+    }
+    return result;
+}
+
+bool deserializeControlPoints(
+    const QJsonValue& value,
+    QVector<famp::control::Point>& points)
+{
+    if (value.isUndefined())
+    {
+        points.clear();
+        return true;
+    }
+    if (!value.isArray() || value.toArray().size() > MaxControlPoints)
+        return false;
+
+    QVector<famp::control::Point> candidate;
+    candidate.reserve(value.toArray().size());
+    for (const QJsonValue& item : value.toArray())
+    {
+        if (!item.isObject())
+            return false;
+        const QJsonObject object = item.toObject();
+        const QJsonValue idValue = object.value(QStringLiteral("id"));
+        const QJsonValue nameValue = object.value(QStringLiteral("name"));
+        const QJsonValue enabledValue = object.value(QStringLiteral("enabled"));
+        famp::control::Point point;
+        if (!idValue.isString() || !nameValue.isString()
+            || !enabledValue.isBool()
+            || !readNumberArray(
+                object.value(QStringLiteral("local")), point.local)
+            || !readNumberArray(
+                object.value(QStringLiteral("target")), point.target))
+        {
+            return false;
+        }
+        point.id = idValue.toString().trimmed().toLower();
+        point.name = nameValue.toString().trimmed();
+        point.enabled = enabledValue.toBool();
+        candidate.append(point);
+    }
+    if (!famp::control::validatePoints(candidate))
+        return false;
+    points = candidate;
+    return true;
+}
 }
 
 namespace famp::project
@@ -624,10 +684,11 @@ bool save(const QString& projectPath,
         }
         if (!famp::display::validateSettings(reference.display)
             || reference.attributes.size() > MaxAttributeSummaries
-            || !validArchaeologyFields(reference.archaeologyFields))
+            || !validArchaeologyFields(reference.archaeologyFields)
+            || !famp::control::validatePoints(reference.controlPoints))
         {
             setError(errorMessage,
-                     QStringLiteral("点云图层显示、属性或考古字段无效：%1")
+                     QStringLiteral("点云图层显示、属性、考古字段或控制点无效：%1")
                          .arg(layerName));
             return false;
         }
@@ -700,6 +761,9 @@ bool save(const QString& projectPath,
         serializedReference.insert(
             QStringLiteral("archaeologyFields"),
             serializeArchaeologyFields(reference.archaeologyFields));
+        serializedReference.insert(
+            QStringLiteral("controlPoints"),
+            serializeControlPoints(reference.controlPoints));
         cloudReferences.append(serializedReference);
     }
 
@@ -1012,7 +1076,10 @@ bool load(const QString& projectPath,
                         reference.attributes)
                     || !deserializeArchaeologyFields(
                         object.value(QStringLiteral("archaeologyFields")),
-                        reference.archaeologyFields))
+                        reference.archaeologyFields)
+                    || !deserializeControlPoints(
+                        object.value(QStringLiteral("controlPoints")),
+                        reference.controlPoints))
                 {
                     setError(errorMessage,
                              QStringLiteral("项目包含无效的点云图层状态。"));

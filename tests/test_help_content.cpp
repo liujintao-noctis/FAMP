@@ -23,6 +23,9 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("统计离群点")));
     EXPECT_TRUE(content.contains(QStringLiteral("ICP")));
     EXPECT_TRUE(content.contains(QStringLiteral("空间参考")));
+    EXPECT_TRUE(content.contains(QStringLiteral("控制点与空间配准")));
+    EXPECT_TRUE(content.contains(QStringLiteral("RMSE")));
+    EXPECT_TRUE(content.contains(QStringLiteral("不共线")));
     EXPECT_TRUE(content.contains(QStringLiteral("导出成果")));
     EXPECT_TRUE(content.contains(QStringLiteral("测量面积")));
     EXPECT_TRUE(content.contains(QStringLiteral("中央三维点云")));

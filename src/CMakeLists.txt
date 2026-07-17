@@ -154,6 +154,8 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudProcessing.cpp
     CloudRegistration.cpp
     CloudReprojection.cpp
+    ControlPoints.cpp
+    ControlPointDialog.cpp
     TaskCancellation.h
     TaskManager.cpp
     CompassItem.cpp
@@ -196,6 +198,8 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     CloudProcessing.h
     CloudRegistration.h
     CloudReprojection.h
+    ControlPoints.h
+    ControlPointDialog.h
     CompassItem.h
     CrsService.h
     FAMPController.h

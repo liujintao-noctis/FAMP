@@ -16,6 +16,7 @@
 #include "CloudProcessing.h"
 #include "CloudRegistration.h"
 #include "CloudReprojection.h"
+#include "ControlPointDialog.h"
 #include "FileIO.h"
 #include "GraphicsUndoCommands.h"
 #include "HelpContent.h"
@@ -74,11 +75,86 @@
 #include <vtkProperty.h>
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 #include <memory>
 
 Q_DECLARE_METATYPE(MyCloudList)
 
 static int iCount = 0;      //记录点云的ID号
+
+namespace
+{
+void setCenteredSpatialMatrix(
+    vtkMatrix4x4* matrix,
+    const famp::cloud::SpatialReference& spatial)
+{
+    matrix->Identity();
+    for (int row = 0; row < 3; ++row)
+    {
+        for (int column = 0; column < 3; ++column)
+        {
+            matrix->SetElement(
+                row, column,
+                spatial.transform[static_cast<std::size_t>(
+                    row * 4 + column)]);
+        }
+    }
+}
+
+bool transformLayerMeasurements(
+    const QString& layerId,
+    const famp::cloud::SpatialReference& before,
+    const famp::cloud::SpatialReference& after,
+    const QVector<famp::measurement::Record3D>& input,
+    QVector<famp::measurement::Record3D>& output,
+    QString* errorMessage)
+{
+    QVector<famp::measurement::Record3D> candidate = input;
+    for (auto& record : candidate)
+    {
+        if (record.layerId.compare(layerId, Qt::CaseInsensitive) != 0)
+            continue;
+        for (QVector3D& point : record.points)
+        {
+            const famp::cloud::Point3d source{
+                point.x(), point.y(), point.z()};
+            famp::cloud::Point3d transformed;
+            QString transformError;
+            if (!famp::control::transformDisplayPoint(
+                    before, after, source, transformed, &transformError)
+                || std::abs(transformed[0]) > std::numeric_limits<float>::max()
+                || std::abs(transformed[1]) > std::numeric_limits<float>::max()
+                || std::abs(transformed[2]) > std::numeric_limits<float>::max())
+            {
+                if (errorMessage)
+                {
+                    *errorMessage = transformError.isEmpty()
+                        ? QStringLiteral("控制点变换后的测量坐标超出安全范围。")
+                        : transformError;
+                }
+                return false;
+            }
+            point = QVector3D(
+                static_cast<float>(transformed[0]),
+                static_cast<float>(transformed[1]),
+                static_cast<float>(transformed[2]));
+        }
+        QString validationError;
+        if (!famp::measurement::validateRecord3D(record, &validationError))
+        {
+            if (errorMessage)
+                *errorMessage = validationError;
+            return false;
+        }
+    }
+    output = candidate;
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+}
+
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , recentFilesMenu(nullptr)
@@ -95,6 +171,7 @@ MainWindow::MainWindow(QWidget *parent)
     , cloudCoordinateAction(nullptr)
     , reprojectCloudAction(nullptr)
     , archaeologyMetadataAction(nullptr)
+    , controlPointsAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
     , areaMeasureAction(nullptr)
@@ -286,6 +363,9 @@ void MainWindow::initializeCrsActions()
     archaeologyMetadataAction->setObjectName(
         QStringLiteral("actArchaeologyMetadata"));
     archaeologyMetadataAction->setEnabled(false);
+    controlPointsAction = toolsMenu->addAction(tr("控制点与空间配准…"));
+    controlPointsAction->setObjectName(QStringLiteral("actControlPoints"));
+    controlPointsAction->setEnabled(false);
     connect(setProjectCrsAction, &QAction::triggered,
             this, &MainWindow::slotSetProjectCrs);
     connect(coordinateConverterAction, &QAction::triggered,
@@ -296,6 +376,8 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotReprojectCloud);
     connect(archaeologyMetadataAction, &QAction::triggered,
             this, &MainWindow::slotEditArchaeologyMetadata);
+    connect(controlPointsAction, &QAction::triggered,
+            this, &MainWindow::slotEditControlPoints);
 
     toolsMenu->addSeparator();
     cloudDisplaySettingsAction = toolsMenu->addAction(tr("点云显示设置…"));
@@ -547,6 +629,7 @@ void MainWindow::slotExportArchaeologyReport()
         entry.visible = cloudItem->checkState() == Qt::Checked;
         entry.spatial = cloud.layer.spatial;
         entry.archaeologyFields = cloud.layer.archaeologyFields;
+        entry.controlPoints = cloud.layer.controlPoints;
         report.clouds.append(entry);
     }
 
@@ -617,6 +700,7 @@ bool MainWindow::currentProjectDocument(
             reference.display = cloud.layer.display;
             reference.attributes = cloud.layer.attributes.summaries();
             reference.archaeologyFields = cloud.layer.archaeologyFields;
+            reference.controlPoints = cloud.layer.controlPoints;
             document.clouds.append(reference);
         }
     }
@@ -897,6 +981,8 @@ void MainWindow::clearWorkspace()
         reprojectCloudAction->setEnabled(false);
     if (archaeologyMetadataAction)
         archaeologyMetadataAction->setEnabled(false);
+    if (controlPointsAction)
+        controlPointsAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -1218,7 +1304,7 @@ void MainWindow::slotReprojectCloud()
         tr("程序将逐点转换真实坐标并重新中心化，以保留大坐标下的局部精度。"
            "结果会原子保存为新的 PCD，当前图层切换到新文件。"
            "原有逐点属性会按原类型和顺序无损保留。"
-           "该图层原有三维测量将随重投影移除，撤销时一并恢复。"),
+           "该图层原有三维测量和控制点将随重投影移除，撤销时一并恢复。"),
         &dialog);
     explanation.setWordWrap(true);
     layout.addRow(tr("源 CRS"), &sourceCrsEdit);
@@ -1418,6 +1504,7 @@ void MainWindow::slotReprojectCloud()
     after.sourcePath = outputPath;
     after.spatial = result.spatial;
     after.crs = result.targetCrs;
+    after.controlPoints.clear();
     if (before.name == sourceFile.fileName())
         after.name = QFileInfo(outputPath).fileName();
     ++after.revision;
@@ -1514,16 +1601,7 @@ bool MainWindow::applyCloudLayerState(
     }
 
     vtkNew<vtkMatrix4x4> cloudTransform;
-    for (int row = 0; row < 4; ++row)
-    {
-        for (int column = 0; column < 4; ++column)
-        {
-            cloudTransform->SetElement(
-                row, column,
-                state.spatial.transform[static_cast<std::size_t>(
-                    row * 4 + column)]);
-        }
-    }
+    setCenteredSpatialMatrix(cloudTransform, state.spatial);
     found->cloudactor->SetUserMatrix(cloudTransform);
     found->AABBactor->SetUserMatrix(cloudTransform);
     if (!famp::display::apply(
@@ -1622,6 +1700,9 @@ void MainWindow::updateCloudToolActions()
     if (archaeologyMetadataAction)
         archaeologyMetadataAction->setEnabled(
             available && !cloud.layer.locked && !cloudLoadBusy);
+    if (controlPointsAction)
+        controlPointsAction->setEnabled(
+            available && !cloud.layer.locked && !cloudLoadBusy);
 }
 
 void MainWindow::slotEditArchaeologyMetadata()
@@ -1680,6 +1761,117 @@ void MainWindow::slotEditArchaeologyMetadata()
         tr("已更新考古图层属性：%1（%2 个字段）")
             .arg(before.name)
             .arg(updatedFields.size()));
+}
+
+void MainWindow::slotEditControlPoints()
+{
+    MyCloudList cloud;
+    QString path;
+    if (!selectedCloudData(cloud, &path))
+    {
+        QMessageBox::information(
+            this, tr("控制点与空间配准"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (cloud.layer.locked)
+    {
+        QMessageBox::information(
+            this, tr("控制点与空间配准"), tr("所选图层已锁定，无法修改。"));
+        return;
+    }
+
+    famp::control::EditResult result;
+    if (!famp::control::editControlPoints(
+            this, cloud.layer.name, path, cloud.layer.spatial,
+            cloud.layer.controlPoints, result))
+    {
+        return;
+    }
+
+    const famp::cloud::CloudLayer before = cloud.layer;
+    famp::cloud::CloudLayer after = before;
+    after.controlPoints = result.points;
+    if (result.applySolution)
+        after.spatial = result.solution.spatial;
+    if (famp::control::pointsEqual(
+            before.controlPoints, after.controlPoints)
+        && before.spatial.origin == after.spatial.origin
+        && before.spatial.transform == after.spatial.transform)
+    {
+        return;
+    }
+    ++after.revision;
+
+    const QString layerId = before.id;
+    if (!result.applySolution)
+    {
+        ui.graphicsView->commandStack()->push(
+            famp::graphics::makeCallbackCommand(
+                [this, layerId, before]() {
+                    if (!applyCloudMetadataState(layerId, before))
+                        emit sendStr2Console(tr("恢复控制点记录失败。"));
+                },
+                [this, layerId, after]() {
+                    if (!applyCloudMetadataState(layerId, after))
+                        emit sendStr2Console(tr("保存控制点记录失败。"));
+                },
+                tr("更新控制点记录：%1").arg(before.name)));
+        statusBar()->showMessage(
+            tr("已保存 %1 个控制点，可撤销。")
+                .arg(after.controlPoints.size()),
+            5000);
+        emit sendStr2Console(
+            tr("已更新控制点记录：%1（%2 个点）")
+                .arg(before.name)
+                .arg(after.controlPoints.size()));
+        return;
+    }
+
+    const QVector<famp::measurement::Record3D> beforeMeasurements =
+        myVTK->measurements();
+    QVector<famp::measurement::Record3D> afterMeasurements;
+    QString measurementError;
+    if (!transformLayerMeasurements(
+            layerId, before.spatial, after.spatial,
+            beforeMeasurements, afterMeasurements, &measurementError))
+    {
+        QMessageBox::warning(
+            this, tr("控制点与空间配准"), measurementError);
+        return;
+    }
+    auto applyState = [this, layerId](
+        const famp::cloud::CloudLayer& state,
+        const QVector<famp::measurement::Record3D>& measurements) {
+        if (!applyCloudLayerState(layerId, state))
+            return false;
+        QString error;
+        if (!myVTK->setMeasurements(measurements, &error))
+        {
+            emit sendStr2Console(
+                tr("更新控制点配准后的测量失败：%1").arg(error));
+            return false;
+        }
+        return true;
+    };
+    ui.graphicsView->commandStack()->push(
+        famp::graphics::makeCallbackCommand(
+            [applyState, before, beforeMeasurements]() {
+                applyState(before, beforeMeasurements);
+            },
+            [applyState, after, afterMeasurements]() {
+                applyState(after, afterMeasurements);
+            },
+            tr("应用控制点空间配准：%1").arg(before.name)));
+    statusBar()->showMessage(
+        tr("控制点刚体配准已应用：RMSE %1（图层坐标单位），可撤销。")
+            .arg(result.solution.quality.rootMeanSquare, 0, 'g', 8),
+        8000);
+    emit sendStr2Console(
+        tr("控制点配准完成：%1，启用 %2 点，RMSE %3，最大残差 %4（图层坐标单位）")
+            .arg(before.name)
+            .arg(result.solution.quality.enabledPointCount)
+            .arg(result.solution.quality.rootMeanSquare, 0, 'g', 8)
+            .arg(result.solution.quality.maximum, 0, 'g', 8));
 }
 
 void MainWindow::slotOpenCloudCoordinateViewer()
@@ -3223,21 +3415,13 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
         pointCloud.layer.spatial = storedReference->spatial;
         pointCloud.layer.display = storedReference->display;
         pointCloud.layer.archaeologyFields = storedReference->archaeologyFields;
+        pointCloud.layer.controlPoints = storedReference->controlPoints;
         pointCloud.layer.locked = storedReference->locked;
         cloudVisible = storedReference->visible;
     }
     pointCloud.layer.visible = cloudVisible;
     vtkNew<vtkMatrix4x4> cloudTransform;
-    for (int row = 0; row < 4; ++row)
-    {
-        for (int column = 0; column < 4; ++column)
-        {
-            cloudTransform->SetElement(
-                row, column,
-                pointCloud.layer.spatial.transform[static_cast<std::size_t>(
-                    row * 4 + column)]);
-        }
-    }
+    setCenteredSpatialMatrix(cloudTransform, pointCloud.layer.spatial);
     pointCloud.cloudactor->SetUserMatrix(cloudTransform);
     pointCloud.AABBactor->SetUserMatrix(cloudTransform);
     QString displayError;
@@ -3361,6 +3545,8 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         reprojectCloudAction->setEnabled(false);
     if (busy && archaeologyMetadataAction)
         archaeologyMetadataAction->setEnabled(false);
+    if (busy && controlPointsAction)
+        controlPointsAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

@@ -134,6 +134,19 @@ QString originText(const famp::cloud::SpatialReference& spatial)
         .arg(spatial.origin[2], 0, 'g', 12);
 }
 
+QString pointText(const famp::cloud::Point3d& point)
+{
+    return QStringLiteral("%1, %2, %3")
+        .arg(point[0], 0, 'g', 12)
+        .arg(point[1], 0, 'g', 12)
+        .arg(point[2], 0, 'g', 12);
+}
+
+QString numberText(double value)
+{
+    return QString::number(value, 'g', 12);
+}
+
 bool writeBytesAtomically(const QString& path,
                           const QByteArray& bytes,
                           QString* errorMessage)
@@ -182,6 +195,14 @@ QString toHtml(const Data& data, QString* errorMessage)
         {
             setError(errorMessage,
                      QStringLiteral("报告中的考古图层字段无效：%1")
+                         .arg(fieldError));
+            return {};
+        }
+        if (!famp::control::validatePoints(
+                cloud.controlPoints, &fieldError))
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的控制点无效：%1")
                          .arg(fieldError));
             return {};
         }
@@ -282,6 +303,87 @@ QString toHtml(const Data& data, QString* errorMessage)
     }
     if (data.clouds.isEmpty())
         stream << "<p>无可列出的考古图层记录。</p>";
+    stream << "<h2>控制点与配准质量</h2>";
+    for (qsizetype cloudIndex = 0;
+         cloudIndex < data.clouds.size(); ++cloudIndex)
+    {
+        const CloudEntry& cloud = data.clouds.at(cloudIndex);
+        stream << "<h3>" << cloudIndex + 1 << ". "
+               << escaped(cloud.name.isEmpty()
+                              ? QFileInfo(cloud.path).fileName() : cloud.name)
+               << "</h3>";
+        if (cloud.controlPoints.isEmpty())
+        {
+            stream << "<p>未填写控制点。</p>";
+            continue;
+        }
+
+        famp::control::Quality quality;
+        QString qualityError;
+        int enabledCount = 0;
+        for (const auto& point : cloud.controlPoints)
+        {
+            if (point.enabled)
+                ++enabledCount;
+        }
+        const bool hasQuality = enabledCount > 0
+            && famp::control::evaluate(
+                cloud.controlPoints, cloud.spatial,
+                quality, &qualityError);
+        if (enabledCount > 0 && !hasQuality)
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的控制点残差无法计算：%1")
+                         .arg(qualityError));
+            return {};
+        }
+        QMap<QString, famp::control::Residual> residuals;
+        if (hasQuality)
+        {
+            for (const auto& residual : quality.residuals)
+                residuals.insert(residual.pointId, residual);
+            stream << "<p><b>启用点：</b>" << quality.enabledPointCount
+                   << "；<b>RMSE：</b>"
+                   << numberText(quality.rootMeanSquare)
+                   << "；<b>平均残差：</b>" << numberText(quality.mean)
+                   << "；<b>最大残差：</b>" << numberText(quality.maximum)
+                   << "（图层坐标单位）。</p>";
+        }
+        else
+        {
+            stream << "<p>当前没有启用的控制点，未计算残差。</p>";
+        }
+
+        stream << "<table><tr><th>#</th><th>启用</th><th>名称</th>"
+                  "<th>局部 X, Y, Z</th><th>目标 X, Y, Z</th>"
+                  "<th>残差 dX, dY, dZ</th><th>总残差（坐标单位）</th></tr>";
+        for (qsizetype pointIndex = 0;
+             pointIndex < cloud.controlPoints.size(); ++pointIndex)
+        {
+            const auto& point = cloud.controlPoints.at(pointIndex);
+            stream << "<tr><td>" << pointIndex + 1 << "</td><td>"
+                   << (point.enabled ? QStringLiteral("是")
+                                     : QStringLiteral("否"))
+                   << "</td><td>" << escaped(point.name)
+                   << "</td><td>" << escaped(pointText(point.local))
+                   << "</td><td>" << escaped(pointText(point.target))
+                   << "</td>";
+            const auto residual = residuals.constFind(point.id);
+            if (residual == residuals.cend())
+            {
+                stream << "<td>—</td><td>—</td></tr>";
+            }
+            else
+            {
+                stream << "<td>" << escaped(pointText(residual->delta))
+                       << "</td><td>" << numberText(residual->distance)
+                       << "</td></tr>";
+            }
+        }
+        stream << "</table>";
+    }
+    if (data.clouds.isEmpty())
+        stream << "<p>无可列出的控制点记录。</p>";
     stream << "<h2>二维测量成果</h2><table><tr><th>#</th><th>类型</th><th>结果</th></tr>";
     for (qsizetype index = 0; index < measurements.size(); ++index)
     {

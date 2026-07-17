@@ -29,6 +29,22 @@ famp::report::Data sampleReport()
         QStringLiteral("context"), QStringLiteral("Locus & 12"));
     cloud.archaeologyFields.insert(
         QStringLiteral("现场备注"), QStringLiteral("<script>alert(1)</script>"));
+    const QVector<famp::cloud::Point3d> controlLocals{
+        {0.0, 0.0, 0.0}, {1.0, 0.0, 0.0}, {0.0, 1.0, 0.0}};
+    for (int index = 0; index < controlLocals.size(); ++index)
+    {
+        famp::control::Point controlPoint;
+        controlPoint.id = famp::control::createPointId();
+        controlPoint.name = index == 0
+            ? QStringLiteral("GCP <基准>")
+            : QStringLiteral("GCP-%1").arg(index + 1);
+        controlPoint.local = controlLocals.at(index);
+        controlPoint.target = {
+            controlPoint.local[0] + cloud.spatial.origin[0],
+            controlPoint.local[1] + cloud.spatial.origin[1],
+            controlPoint.local[2] + cloud.spatial.origin[2]};
+        cloud.controlPoints.append(controlPoint);
+    }
     data.clouds.append(cloud);
     QJsonObject measurement;
     measurement.insert(QStringLiteral("type"), QStringLiteral("measurement"));
@@ -67,6 +83,10 @@ TEST(ArchaeologyReportTest, GeneratesEscapedStructuredHtml)
     EXPECT_TRUE(html.contains(
         QStringLiteral("&lt;script&gt;alert(1)&lt;/script&gt;")));
     EXPECT_FALSE(html.contains(QStringLiteral("<script>alert(1)</script>")));
+    EXPECT_TRUE(html.contains(QStringLiteral("控制点与配准质量")));
+    EXPECT_TRUE(html.contains(QStringLiteral("GCP &lt;基准&gt;")));
+    EXPECT_TRUE(html.contains(QStringLiteral("RMSE")));
+    EXPECT_TRUE(html.contains(QStringLiteral("最大残差")));
     EXPECT_TRUE(html.contains(QStringLiteral("面积")));
     EXPECT_TRUE(html.contains(QStringLiteral("6")));
     EXPECT_TRUE(html.contains(QStringLiteral("10")));
@@ -129,4 +149,14 @@ TEST(ArchaeologyReportTest, RejectsInvalidArchaeologyFields)
     QString error;
     EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
     EXPECT_TRUE(error.contains(QStringLiteral("考古图层字段")));
+}
+
+TEST(ArchaeologyReportTest, RejectsInvalidControlPoints)
+{
+    auto data = sampleReport();
+    data.clouds[0].controlPoints[1].id =
+        data.clouds[0].controlPoints[0].id;
+    QString error;
+    EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
+    EXPECT_TRUE(error.contains(QStringLiteral("控制点")));
 }

@@ -3,6 +3,7 @@
 #include "CloudAttributes.h"
 #include "CloudCoordinates.h"
 #include "CloudDisplaySettings.h"
+#include "ControlPoints.h"
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
@@ -24,6 +25,7 @@ struct CloudLayer
     CloudAttributes attributes;
     famp::display::Settings display;
     QMap<QString, QString> archaeologyFields;
+    QVector<famp::control::Point> controlPoints;
     bool visible = true;
     bool locked = false;
     quint64 revision = 0;

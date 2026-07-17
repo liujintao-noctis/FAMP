@@ -62,6 +62,14 @@ TEST(CloudLayerTest, RejectsAttributeCountAndUnsafeMetadata)
     layer.attributes.clear();
     layer.archaeologyFields.insert(QString(), QStringLiteral("invalid"));
     EXPECT_FALSE(famp::cloud::validateLayer(layer, true, &error));
+
+    layer.archaeologyFields.clear();
+    famp::control::Point controlPoint;
+    controlPoint.id = famp::control::createPointId();
+    controlPoint.name = QStringLiteral("CP-1");
+    layer.controlPoints = {controlPoint, controlPoint};
+    EXPECT_FALSE(famp::cloud::validateLayer(layer, true, &error));
+    EXPECT_TRUE(error.contains(QStringLiteral("ID")));
 }
 
 TEST(CloudLayerTest, AllowsMetadataOnlyLayerWhenExplicitlyRequested)
