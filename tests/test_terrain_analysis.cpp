@@ -260,3 +260,47 @@ TEST(TerrainAnalysisTest, AppliesDoublePrecisionSpatialReference)
     EXPECT_DOUBLE_EQ(result.grid.value(0, 0), 20.0);
     EXPECT_EQ(result.grid.sourcePointCount, 16);
 }
+
+TEST(TerrainAnalysisTest, BuildsReusableGridFromFullSpatialTransformAtomically)
+{
+    auto cloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    for (int row = 0; row < 4; ++row)
+    {
+        for (int column = 0; column < 4; ++column)
+        {
+            pcl::PointXYZRGB point;
+            point.x = static_cast<float>(column);
+            point.y = static_cast<float>(row);
+            point.z = static_cast<float>(column + row);
+            cloud->push_back(point);
+        }
+    }
+    famp::cloud::SpatialReference spatial;
+    spatial.origin = {1000.0, 2000.0, 10.0};
+    spatial.transform = {
+        0.0, -1.0, 0.0, 50.0,
+        1.0,  0.0, 0.0, 75.0,
+        0.0,  0.0, 1.0,  5.0,
+        0.0,  0.0, 0.0,  1.0};
+    famp::terrain::GridOptions options;
+    options.automaticResolution = false;
+    options.resolution = 1.0;
+    famp::terrain::Grid output;
+    QString error;
+    ASSERT_TRUE(famp::terrain::buildGridFromCloud(
+        cloud, spatial, options, output, nullptr, &error))
+        << error.toStdString();
+    ASSERT_TRUE(output.isValid());
+    EXPECT_DOUBLE_EQ(output.originX, -1953.0);
+    EXPECT_DOUBLE_EQ(output.originY, 1075.0);
+    EXPECT_DOUBLE_EQ(output.value(0, 0), 18.0);
+
+    famp::terrain::Grid unchanged;
+    unchanged.rows = 9;
+    EXPECT_FALSE(famp::terrain::buildGridFromCloud(
+        cloud, spatial, options, unchanged, nullptr, &error,
+        []() { return true; }));
+    EXPECT_TRUE(error.contains(QStringLiteral("取消")));
+    EXPECT_EQ(unchanged.rows, 9);
+}

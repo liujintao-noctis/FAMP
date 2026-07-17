@@ -101,6 +101,7 @@ private:
     QAction * archaeologyMetadataAction;
     QAction * controlPointsAction;
     QAction * terrainAnalysisAction;
+    QAction * cutFillAction;
     QAction * cloudProfileAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
@@ -251,6 +252,7 @@ private slots:
     void slotEditArchaeologyMetadata();
     void slotEditControlPoints();
     void slotGenerateTerrain();
+    void slotCalculateCutFill();
     void slotStartCloudProfile();
     void slotShowQuickStart();
     void slotShowShortcuts();

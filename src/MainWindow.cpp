@@ -17,6 +17,9 @@
 #include "CloudRegistration.h"
 #include "CloudReprojection.h"
 #include "ControlPointDialog.h"
+#include "CutFillAnalysis.h"
+#include "CutFillDialog.h"
+#include "CutFillIO.h"
 #include "FileIO.h"
 #include "GraphicsUndoCommands.h"
 #include "HelpContent.h"
@@ -191,6 +194,25 @@ struct ProfileTaskOutput
             && error.isEmpty() && !cancelled;
     }
 };
+
+struct CutFillTaskOutput
+{
+    famp::cutfill::Result analysis;
+    QStringList savedPaths;
+    QStringList warnings;
+    QString error;
+    bool sidecarSaved = false;
+    bool cancelled = false;
+
+    bool succeeded() const
+    {
+        // Saving the required sidecar already performs the complete result
+        // consistency check. Avoid another full-grid pass on the GUI thread.
+        return !analysis.cancelled && analysis.error.isEmpty()
+            && sidecarSaved
+            && error.isEmpty() && !cancelled;
+    }
+};
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -211,6 +233,7 @@ MainWindow::MainWindow(QWidget *parent)
     , archaeologyMetadataAction(nullptr)
     , controlPointsAction(nullptr)
     , terrainAnalysisAction(nullptr)
+    , cutFillAction(nullptr)
     , cloudProfileAction(nullptr)
     , measurementActionGroup(nullptr)
     , distanceMeasureAction(nullptr)
@@ -410,6 +433,9 @@ void MainWindow::initializeCrsActions()
     terrainAnalysisAction->setObjectName(
         QStringLiteral("actTerrainAnalysis"));
     terrainAnalysisAction->setEnabled(false);
+    cutFillAction = toolsMenu->addAction(tr("挖填方与体积…"));
+    cutFillAction->setObjectName(QStringLiteral("actCutFillAnalysis"));
+    cutFillAction->setEnabled(false);
     cloudProfileAction = toolsMenu->addAction(tr("点云高程剖面…"));
     cloudProfileAction->setObjectName(QStringLiteral("actCloudProfile"));
     cloudProfileAction->setEnabled(false);
@@ -427,6 +453,8 @@ void MainWindow::initializeCrsActions()
             this, &MainWindow::slotEditControlPoints);
     connect(terrainAnalysisAction, &QAction::triggered,
             this, &MainWindow::slotGenerateTerrain);
+    connect(cutFillAction, &QAction::triggered,
+            this, &MainWindow::slotCalculateCutFill);
     connect(cloudProfileAction, &QAction::triggered,
             this, &MainWindow::slotStartCloudProfile);
     connect(myVTK, &MyVTK::profileLineSelectionCancelled,
@@ -1097,6 +1125,10 @@ void MainWindow::clearWorkspace()
         controlPointsAction->setEnabled(false);
     if (terrainAnalysisAction)
         terrainAnalysisAction->setEnabled(false);
+    if (cutFillAction)
+        cutFillAction->setEnabled(false);
+    if (cloudProfileAction)
+        cloudProfileAction->setEnabled(false);
 }
 
 void MainWindow::markProjectDirty()
@@ -1820,6 +1852,9 @@ void MainWindow::updateCloudToolActions()
     if (terrainAnalysisAction)
         terrainAnalysisAction->setEnabled(
             available && !cloud.layer.locked && !cloudLoadBusy);
+    if (cutFillAction)
+        cutFillAction->setEnabled(
+            available && !cloud.layer.locked && !cloudLoadBusy);
     if (cloudProfileAction)
         cloudProfileAction->setEnabled(available && !cloudLoadBusy);
 }
@@ -2387,6 +2422,427 @@ void MainWindow::generateCloudProfile(
         emit sendStr2Console(warningText);
     }
     famp::profileui::ProfileResultDialog resultDialog(
+        result.analysis, result.savedPaths, this);
+    resultDialog.exec();
+}
+
+void MainWindow::slotCalculateCutFill()
+{
+    MyCloudList cloud;
+    QString sourcePath;
+    if (!selectedCloudData(cloud, &sourcePath))
+    {
+        QMessageBox::information(
+            this, tr("挖填方与体积"), tr("请先在内容列表中选择点云。"));
+        return;
+    }
+    if (cloud.layer.locked)
+    {
+        QMessageBox::information(
+            this, tr("挖填方与体积"), tr("所选图层已锁定，无法生成挖填方成果。"));
+        return;
+    }
+
+    QString sourceCrs = cloud.layer.crs.trimmed();
+    if (sourceCrs.isEmpty())
+        sourceCrs = projectCrs.trimmed();
+    double horizontalUnitToMetre = 1.0;
+    QString horizontalUnitName = tr("米（用户确认的本地 X/Y/Z 坐标）");
+    QString crsDescription = tr("未声明 CRS；将按本地米制三维坐标处理");
+    if (!sourceCrs.isEmpty())
+    {
+        famp::crs::Info info;
+        QString crsError;
+        if (!famp::crs::inspect(sourceCrs, info, &crsError))
+        {
+            QMessageBox::warning(this, tr("挖填方与体积"), crsError);
+            return;
+        }
+        if (info.geographic)
+        {
+            QMessageBox::warning(
+                this, tr("挖填方与体积"),
+                tr("所选点云使用地理经纬度坐标系 %1。不能直接以角度计算面积和体积；"
+                   "请先使用“工具 → 重投影所选点云…”转换到合适的投影坐标系。")
+                    .arg(info.identifier));
+            return;
+        }
+        if (!info.projected)
+        {
+            QMessageBox::warning(
+                this, tr("挖填方与体积"),
+                tr("坐标系 %1 不是受支持的二维投影坐标系。请先重投影点云。")
+                    .arg(info.identifier));
+            return;
+        }
+        sourceCrs = info.identifier;
+        horizontalUnitToMetre = info.horizontalUnitToMetre;
+        horizontalUnitName = QStringLiteral("%1（1 单位 = %2 米；Z 按同一单位）")
+                                 .arg(info.horizontalUnitName)
+                                 .arg(info.horizontalUnitToMetre, 0, 'g', 12);
+        crsDescription = QStringLiteral("%1 — %2")
+                             .arg(info.identifier, info.name);
+    }
+    else
+    {
+        const auto confirmation = QMessageBox::question(
+            this, tr("确认本地坐标单位"),
+            tr("所选点云和项目都未声明 CRS。是否确认其真实 X/Y/Z 坐标都以米为单位？\n\n"
+               "挖填方体积需要 X、Y 和高程 Z 使用同一长度单位。如果实际是经纬度或其他单位，请先取消并设置/重投影坐标系。"),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (confirmation != QMessageBox::Yes)
+            return;
+    }
+
+    const QFileInfo sourceInfo(sourcePath);
+    const QDir initialDirectory = sourceInfo.absoluteDir().exists()
+        ? sourceInfo.absoluteDir()
+        : QDir(QFileInfo(currentProjectPath).absolutePath());
+    QString baseName = sourceInfo.completeBaseName();
+    if (baseName.isEmpty())
+        baseName = cloud.layer.name;
+    if (baseName.trimmed().isEmpty())
+        baseName = QStringLiteral("cut_fill");
+    const QString initialSidecarPath = initialDirectory.filePath(
+        baseName + QStringLiteral("_volume.famp-volume"));
+    famp::cutfillui::CutFillDialog dialog(
+        cloud.layer.name, crsDescription, horizontalUnitName,
+        horizontalUnitToMetre, initialSidecarPath, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+    famp::cutfillui::Options options = dialog.options();
+    options.sidecarPath = QFileInfo(options.sidecarPath).absoluteFilePath();
+    if (!options.referenceDemPath.isEmpty())
+    {
+        options.referenceDemPath = QFileInfo(
+            options.referenceDemPath).absoluteFilePath();
+    }
+    QString validationError;
+    if (!famp::cutfillui::validateOptions(options, &validationError))
+    {
+        QMessageBox::warning(
+            this, tr("挖填方与体积"), validationError);
+        return;
+    }
+    const famp::cutfillui::ExportPaths exportPaths =
+        famp::cutfillui::derivedExportPaths(options.sidecarPath);
+
+    QStringList existingOutputs;
+    const auto addExisting = [&existingOutputs](bool selected,
+                                                const QString& path) {
+        if (selected && QFileInfo::exists(path))
+            existingOutputs.append(path);
+    };
+    addExisting(true, exportPaths.sidecar);
+    addExisting(options.exportSummaryCsv, exportPaths.summaryCsv);
+    addExisting(options.exportCellsCsv, exportPaths.cellsCsv);
+    addExisting(options.exportSvg, exportPaths.svg);
+    if (!existingOutputs.isEmpty())
+    {
+        const auto overwrite = QMessageBox::question(
+            this, tr("覆盖挖填方成果"),
+            tr("以下成果文件已经存在，将被原子替换：\n%1\n\n是否继续？")
+                .arg(existingOutputs.join(QLatin1Char('\n'))),
+            QMessageBox::Yes | QMessageBox::Cancel,
+            QMessageBox::Cancel);
+        if (overwrite != QMessageBox::Yes)
+            return;
+    }
+
+    const famp::tasks::Handle task = taskManager->start(
+        tr("计算挖填方与体积"), cloud.layer.name);
+    if (!task.isValid())
+    {
+        QMessageBox::warning(
+            this, tr("挖填方与体积"), tr("无法创建后台挖填方任务。"));
+        return;
+    }
+
+    QProgressDialog progress(
+        tr("正在计算挖填方与体积…"), tr("取消"), 0, 100, this);
+    progress.setWindowTitle(tr("挖填方与体积"));
+    progress.setWindowModality(Qt::ApplicationModal);
+    progress.setMinimumDuration(0);
+    progress.setValue(0);
+    connect(&progress, &QProgressDialog::canceled, this, [this, task]() {
+        taskManager->requestCancellation(task.id);
+    });
+    const QMetaObject::Connection progressConnection = connect(
+        taskManager, &famp::tasks::TaskManager::taskChanged,
+        &progress, [this, task, &progress](quint64 id) {
+            if (id != task.id)
+                return;
+            famp::tasks::Snapshot snapshot;
+            if (!taskManager->snapshot(id, snapshot))
+                return;
+            progress.setValue(static_cast<int>(std::clamp(
+                snapshot.progress * 100.0, 0.0, 100.0)));
+            if (!snapshot.message.isEmpty())
+                progress.setLabelText(snapshot.message);
+        });
+
+    QFutureWatcher<CutFillTaskOutput> watcher;
+    connect(&watcher, &QFutureWatcher<CutFillTaskOutput>::finished,
+            &progress, &QProgressDialog::accept);
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input =
+        cloud.layer.points;
+    const famp::cloud::SpatialReference spatial = cloud.layer.spatial;
+    const QString layerId = cloud.layer.id;
+    const QString layerName = cloud.layer.name;
+    watcher.setFuture(QtConcurrent::run(
+        [this, task, input, spatial, options, exportPaths,
+         sourceCrs, horizontalUnitName, horizontalUnitToMetre,
+         layerId, layerName]() mutable {
+            CutFillTaskOutput output;
+            const auto shouldCancel = task.cancellationCheck();
+            famp::terrain::Grid referenceGrid;
+            if (options.analysis.referenceMode
+                == famp::cutfill::ReferenceMode::DemGrid)
+            {
+                taskManager->setProgress(
+                    task.id, 0.02, tr("正在后台读取参考 DEM…"));
+                QString referenceError;
+                if (!famp::terrainio::loadGrid(
+                        options.referenceDemPath, referenceGrid,
+                        &referenceError))
+                {
+                    output.error = tr("参考 DEM 读取失败：%1")
+                                       .arg(referenceError);
+                    return output;
+                }
+                if (famp::tasks::isCancellationRequested(shouldCancel))
+                {
+                    output.cancelled = true;
+                    output.error = tr("挖填方计算已取消。");
+                    return output;
+                }
+                if (!famp::cutfillui::applyReferenceGrid(
+                        referenceGrid, sourceCrs,
+                        horizontalUnitToMetre, options,
+                        &referenceError))
+                {
+                    output.error = referenceError;
+                    return output;
+                }
+            }
+
+            famp::terrain::Grid currentGrid;
+            QString gridError;
+            const double gridStart = options.analysis.referenceMode
+                    == famp::cutfill::ReferenceMode::DemGrid
+                ? 0.08 : 0.02;
+            if (!famp::terrain::buildGridFromCloud(
+                    input, spatial, options.grid, currentGrid,
+                    nullptr, &gridError, shouldCancel,
+                    [this, task, gridStart](double value) {
+                        taskManager->setProgress(
+                            task.id,
+                            gridStart + (0.55 - gridStart) * value,
+                            tr("正在生成当前地表 DEM：%1%")
+                                .arg(static_cast<int>(value * 100.0)));
+                    }))
+            {
+                output.cancelled =
+                    famp::tasks::isCancellationRequested(shouldCancel);
+                output.error = gridError.isEmpty()
+                    ? tr("当前地表 DEM 生成失败。") : gridError;
+                return output;
+            }
+            currentGrid.sourceLayerId = layerId;
+            currentGrid.sourceLayerName = layerName;
+            currentGrid.sourceCrs = sourceCrs;
+            currentGrid.horizontalUnitName = horizontalUnitName;
+
+            taskManager->setProgress(
+                task.id, 0.56, tr("正在累计挖方、填方和净体积…"));
+            const auto analysisProgress = [this, task](double value) {
+                taskManager->setProgress(
+                    task.id, 0.56 + 0.24 * value,
+                    tr("正在计算网格高差：%1%")
+                        .arg(static_cast<int>(value * 100.0)));
+            };
+            if (options.analysis.referenceMode
+                == famp::cutfill::ReferenceMode::DemGrid)
+            {
+                output.analysis = famp::cutfill::compareToGrid(
+                    std::move(currentGrid), referenceGrid,
+                    options.analysis, shouldCancel, analysisProgress);
+                output.analysis.referencePath = options.referenceDemPath;
+            }
+            else
+            {
+                output.analysis = famp::cutfill::compareToConstant(
+                    std::move(currentGrid), options.analysis,
+                    shouldCancel, analysisProgress);
+                output.analysis.referencePath = tr("固定设计高程 %1 米")
+                    .arg(options.analysis.referenceElevation
+                             * horizontalUnitToMetre,
+                         0, 'g', 12);
+            }
+            if (output.analysis.cancelled
+                || famp::tasks::isCancellationRequested(shouldCancel))
+            {
+                output.cancelled = true;
+                output.error = output.analysis.error.isEmpty()
+                    ? tr("挖填方计算已取消，未写入未完成文件。")
+                    : output.analysis.error;
+                return output;
+            }
+            if (!output.analysis.error.isEmpty()
+                || output.analysis.differences.isEmpty())
+            {
+                output.error = output.analysis.error.isEmpty()
+                    ? tr("挖填方计算失败。")
+                    : output.analysis.error;
+                return output;
+            }
+
+            taskManager->setProgress(
+                task.id, 0.82, tr("正在原子保存挖填方成果边车…"));
+            QString saveError;
+            if (!famp::cutfillio::saveResultAtomically(
+                    exportPaths.sidecar, output.analysis,
+                    &saveError, shouldCancel))
+            {
+                output.cancelled =
+                    famp::tasks::isCancellationRequested(shouldCancel);
+                output.error = saveError;
+                return output;
+            }
+            output.sidecarSaved = true;
+            output.savedPaths.append(exportPaths.sidecar);
+
+            const int exportCount =
+                static_cast<int>(options.exportSummaryCsv)
+                + static_cast<int>(options.exportCellsCsv)
+                + static_cast<int>(options.exportSvg);
+            int exportIndex = 0;
+            const auto exportOne = [&](const QString& label,
+                                       const QString& path,
+                                       const auto& operation) {
+                taskManager->setProgress(
+                    task.id,
+                    0.85 + 0.14 * exportIndex
+                        / std::max(1, exportCount),
+                    tr("正在导出%1…").arg(label));
+                ++exportIndex;
+                QString exportError;
+                if (operation(&exportError))
+                {
+                    output.savedPaths.append(path);
+                    return true;
+                }
+                if (famp::tasks::isCancellationRequested(shouldCancel))
+                {
+                    output.cancelled = true;
+                    output.error = exportError;
+                    return false;
+                }
+                output.warnings.append(
+                    tr("%1 导出失败：%2").arg(label, exportError));
+                return true;
+            };
+            if (options.exportSummaryCsv
+                && !exportOne(
+                    tr("汇总 CSV"), exportPaths.summaryCsv,
+                    [&](QString* error) {
+                        return famp::cutfillio::exportSummaryCsvAtomically(
+                            exportPaths.summaryCsv, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportCellsCsv
+                && !exportOne(
+                    tr("逐格 CSV"), exportPaths.cellsCsv,
+                    [&](QString* error) {
+                        return famp::cutfillio::exportCellsCsvAtomically(
+                            exportPaths.cellsCsv, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            if (options.exportSvg
+                && !exportOne(
+                    tr("概览 SVG"), exportPaths.svg,
+                    [&](QString* error) {
+                        return famp::cutfillio::exportSvgAtomically(
+                            exportPaths.svg, output.analysis,
+                            error, shouldCancel);
+                    }))
+            {
+                return output;
+            }
+            taskManager->setProgress(
+                task.id, 1.0, tr("挖填方与体积成果已生成"));
+            return output;
+        }));
+    if (!watcher.isFinished())
+        progress.exec();
+    const CutFillTaskOutput result = watcher.result();
+    disconnect(progressConnection);
+
+    if (result.cancelled)
+    {
+        QString message = result.error.isEmpty()
+            ? tr("挖填方计算已取消。") : result.error;
+        if (!result.savedPaths.isEmpty())
+        {
+            message += tr(" 已完成的成果文件已保留：%1")
+                           .arg(result.savedPaths.join(QStringLiteral("；")));
+        }
+        taskManager->acknowledgeCancellation(task.id, message);
+        statusBar()->showMessage(message, 8000);
+        emit sendStr2Console(message);
+        return;
+    }
+    if (!result.succeeded())
+    {
+        const QString message = result.error.isEmpty()
+            ? tr("挖填方与体积成果生成失败。") : result.error;
+        taskManager->fail(task.id, message);
+        QMessageBox::warning(
+            this, tr("挖填方与体积生成失败"), message);
+        emit sendStr2Console(message);
+        return;
+    }
+    taskManager->succeed(task.id, tr("挖填方与体积计算完成"));
+    const QString referenceDescription =
+        result.analysis.referenceMode
+            == famp::cutfill::ReferenceMode::ConstantElevation
+        ? tr("固定设计高程 %1 米")
+              .arg(result.analysis.constantReferenceElevation
+                       * result.analysis.currentGrid.horizontalUnitToMetre,
+                   0, 'g', 12)
+        : result.analysis.referencePath;
+    const QString summary = tr(
+        "挖填方计算完成：参考=%1，%2 × %3 网格，有效对比 %4 格；"
+        "挖方 %5 立方米/%6 平方米，填方 %7 立方米/%8 平方米，"
+        "净体积（挖-填）%9 立方米，缺少参考 %10 格。成果：%11")
+        .arg(referenceDescription)
+        .arg(result.analysis.currentGrid.columns)
+        .arg(result.analysis.currentGrid.rows)
+        .arg(result.analysis.comparedCellCount)
+        .arg(result.analysis.cutVolumeCubicMetres, 0, 'g', 12)
+        .arg(result.analysis.cutAreaSquareMetres, 0, 'g', 12)
+        .arg(result.analysis.fillVolumeCubicMetres, 0, 'g', 12)
+        .arg(result.analysis.fillAreaSquareMetres, 0, 'g', 12)
+        .arg(result.analysis.signedVolumeCubicMetres, 0, 'g', 12)
+        .arg(result.analysis.missingReferenceCellCount)
+        .arg(result.savedPaths.join(QStringLiteral("；")));
+    statusBar()->showMessage(tr("挖填方与体积计算完成。"), 8000);
+    emit sendStr2Console(summary);
+    if (!result.warnings.isEmpty())
+    {
+        const QString warningText = result.warnings.join(QLatin1Char('\n'));
+        QMessageBox::warning(
+            this, tr("主成果已生成，但有导出提示"), warningText);
+        emit sendStr2Console(warningText);
+    }
+    famp::cutfillui::CutFillResultDialog resultDialog(
         result.analysis, result.savedPaths, this);
     resultDialog.exec();
 }
@@ -4432,6 +4888,12 @@ void MainWindow::setCloudLoadUiBusy(bool busy)
         archaeologyMetadataAction->setEnabled(false);
     if (busy && controlPointsAction)
         controlPointsAction->setEnabled(false);
+    if (busy && terrainAnalysisAction)
+        terrainAnalysisAction->setEnabled(false);
+    if (busy && cutFillAction)
+        cutFillAction->setEnabled(false);
+    if (busy && cloudProfileAction)
+        cloudProfileAction->setEnabled(false);
     else if (!busy)
         updateCloudToolActions();
 }

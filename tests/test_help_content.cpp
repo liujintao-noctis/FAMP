@@ -30,6 +30,10 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral(".famp-dem")));
     EXPECT_TRUE(content.contains(QStringLiteral("NoData")));
     EXPECT_TRUE(content.contains(QStringLiteral("投影坐标系")));
+    EXPECT_TRUE(content.contains(QStringLiteral("挖填方与体积")));
+    EXPECT_TRUE(content.contains(QStringLiteral(".famp-volume")));
+    EXPECT_TRUE(content.contains(QStringLiteral("挖方 - 填方")));
+    EXPECT_TRUE(content.contains(QStringLiteral("X/Y/Z")));
     EXPECT_TRUE(content.contains(QStringLiteral("点云高程剖面")));
     EXPECT_TRUE(content.contains(QStringLiteral(".famp-profile")));
     EXPECT_TRUE(content.contains(QStringLiteral("带符号偏距")));
