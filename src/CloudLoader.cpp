@@ -89,7 +89,8 @@ LoadResult load(const QString& requestedPath,
             bool hasEmbeddedSpatial = false;
             famp::cloud::SpatialReference embeddedSpatial;
             if (!loadPcdAsRgb(result.path, loadedPoints, &loadError,
-                              &embeddedSpatial, &hasEmbeddedSpatial))
+                              &embeddedSpatial, &hasEmbeddedSpatial,
+                              &result.attributes))
             {
                 result.error = loadError;
                 return result;

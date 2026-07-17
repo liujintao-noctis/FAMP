@@ -152,17 +152,26 @@ TEST(CloudReprojectionTest, PersistsLocalPrecisionAndSpatialOriginInPcd)
     ASSERT_TRUE(directory.isValid());
     const QString path = QDir(directory.path()).filePath(
         QStringLiteral("重投影结果.pcd"));
+    famp::cloud::CloudAttributes attributes;
+    famp::cloud::AttributeChannel classifications;
+    classifications.name = QStringLiteral("classification");
+    classifications.type = famp::cloud::AttributeValueType::UnsignedInteger;
+    classifications.unsignedValues = {2, 7};
     QString error;
+    ASSERT_TRUE(attributes.insert(std::move(classifications), 2, &error))
+        << error.toStdString();
     ASSERT_TRUE(famp::io::savePcdAsciiAtomically(
-        path, *projected.points, &error, &projected.spatial))
+        path, *projected.points, &error, &projected.spatial, &attributes))
         << error.toStdString();
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr loaded(
         new pcl::PointCloud<pcl::PointXYZRGB>);
     famp::cloud::SpatialReference loadedSpatial;
     bool hasEmbeddedSpatial = false;
+    famp::cloud::CloudAttributes loadedAttributes;
     ASSERT_TRUE(loadPcdAsRgb(
-        path, loaded, &error, &loadedSpatial, &hasEmbeddedSpatial))
+        path, loaded, &error, &loadedSpatial, &hasEmbeddedSpatial,
+        &loadedAttributes))
         << error.toStdString();
     ASSERT_TRUE(hasEmbeddedSpatial);
     ASSERT_EQ(loaded->size(), projected.points->size());
@@ -172,4 +181,11 @@ TEST(CloudReprojectionTest, PersistsLocalPrecisionAndSpatialOriginInPcd)
     EXPECT_EQ(loaded->points[1].r, projected.points->points[1].r);
     EXPECT_EQ(loaded->points[1].g, projected.points->points[1].g);
     EXPECT_EQ(loaded->points[1].b, projected.points->points[1].b);
+    const auto* loadedClassifications = loadedAttributes.channel(
+        QStringLiteral("classification"));
+    ASSERT_NE(loadedClassifications, nullptr);
+    EXPECT_EQ(loadedClassifications->type,
+              famp::cloud::AttributeValueType::UnsignedInteger);
+    EXPECT_EQ(loadedClassifications->unsignedValues,
+              QVector<quint64>({2, 7}));
 }

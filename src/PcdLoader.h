@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include "CloudAttributes.h"
 #include "CloudCoordinates.h"
 
 #include <pcl/point_cloud.h>
@@ -23,4 +24,5 @@ bool loadPcdAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
                   QString* errorMessage = nullptr,
                   famp::cloud::SpatialReference* embeddedSpatial = nullptr,
-                  bool* hasEmbeddedSpatial = nullptr);
+                  bool* hasEmbeddedSpatial = nullptr,
+                  famp::cloud::CloudAttributes* embeddedAttributes = nullptr);

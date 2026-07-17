@@ -1189,15 +1189,6 @@ void MainWindow::slotReprojectCloud()
             this, tr("点云重投影"), tr("所选图层已锁定，无法修改。"));
         return;
     }
-    if (!cloud.layer.attributes.isEmpty())
-    {
-        QMessageBox::information(
-            this, tr("点云重投影"),
-            tr("所选图层包含逐点属性。当前 PCD 输出尚不能无损保存这些属性，"
-               "因此已阻止重投影；属性持久化支持完成后将自动开放。"));
-        return;
-    }
-
     QDialog dialog(this);
     dialog.setWindowTitle(tr("重投影所选点云"));
     QFormLayout layout(&dialog);
@@ -1213,6 +1204,7 @@ void MainWindow::slotReprojectCloud()
     QLabel explanation(
         tr("程序将逐点转换真实坐标并重新中心化，以保留大坐标下的局部精度。"
            "结果会原子保存为新的 PCD，当前图层切换到新文件。"
+           "原有逐点属性会按原类型和顺序无损保留。"
            "该图层原有三维测量将随重投影移除，撤销时一并恢复。"),
         &dialog);
     explanation.setWordWrap(true);
@@ -1325,10 +1317,12 @@ void MainWindow::slotReprojectCloud()
             &progress, &QProgressDialog::accept);
     const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr input = cloud.layer.points;
     const famp::cloud::SpatialReference inputSpatial = cloud.layer.spatial;
+    const famp::cloud::CloudAttributes inputAttributes = cloud.layer.attributes;
     const QString sourceCrs = sourceInfo.identifier;
     const QString targetCrs = targetInfo.identifier;
     watcher.setFuture(QtConcurrent::run(
-        [this, task, input, inputSpatial, sourceCrs, targetCrs, outputPath]() {
+        [this, task, input, inputSpatial, inputAttributes,
+         sourceCrs, targetCrs, outputPath]() {
             auto result = famp::cloud::reproject(
                 input, inputSpatial, sourceCrs, targetCrs,
                 task.cancellationCheck(),
@@ -1351,7 +1345,8 @@ void MainWindow::slotReprojectCloud()
             taskManager->setProgress(task.id, 0.92, tr("正在原子保存重投影点云…"));
             QString saveError;
             if (!famp::io::savePcdAsciiAtomically(
-                    outputPath, *result.points, &saveError, &result.spatial))
+                    outputPath, *result.points, &saveError, &result.spatial,
+                    &inputAttributes))
             {
                 result.error = saveError;
                 return result;
