@@ -144,7 +144,8 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     cloud.locked = true;
     cloud.display.pointSize = 4.5;
     cloud.display.opacity = 0.65;
-    cloud.display.colorMode = famp::display::ColorMode::Elevation;
+    cloud.display.colorMode = famp::display::ColorMode::Attribute;
+    cloud.display.attributeName = QStringLiteral("intensity");
     cloud.display.automaticScalarRange = false;
     cloud.display.scalarMinimum = 10.0;
     cloud.display.scalarMaximum = 20.0;
@@ -191,7 +192,8 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     EXPECT_TRUE(result.locked);
     EXPECT_DOUBLE_EQ(result.display.pointSize, 4.5);
     EXPECT_DOUBLE_EQ(result.display.opacity, 0.65);
-    EXPECT_EQ(result.display.colorMode, famp::display::ColorMode::Elevation);
+    EXPECT_EQ(result.display.colorMode, famp::display::ColorMode::Attribute);
+    EXPECT_EQ(result.display.attributeName, QStringLiteral("intensity"));
     ASSERT_EQ(result.attributes.size(), 1);
     EXPECT_EQ(result.attributes.front().name, QStringLiteral("intensity"));
     EXPECT_EQ(result.attributes.front().valueCount, 3);
@@ -256,6 +258,75 @@ TEST(ProjectDocumentTest, MigratesSchemaTwoLayerDefaultsDeterministically)
     EXPECT_FALSE(first.clouds.front().locked);
     EXPECT_TRUE(first.clouds.front().attributes.isEmpty());
     EXPECT_TRUE(first.measurements3d.isEmpty());
+}
+
+TEST(ProjectDocumentTest, LoadsEarlySchemaThreeDisplayWithoutAttributeName)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("early-v3.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.write("placeholder");
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.layerId = famp::cloud::createLayerId();
+    cloud.name = QStringLiteral("early-v3.pcd");
+    famp::project::Document source;
+    source.clouds = {cloud};
+    const QString projectPath = directory.filePath(QStringLiteral("early-v3.famp"));
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.6.0"), &error));
+
+    QFile file(projectPath);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonArray clouds = root.value(QStringLiteral("clouds")).toArray();
+    QJsonObject serializedCloud = clouds.at(0).toObject();
+    QJsonObject display = serializedCloud.value(QStringLiteral("display")).toObject();
+    display.remove(QStringLiteral("attributeName"));
+    serializedCloud.insert(QStringLiteral("display"), display);
+    clouds[0] = serializedCloud;
+    root.insert(QStringLiteral("clouds"), clouds);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(projectPath, loaded, &error))
+        << error.toStdString();
+    ASSERT_EQ(loaded.clouds.size(), 1);
+    EXPECT_EQ(loaded.clouds.front().display.colorMode,
+              famp::display::ColorMode::PointRgb);
+    EXPECT_TRUE(loaded.clouds.front().display.attributeName.isEmpty());
+}
+
+TEST(ProjectDocumentTest, RejectsMissingDisplayAttributeBeforeWriting)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("attribute.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    cloud.layerId = famp::cloud::createLayerId();
+    cloud.display.colorMode = famp::display::ColorMode::Attribute;
+    cloud.display.attributeName = QStringLiteral("missing");
+    famp::project::Document document;
+    document.clouds = {cloud};
+    const QString projectPath = directory.filePath(QStringLiteral("invalid.famp"));
+    QString error;
+    EXPECT_FALSE(famp::project::save(
+        projectPath, document, QStringLiteral("0.6.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_FALSE(QFileInfo::exists(projectPath));
 }
 
 TEST(ProjectDocumentTest, RejectsMeasurementForUnknownLayerBeforeWriting)

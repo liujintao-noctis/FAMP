@@ -32,6 +32,7 @@ bool isSupportedCloudFile(const QString& path)
     const QString suffix = QFileInfo(path).suffix();
     return suffix.compare(QStringLiteral("pcd"), Qt::CaseInsensitive) == 0
         || suffix.compare(QStringLiteral("las"), Qt::CaseInsensitive) == 0
+        || suffix.compare(QStringLiteral("laz"), Qt::CaseInsensitive) == 0
         || suffix.compare(QStringLiteral("ply"), Qt::CaseInsensitive) == 0
         || suffix.compare(QStringLiteral("xyz"), Qt::CaseInsensitive) == 0;
 }

@@ -9,9 +9,9 @@ TEST(RecentFilesTest, RecognizesSupportedExtensionsCaseInsensitively)
 {
     EXPECT_TRUE(famp::recent::isSupportedCloudFile(QStringLiteral("site.pcd")));
     EXPECT_TRUE(famp::recent::isSupportedCloudFile(QStringLiteral("SITE.LAS")));
+    EXPECT_TRUE(famp::recent::isSupportedCloudFile(QStringLiteral("site.laz")));
     EXPECT_TRUE(famp::recent::isSupportedCloudFile(QStringLiteral("mesh.PLY")));
     EXPECT_TRUE(famp::recent::isSupportedCloudFile(QStringLiteral("points.xyz")));
-    EXPECT_FALSE(famp::recent::isSupportedCloudFile(QStringLiteral("site.laz")));
     EXPECT_FALSE(famp::recent::isSupportedCloudFile(QStringLiteral("site")));
 }
 

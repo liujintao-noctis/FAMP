@@ -1,5 +1,7 @@
 #pragma once
 
+#include "CloudAttributes.h"
+
 #include <QString>
 
 #include <array>
@@ -10,4 +12,5 @@
 bool loadLasAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
                   QString* errorMessage = nullptr,
-                  std::array<double, 3>* origin = nullptr);
+                  std::array<double, 3>* origin = nullptr,
+                  famp::cloud::CloudAttributes* attributes = nullptr);

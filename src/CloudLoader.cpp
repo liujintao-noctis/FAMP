@@ -62,7 +62,7 @@ bool validatePath(const QString& requestedPath,
     if (!famp::recent::isSupportedCloudFile(path))
     {
         setError(errorMessage,
-                 QStringLiteral("仅支持 PCD、LAS、PLY 和 XYZ 点云文件：\n%1").arg(path));
+                 QStringLiteral("仅支持 PCD、LAS/LAZ、PLY 和 XYZ 点云文件：\n%1").arg(path));
         return false;
     }
     return true;
@@ -153,11 +153,12 @@ LoadResult load(const QString& requestedPath,
                 result.sourceWasPcd = true;
             }
         }
-        else if (suffix == QStringLiteral("las"))
+        else if (suffix == QStringLiteral("las")
+                 || suffix == QStringLiteral("laz"))
         {
             if (!loadLasAsRgb(
                     result.path, loadedPoints, &loadError,
-                    &result.spatial.origin))
+                    &result.spatial.origin, &result.attributes))
             {
                 result.error = loadError;
                 return result;

@@ -15,6 +15,7 @@
 #include <QSaveFile>
 #include <QSet>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -121,6 +122,8 @@ QString colorModeName(famp::display::ColorMode mode)
         return QStringLiteral("uniform");
     case famp::display::ColorMode::Elevation:
         return QStringLiteral("elevation");
+    case famp::display::ColorMode::Attribute:
+        return QStringLiteral("attribute");
     }
     return {};
 }
@@ -134,6 +137,8 @@ bool colorModeFromName(const QString& name, famp::display::ColorMode& mode)
         mode = famp::display::ColorMode::Uniform;
     else if (normalized == QStringLiteral("elevation"))
         mode = famp::display::ColorMode::Elevation;
+    else if (normalized == QStringLiteral("attribute"))
+        mode = famp::display::ColorMode::Attribute;
     else
         return false;
     return true;
@@ -150,7 +155,8 @@ QJsonObject serializeDisplay(const famp::display::Settings& display)
         {QStringLiteral("blue"), display.blue},
         {QStringLiteral("automaticScalarRange"), display.automaticScalarRange},
         {QStringLiteral("scalarMinimum"), display.scalarMinimum},
-        {QStringLiteral("scalarMaximum"), display.scalarMaximum}};
+        {QStringLiteral("scalarMaximum"), display.scalarMaximum},
+        {QStringLiteral("attributeName"), display.attributeName.trimmed()}};
 }
 
 bool deserializeDisplay(const QJsonValue& value,
@@ -169,9 +175,11 @@ bool deserializeDisplay(const QJsonValue& value,
         QStringLiteral("automaticScalarRange"));
     const QJsonValue minimum = object.value(QStringLiteral("scalarMinimum"));
     const QJsonValue maximum = object.value(QStringLiteral("scalarMaximum"));
+    const QJsonValue attributeName = object.value(QStringLiteral("attributeName"));
     if (!pointSize.isDouble() || !opacity.isDouble() || !colorMode.isString()
         || !red.isDouble() || !green.isDouble() || !blue.isDouble()
-        || !automatic.isBool() || !minimum.isDouble() || !maximum.isDouble())
+        || !automatic.isBool() || !minimum.isDouble() || !maximum.isDouble()
+        || (!attributeName.isUndefined() && !attributeName.isString()))
     {
         return false;
     }
@@ -185,6 +193,8 @@ bool deserializeDisplay(const QJsonValue& value,
     candidate.automaticScalarRange = automatic.toBool();
     candidate.scalarMinimum = minimum.toDouble();
     candidate.scalarMaximum = maximum.toDouble();
+    candidate.attributeName = attributeName.isString()
+        ? attributeName.toString().trimmed() : QString();
     if (!colorModeFromName(colorMode.toString(), candidate.colorMode)
         || !famp::display::validateSettings(candidate))
     {
@@ -192,6 +202,20 @@ bool deserializeDisplay(const QJsonValue& value,
     }
     display = candidate;
     return true;
+}
+
+bool displayAttributeExists(
+    const famp::display::Settings& display,
+    const QVector<famp::cloud::AttributeSummary>& attributes)
+{
+    if (display.colorMode != famp::display::ColorMode::Attribute)
+        return true;
+    const QString selected = display.attributeName.trimmed().toCaseFolded();
+    return std::any_of(
+        attributes.cbegin(), attributes.cend(),
+        [&selected](const famp::cloud::AttributeSummary& attribute) {
+            return attribute.name.trimmed().toCaseFolded() == selected;
+        });
 }
 
 QJsonArray serializeAttributes(
@@ -638,6 +662,13 @@ bool save(const QString& projectPath,
             }
             attributeNames.insert(key);
         }
+        if (!displayAttributeExists(reference.display, reference.attributes))
+        {
+            setError(errorMessage,
+                     QStringLiteral("点云图层的着色属性不存在：%1")
+                         .arg(layerName));
+            return false;
+        }
 
         uniquePaths.append(normalizedCloudPath);
         uniqueLayerIds.insert(layerId);
@@ -1000,6 +1031,13 @@ bool load(const QString& projectPath,
                 {
                     setError(errorMessage,
                              QStringLiteral("项目包含无效的点云图层状态。"));
+                    return false;
+                }
+                if (!displayAttributeExists(
+                        reference.display, reference.attributes))
+                {
+                    setError(errorMessage,
+                             QStringLiteral("项目引用了不存在的点云着色属性。"));
                     return false;
                 }
             }
