@@ -157,6 +157,9 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     ControlPoints.cpp
     ControlPointDialog.cpp
     ContourItem.cpp
+    ProfileAnalysis.cpp
+    ProfileDialog.cpp
+    ProfileIO.cpp
     TerrainAnalysis.cpp
     TerrainDialog.cpp
     TerrainIO.cpp
@@ -205,6 +208,9 @@ add_executable(FAMP ${FAMP_EXECUTABLE_TYPE}
     ControlPoints.h
     ControlPointDialog.h
     ContourItem.h
+    ProfileAnalysis.h
+    ProfileDialog.h
+    ProfileIO.h
     TerrainAnalysis.h
     TerrainDialog.h
     TerrainIO.h

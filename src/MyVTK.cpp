@@ -174,6 +174,10 @@ MyVTK::~MyVTK()
         m_renderManager->renderer()->RemoveActor(measurementPreviewActor);
     if (measurementPreviewLabel)
         m_renderManager->renderer()->RemoveActor(measurementPreviewLabel);
+    if (profileSelectionPreviewActor)
+        m_renderManager->renderer()->RemoveActor(profileSelectionPreviewActor);
+    if (profileSelectionPreviewLabel)
+        m_renderManager->renderer()->RemoveActor(profileSelectionPreviewLabel);
     for (const MeasurementVisual& visual : measurementVisuals)
     {
         m_renderManager->renderer()->RemoveActor(visual.geometry);
@@ -212,6 +216,8 @@ void MyVTK::measurementEventCallback(vtkObject*,
 
 bool MyVTK::handleMeasurementEvent(unsigned long eventId)
 {
+    if (profileSelectionActive)
+        return handleProfileSelectionEvent(eventId);
     if (!measurementActive)
         return false;
 
@@ -315,7 +321,8 @@ bool MyVTK::handleMeasurementEvent(unsigned long eventId)
 
 bool MyVTK::pickMeasurementPoint(QVector3D& point,
                                  QString& layerId,
-                                 QString& crs)
+                                 QString& crs,
+                                 QVector3D* localPoint)
 {
     vtkRenderWindowInteractor* interactor =
         m_renderManager->renderWindowInteractor();
@@ -348,6 +355,27 @@ bool MyVTK::pickMeasurementPoint(QVector3D& point,
     point = QVector3D(static_cast<float>(picked[0]),
                       static_cast<float>(picked[1]),
                       static_cast<float>(picked[2]));
+    if (localPoint)
+    {
+        auto* mapper = vtkPolyDataMapper::SafeDownCast(actor->GetMapper());
+        vtkPolyData* polyData = mapper ? mapper->GetInput() : nullptr;
+        const vtkIdType pointId = measurementPicker->GetPointId();
+        if (!polyData || pointId < 0
+            || pointId >= polyData->GetNumberOfPoints())
+        {
+            return false;
+        }
+        double local[3]{};
+        polyData->GetPoint(pointId, local);
+        if (!std::isfinite(local[0]) || !std::isfinite(local[1])
+            || !std::isfinite(local[2]))
+        {
+            return false;
+        }
+        *localPoint = QVector3D(static_cast<float>(local[0]),
+                               static_cast<float>(local[1]),
+                               static_cast<float>(local[2]));
+    }
     layerId = metadata->layerId;
     crs = metadata->crs;
     return true;
@@ -355,6 +383,11 @@ bool MyVTK::pickMeasurementPoint(QVector3D& point,
 
 void MyVTK::beginMeasurement(famp::measurement::Kind kind, bool announce)
 {
+    if (profileSelectionActive)
+    {
+        resetProfileSelection(false);
+        emit profileLineSelectionCancelled();
+    }
     resetMeasurementInteraction(false);
     measurementActive = true;
     measurementKind = kind;
@@ -674,6 +707,182 @@ void MyVTK::clearMeasurements(bool announce)
         emit measurementStatus(tr("当前点云视图没有测量结果。"));
     else
         emit measurementStatus(tr("已清除 %1 个点云测量结果。").arg(count));
+}
+
+bool MyVTK::startProfileLineSelection(const QString& layerId)
+{
+    const QString normalized = layerId.trimmed().toLower();
+    if (normalized.isEmpty() || !hasRegisteredLayer(normalized)
+        || !isLayerVisible(normalized))
+    {
+        emit measurementStatus(
+            tr("所选点云图层未在三维视图中显示，无法拾取剖面线。"));
+        return false;
+    }
+    if (measurementActive)
+        resetMeasurementInteraction(true);
+    if (profileSelectionActive)
+        resetProfileSelection(false);
+
+    profileSelectionActive = true;
+    profileSelectionLayerId = normalized;
+    profileSelectionDisplayPoints.clear();
+    profileSelectionLocalPoints.clear();
+    profileSelectionHasHoverPoint = false;
+    setCursor(Qt::CrossCursor);
+
+    profileSelectionPreviewMapper = vtkSmartPointer<vtkPolyDataMapper>::New();
+    profileSelectionPreviewMapper->ScalarVisibilityOff();
+    profileSelectionPreviewActor = vtkSmartPointer<vtkActor>::New();
+    profileSelectionPreviewActor->SetMapper(profileSelectionPreviewMapper);
+    styleMeasurementActor(profileSelectionPreviewActor, 1.0, 0.35, 0.1);
+    m_renderManager->renderer()->AddActor(profileSelectionPreviewActor);
+    profileSelectionPreviewLabel =
+        vtkSmartPointer<vtkBillboardTextActor3D>::New();
+    styleMeasurementLabel(profileSelectionPreviewLabel, 1.0, 0.55, 0.2);
+    profileSelectionPreviewLabel->SetVisibility(false);
+    m_renderManager->renderer()->AddActor(profileSelectionPreviewLabel);
+    m_renderManager->render();
+    emit measurementStatus(
+        tr("点云剖面：请在所选点云上左键拾取剖面起点和终点，Esc 或右键取消。"));
+    return true;
+}
+
+void MyVTK::cancelProfileLineSelection()
+{
+    if (!profileSelectionActive)
+        return;
+    resetProfileSelection(false);
+    emit profileLineSelectionCancelled();
+    emit measurementStatus(tr("已取消点云剖面线拾取。"));
+}
+
+bool MyVTK::handleProfileSelectionEvent(unsigned long eventId)
+{
+    if (!profileSelectionActive)
+        return false;
+    if (eventId == vtkCommand::KeyPressEvent)
+    {
+        const char* key = m_renderManager->renderWindowInteractor()->GetKeySym();
+        if (key && std::strcmp(key, "Escape") == 0)
+        {
+            cancelProfileLineSelection();
+            return true;
+        }
+        return false;
+    }
+    if (eventId == vtkCommand::RightButtonPressEvent)
+    {
+        cancelProfileLineSelection();
+        return true;
+    }
+    if (eventId != vtkCommand::LeftButtonPressEvent
+        && eventId != vtkCommand::MouseMoveEvent)
+    {
+        return false;
+    }
+
+    QVector3D displayPoint;
+    QVector3D localPoint;
+    QString layerId;
+    QString crs;
+    if (!pickMeasurementPoint(displayPoint, layerId, crs, &localPoint)
+        || layerId != profileSelectionLayerId)
+    {
+        if (eventId == vtkCommand::LeftButtonPressEvent)
+        {
+            emit measurementStatus(
+                tr("请在当前所选点云图层上拾取剖面端点。"));
+        }
+        else if (profileSelectionHasHoverPoint)
+        {
+            profileSelectionHasHoverPoint = false;
+            updateProfileSelectionPreview();
+        }
+        return eventId == vtkCommand::LeftButtonPressEvent;
+    }
+
+    if (eventId == vtkCommand::MouseMoveEvent)
+    {
+        profileSelectionHoverPoint = displayPoint;
+        profileSelectionHasHoverPoint = true;
+        updateProfileSelectionPreview();
+        return false;
+    }
+
+    if (!profileSelectionDisplayPoints.isEmpty()
+        && (profileSelectionDisplayPoints.front() - displayPoint)
+                .lengthSquared() <= 1.0e-12f)
+    {
+        emit measurementStatus(tr("剖面终点不能与起点重合，请重新拾取。"));
+        return true;
+    }
+    profileSelectionDisplayPoints.append(displayPoint);
+    profileSelectionLocalPoints.append(localPoint);
+    profileSelectionHasHoverPoint = false;
+    updateProfileSelectionPreview();
+    if (profileSelectionDisplayPoints.size() == 1)
+    {
+        emit measurementStatus(
+            tr("点云剖面：起点已拾取，请左键拾取终点；Esc 或右键取消。"));
+        return true;
+    }
+
+    const QString completedLayerId = profileSelectionLayerId;
+    const QVector3D start = profileSelectionLocalPoints.at(0);
+    const QVector3D end = profileSelectionLocalPoints.at(1);
+    resetProfileSelection(false);
+    emit measurementStatus(tr("剖面线拾取完成，正在设置采样参数…"));
+    emit profileLineSelected(completedLayerId, start, end);
+    return true;
+}
+
+void MyVTK::updateProfileSelectionPreview()
+{
+    if (!profileSelectionActive || !profileSelectionPreviewMapper)
+        return;
+    QVector<QVector3D> points = profileSelectionDisplayPoints;
+    if (profileSelectionHasHoverPoint)
+        points.append(profileSelectionHoverPoint);
+    profileSelectionPreviewMapper->SetInputData(
+        measurementPolyData(points, famp::measurement::Kind::Distance));
+    if (!points.isEmpty())
+    {
+        const QByteArray text = profileSelectionDisplayPoints.isEmpty()
+            ? tr("剖面起点").toUtf8() : tr("剖面终点").toUtf8();
+        profileSelectionPreviewLabel->SetInput(text.constData());
+        const QVector3D& position = points.back();
+        profileSelectionPreviewLabel->SetPosition(
+            position.x(), position.y(), position.z());
+        profileSelectionPreviewLabel->SetVisibility(true);
+    }
+    else
+    {
+        profileSelectionPreviewLabel->SetVisibility(false);
+    }
+    m_renderManager->render();
+}
+
+void MyVTK::resetProfileSelection(bool notify)
+{
+    const bool wasActive = profileSelectionActive;
+    profileSelectionActive = false;
+    profileSelectionLayerId.clear();
+    profileSelectionDisplayPoints.clear();
+    profileSelectionLocalPoints.clear();
+    profileSelectionHasHoverPoint = false;
+    unsetCursor();
+    if (profileSelectionPreviewActor)
+        m_renderManager->renderer()->RemoveActor(profileSelectionPreviewActor);
+    if (profileSelectionPreviewLabel)
+        m_renderManager->renderer()->RemoveActor(profileSelectionPreviewLabel);
+    profileSelectionPreviewMapper = nullptr;
+    profileSelectionPreviewActor = nullptr;
+    profileSelectionPreviewLabel = nullptr;
+    if (m_renderManager)
+        m_renderManager->render();
+    if (notify && wasActive)
+        emit profileLineSelectionCancelled();
 }
 
 bool MyVTK::hasRegisteredLayer(const QString& layerId) const
@@ -1247,6 +1456,12 @@ void MyVTK::unregisterCloudActor(vtkActor* actor)
         resetMeasurementInteraction(true);
         emit measurementStatus(tr("点云图层已移除，当前三维测量已取消。"));
     }
+    if (profileSelectionActive && !layerId.isEmpty()
+        && profileSelectionLayerId == layerId)
+    {
+        resetProfileSelection(true);
+        emit measurementStatus(tr("点云图层已移除，当前剖面线拾取已取消。"));
+    }
 
     cloudActors.erase(std::remove(cloudActors.begin(), cloudActors.end(), actor),
                       cloudActors.end());
@@ -1309,6 +1524,14 @@ void MyVTK::removeCloudDisplay(vtkActor * actor)
     {
         resetMeasurementInteraction(true);
         emit measurementStatus(tr("点云图层已隐藏，当前三维测量已取消。"));
+    }
+    if (metadata != cloudActorMetadata.cend()
+        && profileSelectionActive
+        && !metadata->layerId.isEmpty()
+        && profileSelectionLayerId == metadata->layerId)
+    {
+        resetProfileSelection(true);
+        emit measurementStatus(tr("点云图层已隐藏，当前剖面线拾取已取消。"));
     }
     cloudActors.erase(std::remove(cloudActors.begin(), cloudActors.end(), actor),
                       cloudActors.end());

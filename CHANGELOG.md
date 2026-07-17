@@ -4,6 +4,18 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-07-17
+
+### Added
+
+- 新增点云高程剖面工作流：在中央三维视图的所选可见点云上交互拾取起点和终点，实时预览剖面线并限制拾取到同一图层；Esc 或右键可随时取消。
+- 新增双精度真实坐标剖面走廊提取，支持自定义走廊宽度、沿线采样间隔、每段最少点数以及最低值、最高值、平均值或中位数代表高程；结果同时保留段内最低/最高包络、空白段和带符号横向偏距。
+- 新增版本化 `.famp-profile` 边车、采样段统计 CSV、走廊原始点 CSV 和可缩放 SVG 原子导出，并在程序中显示可处理大采样段数量的剖面预览图。分析和长写入均可取消，已有目标文件不会被半成品覆盖。
+
+### Changed
+
+- 点云剖面与 DEM 共用严格的投影坐标系和水平单位检查：经纬度图层必须先重投影，未声明 CRS 时必须明确确认本地坐标单位为米。
+
 ## [0.7.0] - 2026-07-17
 
 ### Added
@@ -142,7 +154,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.1...v0.5.2
