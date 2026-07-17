@@ -20,9 +20,15 @@ famp::report::Data sampleReport()
     data.applicationVersion = QStringLiteral("0.5.0-test");
     data.generatedAt = QDateTime::fromString(QStringLiteral("2026-07-12T12:00:00+08:00"), Qt::ISODate);
     famp::report::CloudEntry cloud;
+    cloud.name = QStringLiteral("T1 <表土层>");
     cloud.path = QStringLiteral("/点云/探方.pcd");
+    cloud.crs = QStringLiteral("EPSG:4490");
     cloud.pointCount = 1234;
     cloud.spatial.origin = {100.0, 200.0, 5.0};
+    cloud.archaeologyFields.insert(
+        QStringLiteral("context"), QStringLiteral("Locus & 12"));
+    cloud.archaeologyFields.insert(
+        QStringLiteral("现场备注"), QStringLiteral("<script>alert(1)</script>"));
     data.clouds.append(cloud);
     QJsonObject measurement;
     measurement.insert(QStringLiteral("type"), QStringLiteral("measurement"));
@@ -54,6 +60,13 @@ TEST(ArchaeologyReportTest, GeneratesEscapedStructuredHtml)
     EXPECT_TRUE(html.contains(QStringLiteral("遗址 &amp; 探方")));
     EXPECT_TRUE(html.contains(QStringLiteral("EPSG:4490")));
     EXPECT_TRUE(html.contains(QStringLiteral("1234")));
+    EXPECT_TRUE(html.contains(QStringLiteral("T1 &lt;表土层&gt;")));
+    EXPECT_TRUE(html.contains(QStringLiteral("考古图层记录")));
+    EXPECT_TRUE(html.contains(QStringLiteral("地层/堆积单位")));
+    EXPECT_TRUE(html.contains(QStringLiteral("Locus &amp; 12")));
+    EXPECT_TRUE(html.contains(
+        QStringLiteral("&lt;script&gt;alert(1)&lt;/script&gt;")));
+    EXPECT_FALSE(html.contains(QStringLiteral("<script>alert(1)</script>")));
     EXPECT_TRUE(html.contains(QStringLiteral("面积")));
     EXPECT_TRUE(html.contains(QStringLiteral("6")));
     EXPECT_TRUE(html.contains(QStringLiteral("10")));
@@ -106,4 +119,14 @@ TEST(ArchaeologyReportTest, RejectsInvalidThreeDimensionalMeasurement)
     QString error;
     EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
     EXPECT_TRUE(error.contains(QStringLiteral("三维测量")));
+}
+
+TEST(ArchaeologyReportTest, RejectsInvalidArchaeologyFields)
+{
+    auto data = sampleReport();
+    data.clouds[0].archaeologyFields.insert(
+        QString(), QStringLiteral("invalid"));
+    QString error;
+    EXPECT_TRUE(famp::report::toHtml(data, &error).isEmpty());
+    EXPECT_TRUE(error.contains(QStringLiteral("考古图层字段")));
 }

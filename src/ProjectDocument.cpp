@@ -1,4 +1,5 @@
 #include "ProjectDocument.h"
+#include "ArchaeologyMetadata.h"
 #include "CloudLayer.h"
 #include "CrsService.h"
 #include "RecentFiles.h"
@@ -27,8 +28,6 @@ constexpr int MaxWindowStateBytes = 4 * 1024 * 1024;
 constexpr int MaxLayerNameLength = 512;
 constexpr int MaxAttributeSummaries = 256;
 constexpr int MaxArchaeologyFields = 128;
-constexpr int MaxArchaeologyKeyLength = 128;
-constexpr int MaxArchaeologyValueLength = 16 * 1024;
 constexpr int MaxMeasurements3d = 10000;
 constexpr int MaxMeasurementPoints = 10000;
 constexpr double MaxExactJsonInteger = 9'007'199'254'740'991.0;
@@ -294,21 +293,7 @@ bool deserializeAttributes(
 
 bool validArchaeologyFields(const QMap<QString, QString>& fields)
 {
-    if (fields.size() > MaxArchaeologyFields)
-        return false;
-    QSet<QString> keys;
-    for (auto iterator = fields.cbegin(); iterator != fields.cend(); ++iterator)
-    {
-        const QString key = iterator.key().trimmed().toCaseFolded();
-        if (key.isEmpty() || keys.contains(key)
-            || iterator.key().size() > MaxArchaeologyKeyLength
-            || iterator.value().size() > MaxArchaeologyValueLength)
-        {
-            return false;
-        }
-        keys.insert(key);
-    }
-    return true;
+    return famp::archaeology::validateFields(fields);
 }
 
 QJsonObject serializeArchaeologyFields(const QMap<QString, QString>& fields)

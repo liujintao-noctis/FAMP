@@ -5,6 +5,7 @@
 
 #include <QDateTime>
 #include <QJsonObject>
+#include <QMap>
 #include <QString>
 #include <QVector>
 
@@ -14,10 +15,13 @@ namespace famp::report
 {
 struct CloudEntry
 {
+    QString name;
     QString path;
+    QString crs;
     std::size_t pointCount = 0;
     bool visible = true;
     famp::cloud::SpatialReference spatial;
+    QMap<QString, QString> archaeologyFields;
 };
 
 struct Data

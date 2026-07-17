@@ -1,5 +1,6 @@
 #include "ArchaeologyReport.h"
 
+#include "ArchaeologyMetadata.h"
 #include "Measurement.h"
 
 #include <QFile>
@@ -175,6 +176,15 @@ QString toHtml(const Data& data, QString* errorMessage)
                          .arg(cloud.path));
             return {};
         }
+        QString fieldError;
+        if (!famp::archaeology::validateFields(
+                cloud.archaeologyFields, &fieldError))
+        {
+            setError(errorMessage,
+                     QStringLiteral("报告中的考古图层字段无效：%1")
+                         .arg(fieldError));
+            return {};
+        }
     }
     if (data.measurements3d.size() > MaxMeasurements3d)
     {
@@ -225,18 +235,25 @@ QString toHtml(const Data& data, QString* errorMessage)
            << "</td></tr><tr><th>软件版本</th><td>"
            << escaped(data.applicationVersion) << "</td></tr></table>";
 
-    stream << "<h2>点云清单</h2><table><tr><th>#</th><th>文件</th><th>点数</th>"
-              "<th>状态</th><th>原始坐标原点 X, Y, Z</th></tr>";
+    stream << "<h2>点云清单</h2><table><tr><th>#</th><th>图层</th><th>文件</th>"
+              "<th>点数</th><th>状态</th><th>坐标系</th>"
+              "<th>原始坐标原点 X, Y, Z</th></tr>";
     for (qsizetype index = 0; index < data.clouds.size(); ++index)
     {
         const auto& cloud = data.clouds.at(index);
-        stream << "<tr><td>" << index + 1 << "</td><td>" << escaped(cloud.path)
+        stream << "<tr><td>" << index + 1 << "</td><td>"
+               << escaped(cloud.name.isEmpty()
+                              ? QFileInfo(cloud.path).fileName() : cloud.name)
+               << "</td><td>" << escaped(cloud.path)
                << "</td><td>" << static_cast<qulonglong>(cloud.pointCount)
                << "</td><td>" << (cloud.visible ? QStringLiteral("可见") : QStringLiteral("隐藏"))
+               << "</td><td>"
+               << escaped(cloud.crs.isEmpty()
+                              ? QStringLiteral("未声明") : cloud.crs)
                << "</td><td>" << escaped(originText(cloud.spatial)) << "</td></tr>";
     }
     if (data.clouds.isEmpty())
-        stream << "<tr><td colspan=\"5\">无已加载点云</td></tr>";
+        stream << "<tr><td colspan=\"7\">无已加载点云</td></tr>";
     qulonglong totalPoints = 0;
     for (const CloudEntry& cloud : data.clouds)
         totalPoints += static_cast<qulonglong>(cloud.pointCount);
@@ -244,6 +261,27 @@ QString toHtml(const Data& data, QString* errorMessage)
            << " 个点云，共 " << totalPoints << " 个点；"
            << measurements.size() << " 项二维测量，"
            << data.measurements3d.size() << " 项三维测量。</p>";
+    stream << "<h2>考古图层记录</h2>";
+    for (qsizetype index = 0; index < data.clouds.size(); ++index)
+    {
+        const CloudEntry& cloud = data.clouds.at(index);
+        stream << "<h3>" << index + 1 << ". "
+               << escaped(cloud.name.isEmpty()
+                              ? QFileInfo(cloud.path).fileName() : cloud.name)
+               << "</h3><table><tr><th>字段</th><th>记录值</th></tr>";
+        for (auto iterator = cloud.archaeologyFields.cbegin();
+             iterator != cloud.archaeologyFields.cend(); ++iterator)
+        {
+            stream << "<tr><td>"
+                   << escaped(famp::archaeology::fieldLabel(iterator.key()))
+                   << "</td><td>" << escaped(iterator.value()) << "</td></tr>";
+        }
+        if (cloud.archaeologyFields.isEmpty())
+            stream << "<tr><td colspan=\"2\">未填写考古字段</td></tr>";
+        stream << "</table>";
+    }
+    if (data.clouds.isEmpty())
+        stream << "<p>无可列出的考古图层记录。</p>";
     stream << "<h2>二维测量成果</h2><table><tr><th>#</th><th>类型</th><th>结果</th></tr>";
     for (qsizetype index = 0; index < measurements.size(); ++index)
     {
