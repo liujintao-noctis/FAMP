@@ -225,7 +225,7 @@ AttributeSummary AttributeChannel::summary() const
     return result;
 }
 
-bool CloudAttributes::insert(const AttributeChannel& channel,
+bool CloudAttributes::insert(AttributeChannel channel,
                              qint64 expectedPointCount,
                              QString* errorMessage)
 {
@@ -237,10 +237,9 @@ bool CloudAttributes::insert(const AttributeChannel& channel,
         setError(errorMessage, QStringLiteral("点属性通道数量超过 256 个安全上限。"));
         return false;
     }
-    AttributeChannel normalized = channel;
-    normalized.name = channel.name.trimmed();
-    normalized.unit = channel.unit.trimmed();
-    channels_.insert(key, std::move(normalized));
+    channel.name = channel.name.trimmed();
+    channel.unit = channel.unit.trimmed();
+    channels_.insert(key, std::move(channel));
     if (errorMessage)
         errorMessage->clear();
     return true;

@@ -49,7 +49,7 @@ struct AttributeChannel
 class CloudAttributes
 {
 public:
-    bool insert(const AttributeChannel& channel,
+    bool insert(AttributeChannel channel,
                 qint64 expectedPointCount = -1,
                 QString* errorMessage = nullptr);
     bool remove(const QString& name);

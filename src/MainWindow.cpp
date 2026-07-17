@@ -765,7 +765,7 @@ void MainWindow::relocateMissingProjectClouds(
             this,
             tr("重新定位缺失点云：%1").arg(QFileInfo(reference.path).fileName()),
             QFileInfo(projectPath).absolutePath(),
-            tr("点云文件 (*.pcd *.las *.ply *.xyz);;PCD (*.pcd);;LAS (*.las);;PLY (*.ply);;XYZ (*.xyz)"));
+            tr("点云文件 (*.pcd *.las *.laz *.ply *.xyz);;PCD (*.pcd);;LAS/LAZ (*.las *.laz);;PLY (*.ply);;XYZ (*.xyz)"));
         if (replacement.isEmpty())
         {
             resolvedFiles.append(reference.path);
@@ -1497,6 +1497,13 @@ bool MainWindow::applyCloudLayerState(
     {
         return false;
     }
+    if (state.display.colorMode == famp::display::ColorMode::Attribute
+        && !famp::display::attachAttribute(
+            found->cloudactor, state.attributes,
+            state.display.attributeName, &validationError))
+    {
+        return false;
+    }
 
     vtkNew<vtkMatrix4x4> cloudTransform;
     for (int row = 0; row < 4; ++row)
@@ -1717,35 +1724,62 @@ void MainWindow::slotCloudDisplaySettings()
     colorMode.addItem(
         tr("按局部高程 Z 渐变"),
         static_cast<int>(famp::display::ColorMode::Elevation));
-    colorMode.setCurrentIndex(colorMode.findData(
-        static_cast<int>(cloud.layer.display.colorMode)));
+    QComboBox attributeName(&dialog);
+    for (const QString& name : cloud.layer.attributes.names())
+    {
+        const auto* channel = cloud.layer.attributes.channel(name);
+        const QString label = channel && !channel->unit.isEmpty()
+            ? tr("%1 [%2]").arg(name, channel->unit) : name;
+        attributeName.addItem(label, name);
+    }
+    if (attributeName.count() > 0)
+    {
+        colorMode.addItem(
+            tr("按逐点属性渐变"),
+            static_cast<int>(famp::display::ColorMode::Attribute));
+        const int storedAttribute = attributeName.findData(
+            cloud.layer.display.attributeName, Qt::UserRole,
+            Qt::MatchFixedString);
+        attributeName.setCurrentIndex(storedAttribute >= 0 ? storedAttribute : 0);
+    }
+    const int storedColorMode = colorMode.findData(
+        static_cast<int>(cloud.layer.display.colorMode));
+    colorMode.setCurrentIndex(storedColorMode >= 0 ? storedColorMode : 0);
 
     QColor selectedColor = QColor::fromRgbF(
         cloud.layer.display.red,
         cloud.layer.display.green,
         cloud.layer.display.blue);
     QPushButton colorButton(tr("选择颜色…"), &dialog);
-    QCheckBox automaticRange(tr("自动使用点云高程范围"), &dialog);
+    QCheckBox automaticRange(tr("自动使用数据范围"), &dialog);
     automaticRange.setChecked(cloud.layer.display.automaticScalarRange);
     QDoubleSpinBox scalarMinimum(&dialog);
     QDoubleSpinBox scalarMaximum(&dialog);
     for (QDoubleSpinBox* spinBox : {&scalarMinimum, &scalarMaximum})
     {
-        spinBox->setRange(-1.0e9, 1.0e9);
+        spinBox->setRange(-1.0e100, 1.0e100);
         spinBox->setDecimals(6);
-        spinBox->setSuffix(tr(" m"));
     }
     scalarMinimum.setValue(cloud.layer.display.scalarMinimum);
     scalarMaximum.setValue(cloud.layer.display.scalarMaximum);
-    double elevationMinimum = cloud.layer.display.scalarMinimum;
-    double elevationMaximum = cloud.layer.display.scalarMaximum;
-    if (cloud.layer.display.automaticScalarRange
-        && famp::display::elevationRange(
-            actor, elevationMinimum, elevationMaximum, nullptr))
-    {
-        scalarMinimum.setValue(elevationMinimum);
-        scalarMaximum.setValue(elevationMaximum);
-    }
+    QLabel attributeInfo(&dialog);
+    attributeInfo.setWordWrap(true);
+    QHash<QString, famp::cloud::AttributeSummary> attributeSummaryCache;
+    auto cachedAttributeSummary = [&](const QString& name,
+                                      famp::cloud::AttributeSummary& summary) {
+        const QString key = name.trimmed().toCaseFolded();
+        auto found = attributeSummaryCache.constFind(key);
+        if (found == attributeSummaryCache.cend())
+        {
+            const auto* channel = cloud.layer.attributes.channel(name);
+            if (!channel)
+                return false;
+            attributeSummaryCache.insert(key, channel->summary());
+            found = attributeSummaryCache.constFind(key);
+        }
+        summary = found.value();
+        return true;
+    };
     auto updateColorButton = [&]() {
         colorButton.setStyleSheet(
             QStringLiteral("background-color: %1;").arg(selectedColor.name()));
@@ -1755,15 +1789,75 @@ void MainWindow::slotCloudDisplaySettings()
         const auto mode = static_cast<famp::display::ColorMode>(
             colorMode.currentData().toInt());
         const bool elevation = mode == famp::display::ColorMode::Elevation;
+        const bool attribute = mode == famp::display::ColorMode::Attribute;
+        const bool scalar = elevation || attribute;
         colorButton.setEnabled(mode == famp::display::ColorMode::Uniform);
-        automaticRange.setEnabled(elevation);
-        scalarMinimum.setEnabled(elevation && !automaticRange.isChecked());
-        scalarMaximum.setEnabled(elevation && !automaticRange.isChecked());
+        attributeName.setEnabled(attribute);
+        automaticRange.setEnabled(scalar);
+        scalarMinimum.setEnabled(scalar && !automaticRange.isChecked());
+        scalarMaximum.setEnabled(scalar && !automaticRange.isChecked());
+
+        QString unit;
+        if (elevation)
+            unit = QStringLiteral("m");
+        else if (attribute)
+        {
+            const auto* channel = cloud.layer.attributes.channel(
+                attributeName.currentData().toString());
+            if (channel)
+                unit = channel->unit;
+        }
+        const QString suffix = unit.isEmpty()
+            ? QString() : QStringLiteral(" ") + unit;
+        scalarMinimum.setSuffix(suffix);
+        scalarMaximum.setSuffix(suffix);
+
+        double dataMinimum = 0.0;
+        double dataMaximum = 0.0;
+        famp::cloud::AttributeSummary summary;
+        const bool hasSummary = attribute
+            && cachedAttributeSummary(
+                attributeName.currentData().toString(), summary);
+        bool hasRange = false;
+        if (elevation)
+        {
+            hasRange = famp::display::elevationRange(
+                actor, dataMinimum, dataMaximum, nullptr);
+        }
+        else if (hasSummary && summary.hasFiniteRange)
+        {
+            dataMinimum = summary.minimum;
+            dataMaximum = summary.maximum;
+            hasRange = true;
+        }
+        if (automaticRange.isChecked() && hasRange)
+        {
+            scalarMinimum.setValue(dataMinimum);
+            scalarMaximum.setValue(dataMaximum);
+        }
+        if (attribute)
+        {
+            attributeInfo.setText(
+                hasSummary && hasRange
+                    ? tr("类型：%1；值数：%2；范围：%3 – %4%5")
+                          .arg(famp::cloud::attributeValueTypeName(summary.type))
+                          .arg(summary.valueCount)
+                          .arg(dataMinimum, 0, 'g', 12)
+                          .arg(dataMaximum, 0, 'g', 12)
+                          .arg(suffix)
+                    : tr("所选属性没有可用数值。"));
+        }
+        else
+        {
+            attributeInfo.clear();
+        }
     };
     connect(&colorMode, qOverload<int>(&QComboBox::currentIndexChanged),
             &dialog, [&](int) { updateColorControls(); });
     connect(&automaticRange, &QCheckBox::toggled,
             &dialog, [&](bool) { updateColorControls(); });
+    connect(&attributeName, qOverload<int>(&QComboBox::currentIndexChanged),
+            &dialog, [&](int) { updateColorControls(); });
     updateColorControls();
     connect(&colorButton, &QPushButton::clicked, &dialog, [&]() {
         const QColor color = QColorDialog::getColor(
@@ -1779,9 +1873,11 @@ void MainWindow::slotCloudDisplaySettings()
     layout.addRow(tr("不透明度"), &opacity);
     layout.addRow(tr("颜色模式"), &colorMode);
     layout.addRow(tr("统一颜色"), &colorButton);
+    layout.addRow(tr("逐点属性"), &attributeName);
+    layout.addRow(tr("属性信息"), &attributeInfo);
     layout.addRow(QString(), &automaticRange);
-    layout.addRow(tr("色带最小高程"), &scalarMinimum);
-    layout.addRow(tr("色带最大高程"), &scalarMaximum);
+    layout.addRow(tr("色带最小值"), &scalarMinimum);
+    layout.addRow(tr("色带最大值"), &scalarMaximum);
     QDialogButtonBox buttons(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     connect(&buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
@@ -1801,7 +1897,31 @@ void MainWindow::slotCloudDisplaySettings()
     settings.automaticScalarRange = automaticRange.isChecked();
     settings.scalarMinimum = scalarMinimum.value();
     settings.scalarMaximum = scalarMaximum.value();
+    settings.attributeName = attributeName.currentData().toString();
     QString error;
+    if (!famp::display::validateSettings(settings, &error))
+    {
+        QMessageBox::warning(this, tr("点云显示设置"), error);
+        return;
+    }
+    if (settings.colorMode == famp::display::ColorMode::Attribute)
+    {
+        famp::cloud::AttributeSummary summary;
+        if (!cachedAttributeSummary(settings.attributeName, summary)
+            || !summary.hasFiniteRange)
+        {
+            QMessageBox::warning(
+                this, tr("点云显示设置"),
+                tr("所选逐点属性不包含可用的有限数值。"));
+            return;
+        }
+        if (!famp::display::attachAttribute(
+                actor, cloud.layer.attributes, settings.attributeName, &error))
+        {
+            QMessageBox::warning(this, tr("点云显示设置"), error);
+            return;
+        }
+    }
     if (!famp::display::apply(actor, settings, &error))
     {
         QMessageBox::warning(this, tr("点云显示设置"), error);
@@ -2828,7 +2948,7 @@ void MainWindow::slotOpenCloud()
         this,
         tr("打开点云文件"),
         initialDirectory,
-        tr("点云文件 (*.pcd *.las *.ply *.xyz);;PCD (*.pcd);;LAS (*.las);;PLY (*.ply);;XYZ (*.xyz)"));
+        tr("点云文件 (*.pcd *.las *.laz *.ply *.xyz);;PCD (*.pcd);;LAS/LAZ (*.las *.laz);;PLY (*.ply);;XYZ (*.xyz)"));
     if (!path.isEmpty())
         openCloudFile(path);
 }
@@ -3027,6 +3147,18 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
     pointCloud.cloudactor->SetUserMatrix(cloudTransform);
     pointCloud.AABBactor->SetUserMatrix(cloudTransform);
     QString displayError;
+    if (pointCloud.layer.display.colorMode == famp::display::ColorMode::Attribute
+        && !famp::display::attachAttribute(
+            pointCloud.cloudactor,
+            pointCloud.layer.attributes,
+            pointCloud.layer.display.attributeName,
+            &displayError))
+    {
+        pointCloud.layer.display = {};
+        emit sendStr2Console(
+            tr("点云属性着色恢复失败，已改用默认显示：%1")
+                .arg(displayError));
+    }
     if (!famp::display::apply(
             pointCloud.cloudactor, pointCloud.layer.display, &displayError))
     {
@@ -3051,6 +3183,14 @@ void MainWindow::integrateLoadedCloud(const famp::cloud::LoadResult& result)
 
     //发送给Console消息
     emit sendStr2Console(tr("打开点云  %1").arg(result.path));
+    if (!pointCloud.layer.attributes.isEmpty())
+    {
+        emit sendStr2Console(
+            tr("已加载 %1 个逐点属性：%2")
+                .arg(pointCloud.layer.attributes.size())
+                .arg(pointCloud.layer.attributes.names().join(
+                    QStringLiteral(", "))));
+    }
 
     /////-------------------DB tree---------------------
     QString str = pointCloud.layer.name + "(" + result.path + ")";

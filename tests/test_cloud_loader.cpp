@@ -58,6 +58,10 @@ TEST(CloudLoaderTest, LoadsLasWithoutKeepingDuplicateSource)
     EXPECT_FALSE(result.sourceWasPcd);
     EXPECT_FALSE(result.sourceCloud);
     EXPECT_FALSE(result.displayCloud->empty());
+    EXPECT_TRUE(result.attributes.contains(QStringLiteral("intensity")));
+    EXPECT_TRUE(result.attributes.contains(QStringLiteral("classification")));
+    EXPECT_TRUE(result.attributes.validate(
+        static_cast<qint64>(result.displayCloud->size())));
     EXPECT_TRUE(std::isfinite(result.spatial.origin[0]));
     EXPECT_TRUE(std::isfinite(result.spatial.origin[1]));
     EXPECT_TRUE(std::isfinite(result.spatial.origin[2]));
