@@ -8,6 +8,11 @@
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 
+namespace famp::cloud
+{
+class CloudAttributes;
+}
+
 namespace famp::io
 {
 QString pathWithRequiredSuffix(const QString& path, const QString& suffix);
@@ -22,5 +27,6 @@ bool savePcdAsciiAtomically(
     const QString& path,
     const pcl::PointCloud<pcl::PointXYZRGB>& cloud,
     QString* errorMessage = nullptr,
-    const famp::cloud::SpatialReference* spatial = nullptr);
+    const famp::cloud::SpatialReference* spatial = nullptr,
+    const famp::cloud::CloudAttributes* attributes = nullptr);
 }

@@ -10,6 +10,8 @@
 #include "FileIO.h"
 
 #include <cmath>
+#include <limits>
+#include <utility>
 
 #ifndef FAMP_SAMPLE_DIR
 #error "FAMP_SAMPLE_DIR must point to the repository samples directory"
@@ -156,9 +158,18 @@ TEST(CloudLoaderTest, PreservesEmbeddedSpatialAndLocalPcdCoordinates)
     famp::cloud::SpatialReference spatial;
     spatial.origin = {123456.25, 3456789.5, 88.75};
     spatial.transform[3] = 12.5;
+    famp::cloud::CloudAttributes attributes;
+    famp::cloud::AttributeChannel pointIds;
+    pointIds.name = QStringLiteral("点编号");
+    pointIds.unit = QStringLiteral("id");
+    pointIds.type = famp::cloud::AttributeValueType::UnsignedInteger;
+    pointIds.unsignedValues = {
+        UINT64_C(9007199254740993), std::numeric_limits<quint64>::max()};
     QString error;
+    ASSERT_TRUE(attributes.insert(std::move(pointIds), 2, &error))
+        << error.toStdString();
     ASSERT_TRUE(famp::io::savePcdAsciiAtomically(
-        path, cloud, &error, &spatial)) << error.toStdString();
+        path, cloud, &error, &spatial, &attributes)) << error.toStdString();
 
     const auto result = famp::cloud::load(path);
     ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
@@ -167,4 +178,11 @@ TEST(CloudLoaderTest, PreservesEmbeddedSpatialAndLocalPcdCoordinates)
     EXPECT_FLOAT_EQ((*result.displayCloud)[1].x, 8.0F);
     EXPECT_EQ(result.spatial.origin, spatial.origin);
     EXPECT_EQ(result.spatial.transform, spatial.transform);
+    const auto* loadedPointIds = result.attributes.channel(
+        QStringLiteral("点编号"));
+    ASSERT_NE(loadedPointIds, nullptr);
+    EXPECT_EQ(loadedPointIds->unit, QStringLiteral("id"));
+    EXPECT_EQ(loadedPointIds->unsignedValues,
+              QVector<quint64>({UINT64_C(9007199254740993),
+                                std::numeric_limits<quint64>::max()}));
 }

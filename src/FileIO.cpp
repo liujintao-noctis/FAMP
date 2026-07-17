@@ -1,5 +1,8 @@
 #include "FileIO.h"
 
+#include "CloudAttributes.h"
+
+#include <QByteArray>
 #include <QLocale>
 #include <QSaveFile>
 #include <QTextStream>
@@ -40,6 +43,14 @@ bool validSpatialReference(const famp::cloud::SpatialReference& spatial)
             return false;
     }
     return true;
+}
+
+QString attributeMetadataToken(const QString& value)
+{
+    return QStringLiteral("b") + QString::fromLatin1(
+        value.toUtf8().toBase64(
+            QByteArray::Base64UrlEncoding
+            | QByteArray::OmitTrailingEquals));
 }
 }
 
@@ -106,7 +117,8 @@ bool savePcdAsciiAtomically(
     const QString& path,
     const pcl::PointCloud<pcl::PointXYZRGB>& cloud,
     QString* errorMessage,
-    const famp::cloud::SpatialReference* spatial)
+    const famp::cloud::SpatialReference* spatial,
+    const famp::cloud::CloudAttributes* attributes)
 {
     if (path.trimmed().isEmpty())
     {
@@ -133,6 +145,27 @@ bool savePcdAsciiAtomically(
         setError(errorMessage, QStringLiteral("点云空间参考包含无效数值。"));
         return false;
     }
+    if (attributes
+        && !attributes->validate(static_cast<qint64>(cloud.size()), errorMessage))
+    {
+        return false;
+    }
+
+    QVector<const famp::cloud::AttributeChannel*> attributeChannels;
+    if (attributes)
+    {
+        attributeChannels.reserve(attributes->size());
+        for (const QString& name : attributes->names())
+        {
+            const auto* channel = attributes->channel(name);
+            if (!channel)
+            {
+                setError(errorMessage, QStringLiteral("点云属性索引无效。"));
+                return false;
+            }
+            attributeChannels.append(channel);
+        }
+    }
 
     QSaveFile file(path);
     if (!openOutputFile(file, errorMessage))
@@ -156,25 +189,89 @@ bool savePcdAsciiAtomically(
         stream << '\n';
         stream.setRealNumberPrecision(std::numeric_limits<float>::max_digits10);
     }
+    if (!attributeChannels.isEmpty())
+    {
+        stream << "# FAMP_ATTRIBUTES 1 " << attributeChannels.size() << '\n';
+        for (int index = 0; index < attributeChannels.size(); ++index)
+        {
+            const auto* channel = attributeChannels.at(index);
+            stream << "# FAMP_ATTRIBUTE " << index
+                   << " famp_attr_" << index << ' '
+                   << attributeMetadataToken(channel->name) << ' '
+                   << attributeMetadataToken(channel->unit) << ' '
+                   << famp::cloud::attributeValueTypeName(channel->type)
+                   << '\n';
+        }
+    }
     stream << "VERSION 0.7\n"
-           << "FIELDS x y z rgb\n"
-           << "SIZE 4 4 4 4\n"
-           << "TYPE F F F U\n"
-           << "COUNT 1 1 1 1\n"
+           << "FIELDS x y z rgb";
+    for (int index = 0; index < attributeChannels.size(); ++index)
+        stream << " famp_attr_" << index;
+    stream << "\nSIZE 4 4 4 4";
+    for (const auto* channel : attributeChannels)
+    {
+        Q_UNUSED(channel);
+        stream << " 8";
+    }
+    stream << "\nTYPE F F F U";
+    for (const auto* channel : attributeChannels)
+    {
+        switch (channel->type)
+        {
+        case famp::cloud::AttributeValueType::Float64:
+            stream << " F";
+            break;
+        case famp::cloud::AttributeValueType::SignedInteger:
+            stream << " I";
+            break;
+        case famp::cloud::AttributeValueType::UnsignedInteger:
+            stream << " U";
+            break;
+        }
+    }
+    stream << "\nCOUNT 1 1 1 1";
+    for (const auto* channel : attributeChannels)
+    {
+        Q_UNUSED(channel);
+        stream << " 1";
+    }
+    stream << '\n'
            << "WIDTH " << static_cast<qulonglong>(cloud.size()) << '\n'
            << "HEIGHT 1\n"
            << "VIEWPOINT 0 0 0 1 0 0 0\n"
            << "POINTS " << static_cast<qulonglong>(cloud.size()) << '\n'
            << "DATA ascii\n";
 
-    for (const pcl::PointXYZRGB& point : cloud)
+    for (std::size_t pointIndex = 0; pointIndex < cloud.size(); ++pointIndex)
     {
+        const pcl::PointXYZRGB& point = cloud.points[pointIndex];
         const std::uint32_t packedRgb =
             (static_cast<std::uint32_t>(point.r) << 16)
             | (static_cast<std::uint32_t>(point.g) << 8)
             | static_cast<std::uint32_t>(point.b);
+        stream.setRealNumberPrecision(std::numeric_limits<float>::max_digits10);
         stream << point.x << ' ' << point.y << ' ' << point.z << ' '
-               << packedRgb << '\n';
+               << packedRgb;
+        for (const auto* channel : attributeChannels)
+        {
+            stream << ' ';
+            const int index = static_cast<int>(pointIndex);
+            switch (channel->type)
+            {
+            case famp::cloud::AttributeValueType::Float64:
+                stream.setRealNumberPrecision(
+                    std::numeric_limits<double>::max_digits10);
+                stream << channel->floatingValues.at(index);
+                break;
+            case famp::cloud::AttributeValueType::SignedInteger:
+                stream << channel->signedValues.at(index);
+                break;
+            case famp::cloud::AttributeValueType::UnsignedInteger:
+                stream << channel->unsignedValues.at(index);
+                break;
+            }
+        }
+        stream << '\n';
     }
     stream.flush();
 

@@ -12,14 +12,19 @@
 
 #include <QDir>
 #include <QFile>
+#include <QLocale>
+#include <QMap>
+#include <QSet>
 #include <QTemporaryFile>
 
 #include <algorithm>
 #include <cctype>
 #include <cstdint>
 #include <fstream>
-#include <sstream>
 #include <cmath>
+#include <limits>
+#include <sstream>
+#include <utility>
 
 namespace
 {
@@ -35,6 +40,464 @@ enum class SpatialMetadataStatus
     Valid,
     Invalid
 };
+
+enum class AttributeMetadataStatus
+{
+    NotPresent,
+    Valid,
+    Invalid
+};
+
+struct PcdAttributeDescriptor
+{
+    int index = -1;
+    QString fieldName;
+    QString name;
+    QString unit;
+    famp::cloud::AttributeValueType type =
+        famp::cloud::AttributeValueType::Float64;
+};
+
+struct ParsedPcdAttributes
+{
+    famp::cloud::CloudAttributes attributes;
+    qint64 pointCount = 0;
+};
+
+QStringList splitPcdLine(const QString& line)
+{
+    return line.simplified().split(QLatin1Char(' '), Qt::SkipEmptyParts);
+}
+
+void setFirstError(QString& error, const QString& message)
+{
+    if (error.isEmpty())
+        error = message;
+}
+
+bool decodeAttributeMetadataToken(const QString& token, QString& value)
+{
+    if (!token.startsWith(QLatin1Char('b')))
+        return false;
+    const QByteArray encoded = token.mid(1).toLatin1();
+    for (const char character : encoded)
+    {
+        const bool valid = (character >= 'A' && character <= 'Z')
+            || (character >= 'a' && character <= 'z')
+            || (character >= '0' && character <= '9')
+            || character == '-' || character == '_';
+        if (!valid)
+            return false;
+    }
+    if (encoded.size() % 4 == 1)
+        return false;
+
+    const QByteArray decoded = QByteArray::fromBase64(
+        encoded, QByteArray::Base64UrlEncoding);
+    const QByteArray canonical = decoded.toBase64(
+        QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals);
+    if (canonical != encoded)
+        return false;
+
+    const QString decodedText = QString::fromUtf8(decoded);
+    if (decodedText.toUtf8() != decoded)
+        return false;
+    value = decodedText;
+    return true;
+}
+
+bool parseFloatingAttribute(const QString& token, double& value)
+{
+    const QString normalized = token.trimmed().toLower();
+    if (normalized == QStringLiteral("nan")
+        || normalized == QStringLiteral("+nan")
+        || normalized == QStringLiteral("-nan"))
+    {
+        value = std::numeric_limits<double>::quiet_NaN();
+        if (normalized.startsWith(QLatin1Char('-')))
+            value = std::copysign(value, -1.0);
+        return true;
+    }
+    if (normalized == QStringLiteral("inf")
+        || normalized == QStringLiteral("+inf")
+        || normalized == QStringLiteral("infinity")
+        || normalized == QStringLiteral("+infinity"))
+    {
+        value = std::numeric_limits<double>::infinity();
+        return true;
+    }
+    if (normalized == QStringLiteral("-inf")
+        || normalized == QStringLiteral("-infinity"))
+    {
+        value = -std::numeric_limits<double>::infinity();
+        return true;
+    }
+
+    bool ok = false;
+    value = QLocale::c().toDouble(token, &ok);
+    return ok;
+}
+
+AttributeMetadataStatus readEmbeddedAttributes(
+    const QString& path,
+    ParsedPcdAttributes& parsed,
+    QString& error)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return AttributeMetadataStatus::NotPresent;
+
+    bool valid = true;
+    bool markerPresent = false;
+    bool markerSeen = false;
+    bool fieldsSeen = false;
+    bool sizesSeen = false;
+    bool typesSeen = false;
+    bool countsSeen = false;
+    bool pointsSeen = false;
+    bool dataSeen = false;
+    int declaredAttributeCount = -1;
+    qint64 pointCount = -1;
+    QStringList fieldNames;
+    QStringList fieldSizes;
+    QStringList fieldTypes;
+    QStringList fieldCounts;
+    QMap<int, PcdAttributeDescriptor> descriptors;
+    qint64 headerBytes = 0;
+
+    while (!file.atEnd())
+    {
+        const QByteArray rawLine = file.readLine(64 * 1024);
+        headerBytes += rawLine.size();
+        if (headerBytes > kMaxHeaderBytes
+            || (!rawLine.endsWith('\n') && !file.atEnd()))
+        {
+            valid = false;
+            setFirstError(error, QStringLiteral("PCD 头部过大或包含超长行。"));
+            break;
+        }
+
+        const QString line = QString::fromLatin1(rawLine).trimmed();
+        const QStringList tokens = splitPcdLine(line);
+        if (tokens.isEmpty())
+            continue;
+
+        if (tokens.size() >= 2
+            && tokens.at(0) == QStringLiteral("#")
+            && tokens.at(1) == QStringLiteral("FAMP_ATTRIBUTES"))
+        {
+            markerPresent = true;
+            if (markerSeen || tokens.size() != 4
+                || tokens.at(2) != QStringLiteral("1"))
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("逐点属性版本标记无效或重复。"));
+            }
+            markerSeen = true;
+            bool countOk = false;
+            const int count = tokens.value(3).toInt(&countOk);
+            if (!countOk || count < 1 || count > 256)
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("逐点属性通道数无效。"));
+            }
+            else
+            {
+                declaredAttributeCount = count;
+            }
+            continue;
+        }
+
+        if (tokens.size() >= 2
+            && tokens.at(0) == QStringLiteral("#")
+            && tokens.at(1) == QStringLiteral("FAMP_ATTRIBUTE"))
+        {
+            if (tokens.size() != 7)
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("逐点属性描述行格式无效。"));
+                continue;
+            }
+            bool indexOk = false;
+            const int index = tokens.at(2).toInt(&indexOk);
+            PcdAttributeDescriptor descriptor;
+            descriptor.index = index;
+            descriptor.fieldName = tokens.at(3);
+            if (!indexOk || index < 0 || index >= 256
+                || descriptors.contains(index)
+                || !decodeAttributeMetadataToken(tokens.at(4), descriptor.name)
+                || !decodeAttributeMetadataToken(tokens.at(5), descriptor.unit)
+                || !famp::cloud::attributeValueTypeFromName(
+                    tokens.at(6), descriptor.type))
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("逐点属性描述内容无效或重复。"));
+                continue;
+            }
+            descriptors.insert(index, descriptor);
+            continue;
+        }
+
+        const QString key = tokens.at(0).toUpper();
+        auto readHeaderList = [&](bool& seen, QStringList& destination) {
+            if (seen || tokens.size() < 2)
+            {
+                valid = false;
+                setFirstError(error,
+                              QStringLiteral("PCD 属性字段头部缺失或重复。"));
+                return;
+            }
+            seen = true;
+            destination = tokens.mid(1);
+        };
+        if (key == QStringLiteral("FIELDS"))
+            readHeaderList(fieldsSeen, fieldNames);
+        else if (key == QStringLiteral("SIZE"))
+            readHeaderList(sizesSeen, fieldSizes);
+        else if (key == QStringLiteral("TYPE"))
+            readHeaderList(typesSeen, fieldTypes);
+        else if (key == QStringLiteral("COUNT"))
+            readHeaderList(countsSeen, fieldCounts);
+        else if (key == QStringLiteral("POINTS"))
+        {
+            if (pointsSeen || tokens.size() != 2)
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("PCD POINTS 头部无效或重复。"));
+            }
+            pointsSeen = true;
+            bool pointsOk = false;
+            const qlonglong value = tokens.value(1).toLongLong(&pointsOk);
+            if (!pointsOk || value < 1
+                || value > std::numeric_limits<int>::max())
+            {
+                valid = false;
+                setFirstError(error, QStringLiteral("PCD 属性点数无效或过大。"));
+            }
+            else
+            {
+                pointCount = value;
+            }
+        }
+        else if (key == QStringLiteral("DATA"))
+        {
+            if (dataSeen || tokens.size() != 2
+                || tokens.at(1).compare(
+                    QStringLiteral("ascii"), Qt::CaseInsensitive) != 0)
+            {
+                valid = false;
+                setFirstError(error,
+                              QStringLiteral("含逐点属性的 FAMP PCD 必须使用 ASCII DATA。"));
+            }
+            dataSeen = true;
+            break;
+        }
+    }
+
+    if (!markerPresent)
+        return AttributeMetadataStatus::NotPresent;
+    if (!valid || !markerSeen || declaredAttributeCount < 1
+        || !fieldsSeen || !sizesSeen || !typesSeen || !countsSeen
+        || !pointsSeen || !dataSeen || pointCount < 1)
+    {
+        setFirstError(error, QStringLiteral("逐点属性元数据不完整。"));
+        return AttributeMetadataStatus::Invalid;
+    }
+    if (descriptors.size() != declaredAttributeCount)
+    {
+        setFirstError(error, QStringLiteral("逐点属性描述数量与声明不一致。"));
+        return AttributeMetadataStatus::Invalid;
+    }
+
+    const int expectedFieldCount = 4 + declaredAttributeCount;
+    if (fieldNames.size() != expectedFieldCount
+        || fieldSizes.size() != expectedFieldCount
+        || fieldTypes.size() != expectedFieldCount
+        || fieldCounts.size() != expectedFieldCount
+        || fieldNames.mid(0, 4)
+            != QStringList({QStringLiteral("x"), QStringLiteral("y"),
+                            QStringLiteral("z"), QStringLiteral("rgb")})
+        || fieldSizes.mid(0, 4)
+            != QStringList({QStringLiteral("4"), QStringLiteral("4"),
+                            QStringLiteral("4"), QStringLiteral("4")})
+        || fieldTypes.mid(0, 4)
+            != QStringList({QStringLiteral("F"), QStringLiteral("F"),
+                            QStringLiteral("F"), QStringLiteral("U")})
+        || fieldCounts.mid(0, 4)
+            != QStringList({QStringLiteral("1"), QStringLiteral("1"),
+                            QStringLiteral("1"), QStringLiteral("1")}))
+    {
+        setFirstError(error, QStringLiteral("PCD 基础字段或属性字段数量无效。"));
+        return AttributeMetadataStatus::Invalid;
+    }
+
+    QVector<famp::cloud::AttributeChannel> channels;
+    channels.reserve(declaredAttributeCount);
+    QSet<QString> normalizedNames;
+    const int perChannelReserve = static_cast<int>(std::min<qint64>(
+        pointCount, std::max(1, 1024 * 1024 / declaredAttributeCount)));
+    for (int index = 0; index < declaredAttributeCount; ++index)
+    {
+        if (!descriptors.contains(index))
+        {
+            setFirstError(error, QStringLiteral("逐点属性索引不连续。"));
+            return AttributeMetadataStatus::Invalid;
+        }
+        const PcdAttributeDescriptor& descriptor = descriptors[index];
+        const int fieldIndex = 4 + index;
+        QString expectedType;
+        switch (descriptor.type)
+        {
+        case famp::cloud::AttributeValueType::Float64:
+            expectedType = QStringLiteral("F");
+            break;
+        case famp::cloud::AttributeValueType::SignedInteger:
+            expectedType = QStringLiteral("I");
+            break;
+        case famp::cloud::AttributeValueType::UnsignedInteger:
+            expectedType = QStringLiteral("U");
+            break;
+        }
+        if (descriptor.fieldName != QStringLiteral("famp_attr_%1").arg(index)
+            || fieldNames.at(fieldIndex) != descriptor.fieldName
+            || fieldSizes.at(fieldIndex) != QStringLiteral("8")
+            || fieldTypes.at(fieldIndex) != expectedType
+            || fieldCounts.at(fieldIndex) != QStringLiteral("1"))
+        {
+            setFirstError(error, QStringLiteral("第 %1 个逐点属性字段定义无效。")
+                                     .arg(index + 1));
+            return AttributeMetadataStatus::Invalid;
+        }
+
+        famp::cloud::AttributeChannel channel;
+        channel.name = descriptor.name;
+        channel.unit = descriptor.unit;
+        channel.type = descriptor.type;
+        famp::cloud::AttributeSummary summary;
+        summary.name = channel.name;
+        summary.unit = channel.unit;
+        summary.type = channel.type;
+        QString validationError;
+        const QString normalizedName = channel.name.trimmed().toCaseFolded();
+        if (!famp::cloud::validateAttributeSummary(summary, &validationError)
+            || normalizedNames.contains(normalizedName))
+        {
+            setFirstError(
+                error,
+                validationError.isEmpty()
+                    ? QStringLiteral("逐点属性名称重复。") : validationError);
+            return AttributeMetadataStatus::Invalid;
+        }
+        normalizedNames.insert(normalizedName);
+        switch (channel.type)
+        {
+        case famp::cloud::AttributeValueType::Float64:
+            channel.floatingValues.reserve(perChannelReserve);
+            break;
+        case famp::cloud::AttributeValueType::SignedInteger:
+            channel.signedValues.reserve(perChannelReserve);
+            break;
+        case famp::cloud::AttributeValueType::UnsignedInteger:
+            channel.unsignedValues.reserve(perChannelReserve);
+            break;
+        }
+        channels.append(std::move(channel));
+    }
+
+    qint64 rowsRead = 0;
+    while (rowsRead < pointCount && !file.atEnd())
+    {
+        const QByteArray rawLine = file.readLine(64 * 1024);
+        if (!rawLine.endsWith('\n') && !file.atEnd())
+        {
+            setFirstError(error, QStringLiteral("PCD 数据行过长。"));
+            return AttributeMetadataStatus::Invalid;
+        }
+        const QString line = QString::fromLatin1(rawLine).trimmed();
+        if (line.isEmpty())
+            continue;
+        const QStringList values = splitPcdLine(line);
+        if (values.size() != expectedFieldCount)
+        {
+            setFirstError(error, QStringLiteral("PCD 数据列数与属性定义不一致。"));
+            return AttributeMetadataStatus::Invalid;
+        }
+        for (int index = 0; index < channels.size(); ++index)
+        {
+            auto& channel = channels[index];
+            const QString& token = values.at(4 + index);
+            bool ok = false;
+            switch (channel.type)
+            {
+            case famp::cloud::AttributeValueType::Float64:
+            {
+                double value = 0.0;
+                ok = parseFloatingAttribute(token, value);
+                if (ok)
+                    channel.floatingValues.append(value);
+                break;
+            }
+            case famp::cloud::AttributeValueType::SignedInteger:
+            {
+                const qlonglong value = token.toLongLong(&ok, 10);
+                if (ok)
+                    channel.signedValues.append(value);
+                break;
+            }
+            case famp::cloud::AttributeValueType::UnsignedInteger:
+            {
+                const qulonglong value = token.toULongLong(&ok, 10);
+                if (ok)
+                    channel.unsignedValues.append(value);
+                break;
+            }
+            }
+            if (!ok)
+            {
+                setFirstError(
+                    error,
+                    QStringLiteral("第 %1 行的逐点属性 %2 数值无效。")
+                        .arg(rowsRead + 1)
+                        .arg(channel.name));
+                return AttributeMetadataStatus::Invalid;
+            }
+        }
+        ++rowsRead;
+    }
+    if (rowsRead != pointCount)
+    {
+        setFirstError(error, QStringLiteral("PCD 属性数据行数少于 POINTS 声明。"));
+        return AttributeMetadataStatus::Invalid;
+    }
+    while (!file.atEnd())
+    {
+        const QByteArray rawLine = file.readLine(64 * 1024);
+        if (!QString::fromLatin1(rawLine).trimmed().isEmpty())
+        {
+            setFirstError(error, QStringLiteral("PCD 属性数据行数多于 POINTS 声明。"));
+            return AttributeMetadataStatus::Invalid;
+        }
+    }
+
+    famp::cloud::CloudAttributes attributes;
+    for (auto& channel : channels)
+    {
+        QString validationError;
+        if (!attributes.insert(std::move(channel), pointCount, &validationError))
+        {
+            setFirstError(error, validationError);
+            return AttributeMetadataStatus::Invalid;
+        }
+    }
+    if (attributes.size() != declaredAttributeCount)
+    {
+        setFirstError(error, QStringLiteral("逐点属性名称重复。"));
+        return AttributeMetadataStatus::Invalid;
+    }
+    parsed.attributes = std::move(attributes);
+    parsed.pointCount = pointCount;
+    return AttributeMetadataStatus::Valid;
+}
 
 SpatialMetadataStatus readEmbeddedSpatial(
     const QString& path,
@@ -313,8 +776,24 @@ bool loadPcdAsRgb(const QString& path,
                   pcl::PointCloud<pcl::PointXYZRGB>::Ptr& outCloud,
                   QString* errorMessage,
                   famp::cloud::SpatialReference* embeddedSpatial,
-                  bool* hasEmbeddedSpatial)
+                  bool* hasEmbeddedSpatial,
+                  famp::cloud::CloudAttributes* embeddedAttributes)
 {
+    ParsedPcdAttributes parsedAttributes;
+    QString attributeError;
+    const AttributeMetadataStatus attributeMetadata =
+        readEmbeddedAttributes(path, parsedAttributes, attributeError);
+    if (attributeMetadata == AttributeMetadataStatus::Invalid)
+    {
+        if (errorMessage)
+        {
+            *errorMessage = QStringLiteral(
+                "PCD 中的 FAMP 逐点属性元数据无效：%1\n%2")
+                                .arg(path, attributeError);
+        }
+        return false;
+    }
+
     famp::cloud::SpatialReference parsedSpatial;
     const SpatialMetadataStatus metadata = readEmbeddedSpatial(path, parsedSpatial);
     if (metadata == SpatialMetadataStatus::Invalid)
@@ -323,14 +802,44 @@ bool loadPcdAsRgb(const QString& path,
             *errorMessage = QStringLiteral("PCD 中的 FAMP 空间参考元数据无效：%1").arg(path);
         return false;
     }
-    if (hasEmbeddedSpatial)
-        *hasEmbeddedSpatial = metadata == SpatialMetadataStatus::Valid;
-    if (embeddedSpatial && metadata == SpatialMetadataStatus::Valid)
-        *embeddedSpatial = parsedSpatial;
-    const std::string utf8Path = qstr2str(path);
-    if (loadPcdFromStdPath(utf8Path, outCloud))
-    {
+
+    auto commitLoaded = [&](const pcl::PointCloud<pcl::PointXYZRGB>::Ptr& loaded) {
+        if (attributeMetadata == AttributeMetadataStatus::Valid
+            && parsedAttributes.pointCount
+                != static_cast<qint64>(loaded->size()))
+        {
+            if (errorMessage)
+            {
+                *errorMessage = QStringLiteral(
+                    "PCD 逐点属性数量 %1 与有效点数 %2 不一致：%3")
+                                    .arg(parsedAttributes.pointCount)
+                                    .arg(loaded->size())
+                                    .arg(path);
+            }
+            return false;
+        }
+        outCloud = loaded;
+        if (hasEmbeddedSpatial)
+            *hasEmbeddedSpatial = metadata == SpatialMetadataStatus::Valid;
+        if (embeddedSpatial && metadata == SpatialMetadataStatus::Valid)
+            *embeddedSpatial = parsedSpatial;
+        if (embeddedAttributes)
+        {
+            if (attributeMetadata == AttributeMetadataStatus::Valid)
+                *embeddedAttributes = parsedAttributes.attributes;
+            else
+                embeddedAttributes->clear();
+        }
+        if (errorMessage)
+            errorMessage->clear();
         return true;
+    };
+
+    const std::string utf8Path = qstr2str(path);
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr loadedCloud;
+    if (loadPcdFromStdPath(utf8Path, loadedCloud))
+    {
+        return commitLoaded(loadedCloud);
     }
 
     // On Windows, PCL's narrow file API may fail on non-ASCII paths. Retry via
@@ -345,11 +854,13 @@ bool loadPcdAsRgb(const QString& path,
         QString copyError;
         if (copyFileWithQt(path, tempPath, &copyError))
         {
-            const bool loaded = loadPcdFromStdPath(qstr2str(tempPath), outCloud);
+            pcl::PointCloud<pcl::PointXYZRGB>::Ptr temporaryCloud;
+            const bool loaded = loadPcdFromStdPath(
+                qstr2str(tempPath), temporaryCloud);
             QFile::remove(tempPath);
             if (loaded)
             {
-                return true;
+                return commitLoaded(temporaryCloud);
             }
         }
         else if (errorMessage)
