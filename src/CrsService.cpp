@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 
 #include <cmath>
+#include <algorithm>
 #include <memory>
 #include <vector>
 
@@ -252,7 +253,45 @@ bool inspect(const QString& identifier, Info& info, QString* errorMessage)
     inspected.type = typeName(type);
     inspected.geographic = type == PJ_TYPE_GEOGRAPHIC_2D_CRS
         || type == PJ_TYPE_GEOGRAPHIC_3D_CRS;
+    inspected.projected = type == PJ_TYPE_PROJECTED_CRS;
+    if (inspected.projected)
+    {
+        ProjPtr coordinateSystem(
+            proj_crs_get_coordinate_system(context.get(), crs.get()),
+            &proj_destroy);
+        const char* unitName = nullptr;
+        double unitToMetre = 0.0;
+        double secondAxisUnitToMetre = 0.0;
+        if (!coordinateSystem
+            || proj_cs_get_axis_count(context.get(), coordinateSystem.get()) < 2
+            || !proj_cs_get_axis_info(
+                context.get(), coordinateSystem.get(), 0,
+                nullptr, nullptr, nullptr, &unitToMetre, &unitName,
+                nullptr, nullptr)
+            || !proj_cs_get_axis_info(
+                context.get(), coordinateSystem.get(), 1,
+                nullptr, nullptr, nullptr, &secondAxisUnitToMetre, nullptr,
+                nullptr, nullptr)
+            || !std::isfinite(unitToMetre) || unitToMetre <= 0.0
+            || !std::isfinite(secondAxisUnitToMetre)
+            || secondAxisUnitToMetre <= 0.0
+            || std::abs(unitToMetre - secondAxisUnitToMetre)
+                > 1.0e-12 * std::max(
+                    {1.0, std::abs(unitToMetre),
+                     std::abs(secondAxisUnitToMetre)}))
+        {
+            setError(errorMessage,
+                     QStringLiteral("无法读取投影坐标系 %1 的水平单位。")
+                         .arg(normalized));
+            return false;
+        }
+        inspected.horizontalUnitName = unitName
+            ? QString::fromUtf8(unitName) : QStringLiteral("未知单位");
+        inspected.horizontalUnitToMetre = unitToMetre;
+    }
     info = inspected;
+    if (errorMessage)
+        errorMessage->clear();
     return true;
 }
 

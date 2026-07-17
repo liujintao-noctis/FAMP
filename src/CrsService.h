@@ -12,6 +12,9 @@ struct Info
     QString name;
     QString type;
     bool geographic = false;
+    bool projected = false;
+    QString horizontalUnitName;
+    double horizontalUnitToMetre = 1.0;
 };
 
 struct Coordinate

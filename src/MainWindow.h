@@ -100,6 +100,7 @@ private:
     QAction * reprojectCloudAction;
     QAction * archaeologyMetadataAction;
     QAction * controlPointsAction;
+    QAction * terrainAnalysisAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -234,6 +235,7 @@ private slots:
     void slotReprojectCloud();
     void slotEditArchaeologyMetadata();
     void slotEditControlPoints();
+    void slotGenerateTerrain();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();

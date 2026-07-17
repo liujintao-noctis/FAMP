@@ -15,6 +15,7 @@
 #include "CompassItem.h"
 #include "FormTabulationItem.h"
 #include "MeasurementItem.h"
+#include "ContourItem.h"
 
 #include <QObject>
 #include <QWidget>
@@ -124,6 +125,17 @@ public:
                               QString* errorMessage = nullptr) const;
     bool restoreProjectState(const QJsonObject& state,
                              QString* errorMessage = nullptr);
+    bool addTerrainContours(
+        const QVector<famp::terrain::ContourLine>& lines,
+        double horizontalUnitToMetre,
+        const QString& sourceCrs,
+        const QString& sourceLayerId,
+        const QString& sourceLayerName,
+        const QString& demPath,
+        double interval,
+        double baseElevation,
+        QString* errorMessage = nullptr);
+    int terrainContourCount() const;
 
 private:
     // 绘制投影的配置参数，消除4个draw方法的代码重复
@@ -207,6 +219,7 @@ private:
     void finishMeasurement();
     void resetMeasurementInteraction(bool notify);
     void rescaleMeasurementItems();
+    void rescaleTerrainItems();
     void applyScale(ScaleType scale);
 
     QDlgPlotTab  *dlgPlotTab;
