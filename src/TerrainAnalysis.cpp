@@ -456,7 +456,9 @@ bool Grid::isValid() const
         || !std::isfinite(originX) || !std::isfinite(originY)
         || !std::isfinite(resolution) || resolution <= 0.0
         || !std::isfinite(horizontalUnitToMetre)
-        || horizontalUnitToMetre <= 0.0)
+        || horizontalUnitToMetre <= 0.0
+        || statistic < CellStatistic::Minimum
+        || statistic > CellStatistic::Median)
     {
         return false;
     }
@@ -473,8 +475,10 @@ bool Grid::isValid() const
             return false;
     }
     return finiteCount > 0
+        && sourcePointCount >= 0
         && populatedCellCount >= 0
         && filledCellCount >= 0
+        && sourcePointCount >= populatedCellCount
         && populatedCellCount + filledCellCount == finiteCount;
 }
 
@@ -957,6 +961,89 @@ bool buildGrid(
     return true;
 }
 
+bool buildGridFromCloud(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& cloud,
+    const famp::cloud::SpatialReference& spatial,
+    const GridOptions& options,
+    Grid& grid,
+    double* suggestedResolutionOutput,
+    QString* errorMessage,
+    const famp::tasks::CancellationCheck& shouldCancel,
+    const Progress& reportProgress)
+{
+    if (!cloud || cloud->empty())
+    {
+        setError(errorMessage, QStringLiteral("没有可用于 DEM 的点云数据。"));
+        return false;
+    }
+    if (cloud->size() > static_cast<std::size_t>(
+            std::numeric_limits<int>::max())
+        || cloud->size() > static_cast<std::size_t>(
+            std::numeric_limits<qsizetype>::max()))
+    {
+        setError(errorMessage, QStringLiteral("DEM 输入点数超出可表示范围。"));
+        return false;
+    }
+    if (!validateGridOptions(options, errorMessage))
+        return false;
+
+    Eigen::Matrix4d matrix;
+    if (!spatialMatrix(spatial, matrix))
+    {
+        setError(errorMessage, QStringLiteral("点云空间参考包含无效数值。"));
+        return false;
+    }
+
+    QVector<famp::cloud::Point3d> coordinates;
+    coordinates.reserve(static_cast<qsizetype>(cloud->size()));
+    for (std::size_t index = 0; index < cloud->size(); ++index)
+    {
+        if ((index % CancellationInterval) == 0)
+        {
+            if (cancelled(shouldCancel))
+            {
+                setError(errorMessage, QStringLiteral("DEM 生成已取消。"));
+                return false;
+            }
+            if (reportProgress)
+            {
+                reportProgress(0.15 * static_cast<double>(index)
+                               / cloud->size());
+            }
+        }
+        famp::cloud::Point3d coordinate;
+        if (!realCoordinate(matrix, spatial, cloud->points[index], coordinate))
+        {
+            setError(errorMessage,
+                     QStringLiteral("第 %1 个点的真实坐标无效。")
+                         .arg(index + 1));
+            return false;
+        }
+        coordinates.append(coordinate);
+    }
+
+    Grid candidate;
+    double suggested = 0.0;
+    if (!buildGrid(
+            coordinates, options, candidate,
+            suggestedResolutionOutput ? &suggested : nullptr,
+            errorMessage, shouldCancel,
+            reportProgress ? Progress([&](double progress) {
+                reportProgress(0.15 + 0.85 * progress);
+            }) : Progress{}))
+    {
+        return false;
+    }
+    grid = std::move(candidate);
+    if (suggestedResolutionOutput)
+        *suggestedResolutionOutput = suggested;
+    if (reportProgress)
+        reportProgress(1.0);
+    if (errorMessage)
+        errorMessage->clear();
+    return true;
+}
+
 bool generateContours(
     const Grid& grid,
     const ContourOptions& options,
@@ -1135,63 +1222,15 @@ Result analyze(
     const Progress& reportProgress)
 {
     Result result;
-    if (!cloud || cloud->empty())
-    {
-        result.error = QStringLiteral("没有可用于地形分析的点云数据。");
+    if (!validateContourOptions(contourOptions, &result.error))
         return result;
-    }
-    if (cloud->size() > static_cast<std::size_t>(
-            std::numeric_limits<int>::max())
-        || cloud->size() > static_cast<std::size_t>(
-            std::numeric_limits<qsizetype>::max()))
-    {
-        result.error = QStringLiteral("地形分析输入点数超出可表示范围。");
-        return result;
-    }
-    if (!validateGridOptions(gridOptions, &result.error)
-        || !validateContourOptions(contourOptions, &result.error))
-    {
-        return result;
-    }
-    Eigen::Matrix4d matrix;
-    if (!spatialMatrix(spatial, matrix))
-    {
-        result.error = QStringLiteral("点云空间参考包含无效数值。");
-        return result;
-    }
-
-    QVector<famp::cloud::Point3d> coordinates;
-    coordinates.reserve(static_cast<qsizetype>(cloud->size()));
-    for (std::size_t index = 0; index < cloud->size(); ++index)
-    {
-        if ((index % CancellationInterval) == 0)
-        {
-            if (cancelled(shouldCancel))
-            {
-                result.cancelled = true;
-                result.error = QStringLiteral("地形分析已取消。");
-                return result;
-            }
-            if (reportProgress)
-                reportProgress(0.1 * static_cast<double>(index) / cloud->size());
-        }
-        famp::cloud::Point3d coordinate;
-        if (!realCoordinate(matrix, spatial, cloud->points[index], coordinate))
-        {
-            result.error = QStringLiteral("第 %1 个点的真实坐标无效。")
-                               .arg(index + 1);
-            return result;
-        }
-        coordinates.append(coordinate);
-    }
-
     QString operationError;
-    if (!buildGrid(
-            coordinates, gridOptions, result.grid,
+    if (!buildGridFromCloud(
+            cloud, spatial, gridOptions, result.grid,
             &result.suggestedResolution, &operationError,
             shouldCancel,
             reportProgress ? Progress([&](double progress) {
-                reportProgress(0.1 + 0.55 * progress);
+                reportProgress(0.65 * progress);
             }) : Progress{}))
     {
         result.cancelled = cancelled(shouldCancel);

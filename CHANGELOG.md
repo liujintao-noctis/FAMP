@@ -4,6 +4,20 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-17
+
+### Added
+
+- 新增“工具 → 挖填方与体积”后台工作流：可把所选点云生成当前地表 DEM，与固定设计高程或已有 `.famp-dem` 参考地表比较，并分别计算挖方、填方、平衡区面积、体积和“挖方 - 填方”净体积。
+- 新增严格的参考 DEM 对齐校验：后台读取参考网格并自动接管当前 DEM 分辨率，拒绝 CRS、坐标单位、分辨率、网格原点或重叠范围不兼容的输入，并单独统计参考 NoData。
+- 新增版本化 `.famp-volume` schema v1 边车、汇总 CSV、逐格 CSV 和降采样 SVG 原子导出；文件读取会校验标识、版本、数组边界、尾部数据和面积/体积统计一致性。
+- 新增程序内挖填方成果窗口，显示面积、体积、高差范围、缺少参考网格和红/蓝/灰分类概览；大网格在界面和 SVG 中均受降采样上限保护。
+
+### Changed
+
+- `TerrainAnalysis` 新增可复用的点云到 DEM 接口，使用保存的双精度原点和完整 4×4 空间变换，并在失败或取消时保持输出原子性。
+- 挖填方工作流与 DEM/剖面共用投影坐标系约束：经纬度图层必须先重投影，未声明 CRS 时必须确认 X/Y/Z 使用同一本地米制单位。
+
 ## [0.8.0] - 2026-07-17
 
 ### Added
@@ -154,7 +168,8 @@
 - 增加统一应用版本号、窗口标题版本显示和 Linux/Windows 应用图标。
 - 补充 Linux/Windows 从零构建、测试、运行和排障文档。
 
-[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/liujintao-noctis/FAMP/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/liujintao-noctis/FAMP/compare/v0.5.2...v0.6.0

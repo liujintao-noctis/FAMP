@@ -84,6 +84,9 @@ add_executable(famp_tests
     "${FAMP_SRC_DIR}/ControlPoints.cpp"
     "${FAMP_SRC_DIR}/ControlPointDialog.cpp"
     "${FAMP_SRC_DIR}/ContourItem.cpp"
+    "${FAMP_SRC_DIR}/CutFillAnalysis.cpp"
+    "${FAMP_SRC_DIR}/CutFillDialog.cpp"
+    "${FAMP_SRC_DIR}/CutFillIO.cpp"
     "${FAMP_SRC_DIR}/ProfileAnalysis.cpp"
     "${FAMP_SRC_DIR}/ProfileDialog.cpp"
     "${FAMP_SRC_DIR}/ProfileIO.cpp"
@@ -112,6 +115,10 @@ add_executable(famp_tests
     test_control_points.cpp
     test_control_point_dialog.cpp
     test_contour_item.cpp
+    test_cut_fill_analysis.cpp
+    test_cut_fill_dialog.cpp
+    test_cut_fill_io.cpp
+    test_cut_fill_workflow.cpp
     test_profile_analysis.cpp
     test_profile_dialog.cpp
     test_profile_io.cpp

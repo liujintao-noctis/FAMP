@@ -113,6 +113,16 @@ bool buildGrid(
     const famp::tasks::CancellationCheck& shouldCancel = {},
     const Progress& reportProgress = {});
 
+bool buildGridFromCloud(
+    const pcl::PointCloud<pcl::PointXYZRGB>::ConstPtr& cloud,
+    const famp::cloud::SpatialReference& spatial,
+    const GridOptions& options,
+    Grid& grid,
+    double* suggestedResolution = nullptr,
+    QString* errorMessage = nullptr,
+    const famp::tasks::CancellationCheck& shouldCancel = {},
+    const Progress& reportProgress = {});
+
 bool generateContours(
     const Grid& grid,
     const ContourOptions& options,
