@@ -3,6 +3,7 @@
 #include "CloudAttributes.h"
 #include "CloudCoordinates.h"
 #include "CloudDisplaySettings.h"
+#include "ControlPoints.h"
 #include "Measurement.h"
 
 #include <QByteArray>
@@ -31,6 +32,7 @@ struct CloudReference
     famp::display::Settings display;
     QVector<famp::cloud::AttributeSummary> attributes;
     QMap<QString, QString> archaeologyFields;
+    QVector<famp::control::Point> controlPoints;
 };
 
 struct Document

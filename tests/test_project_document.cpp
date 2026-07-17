@@ -161,6 +161,13 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     cloud.attributes = {intensity};
     cloud.archaeologyFields.insert(
         QStringLiteral("context"), QStringLiteral("Locus-12"));
+    famp::control::Point controlPoint;
+    controlPoint.id = famp::control::createPointId();
+    controlPoint.name = QStringLiteral("基准点 A");
+    controlPoint.local = {1.25, -2.5, 0.75};
+    controlPoint.target = {500001.25, 3400002.5, 10.75};
+    controlPoint.enabled = false;
+    cloud.controlPoints = {controlPoint};
 
     famp::project::Document source;
     source.projectCrs = QStringLiteral("EPSG:4490");
@@ -199,6 +206,12 @@ TEST(ProjectDocumentTest, RoundTripsSchemaThreeLayerState)
     EXPECT_EQ(result.attributes.front().valueCount, 3);
     EXPECT_EQ(result.archaeologyFields.value(QStringLiteral("context")),
               QStringLiteral("Locus-12"));
+    ASSERT_EQ(result.controlPoints.size(), 1);
+    EXPECT_EQ(result.controlPoints.front().id, controlPoint.id);
+    EXPECT_EQ(result.controlPoints.front().name, controlPoint.name);
+    EXPECT_EQ(result.controlPoints.front().local, controlPoint.local);
+    EXPECT_EQ(result.controlPoints.front().target, controlPoint.target);
+    EXPECT_FALSE(result.controlPoints.front().enabled);
     ASSERT_EQ(loaded.measurements3d.size(), 1);
     const auto& loadedMeasurement = loaded.measurements3d.front();
     EXPECT_EQ(loadedMeasurement.id, measurement.id);
@@ -562,5 +575,53 @@ TEST(ProjectDocumentTest, RejectsUnsafeNumericCloudMetadata)
 
     famp::project::Document loaded;
     EXPECT_FALSE(famp::project::load(projectPath, loaded, &error));
+    EXPECT_FALSE(error.isEmpty());
+}
+
+TEST(ProjectDocumentTest, RejectsDuplicateControlPointsWithoutMutation)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString cloudPath = directory.filePath(QStringLiteral("control.pcd"));
+    QFile cloudFile(cloudPath);
+    ASSERT_TRUE(cloudFile.open(QIODevice::WriteOnly));
+    cloudFile.close();
+    famp::project::CloudReference cloud;
+    cloud.path = cloudPath;
+    famp::project::Document source;
+    source.clouds = {cloud};
+    const QString projectPath = directory.filePath(
+        QStringLiteral("invalid-control.famp"));
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("0.6.0"), &error));
+
+    QFile file(projectPath);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(file.readAll()).object();
+    file.close();
+    QJsonArray clouds = root.value(QStringLiteral("clouds")).toArray();
+    QJsonObject serializedCloud = clouds.at(0).toObject();
+    const QString duplicateId = famp::control::createPointId();
+    const QJsonObject first{
+        {QStringLiteral("id"), duplicateId},
+        {QStringLiteral("name"), QStringLiteral("CP-1")},
+        {QStringLiteral("enabled"), true},
+        {QStringLiteral("local"), QJsonArray{0.0, 0.0, 0.0}},
+        {QStringLiteral("target"), QJsonArray{1.0, 2.0, 3.0}}};
+    QJsonObject second = first;
+    second.insert(QStringLiteral("name"), QStringLiteral("CP-2"));
+    serializedCloud.insert(
+        QStringLiteral("controlPoints"), QJsonArray{first, second});
+    clouds[0] = serializedCloud;
+    root.insert(QStringLiteral("clouds"), clouds);
+    ASSERT_TRUE(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    file.write(QJsonDocument(root).toJson());
+    file.close();
+
+    famp::project::Document loaded;
+    loaded.mapScale = QStringLiteral("1:20");
+    EXPECT_FALSE(famp::project::load(projectPath, loaded, &error));
+    EXPECT_EQ(loaded.mapScale, QStringLiteral("1:20"));
     EXPECT_FALSE(error.isEmpty());
 }

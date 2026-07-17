@@ -99,6 +99,7 @@ private:
     QAction * cloudCoordinateAction;
     QAction * reprojectCloudAction;
     QAction * archaeologyMetadataAction;
+    QAction * controlPointsAction;
     QActionGroup * measurementActionGroup;
     QAction * distanceMeasureAction;
     QAction * areaMeasureAction;
@@ -232,6 +233,7 @@ private slots:
     void slotOpenCloudCoordinateViewer();
     void slotReprojectCloud();
     void slotEditArchaeologyMetadata();
+    void slotEditControlPoints();
     void slotShowQuickStart();
     void slotShowShortcuts();
     void slotShowAbout();

@@ -124,6 +124,8 @@ bool validateLayer(const CloudLayer& layer,
     if (!famp::archaeology::validateFields(
             layer.archaeologyFields, errorMessage))
         return false;
+    if (!famp::control::validatePoints(layer.controlPoints, errorMessage))
+        return false;
     if (errorMessage)
         errorMessage->clear();
     return true;

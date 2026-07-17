@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CloudCoordinates.h"
+#include "ControlPoints.h"
 #include "Measurement.h"
 
 #include <QDateTime>
@@ -22,6 +23,7 @@ struct CloudEntry
     bool visible = true;
     famp::cloud::SpatialReference spatial;
     QMap<QString, QString> archaeologyFields;
+    QVector<famp::control::Point> controlPoints;
 };
 
 struct Data
