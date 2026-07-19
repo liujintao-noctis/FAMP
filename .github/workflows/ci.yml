@@ -5,6 +5,17 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to build
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ubuntu-22.04
+          - windows-latest
 
 permissions:
   contents: read
@@ -19,16 +30,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, windows-latest]
-        include:
-          - os: ubuntu-22.04
-            triplet: x64-linux-release
-            build-type: Release
-          - os: windows-latest
-            # Keep the triplet name short to avoid Qt-generated paths hitting
-            # the legacy Windows MAX_PATH limit.
-            triplet: x64-win-rel
-            build-type: Release
+        # Build complete matrix objects so a manual single-platform retry does
+        # not re-add the other platform through a static `include` entry.
+        include: ${{ fromJSON(inputs.platform == 'ubuntu-22.04' && '[{"os":"ubuntu-22.04","triplet":"x64-linux-release","build-type":"Release"}]' || inputs.platform == 'windows-latest' && '[{"os":"windows-latest","triplet":"x64-win-rel","build-type":"Release"}]' || '[{"os":"ubuntu-22.04","triplet":"x64-linux-release","build-type":"Release"},{"os":"windows-latest","triplet":"x64-win-rel","build-type":"Release"}]') }}
 
     steps:
       - name: Checkout
