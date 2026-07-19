@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QLabel>
@@ -113,6 +114,11 @@ TEST(CutFillDialogTest, ConvertsMetreInputsAndSwitchesReferenceMode)
               famp::cutfill::ReferenceMode::DemGrid);
     EXPECT_FALSE(options.grid.automaticResolution);
     EXPECT_FALSE(elevation->isEnabled());
+    const auto* saveImmediately = dialog.findChild<QCheckBox*>(
+        QStringLiteral("cutFillSaveImmediately"));
+    ASSERT_NE(saveImmediately, nullptr);
+    EXPECT_FALSE(saveImmediately->isChecked());
+    EXPECT_TRUE(options.sidecarPath.isEmpty());
 }
 
 TEST(CutFillDialogTest, AppliesReferenceResolutionAtomically)

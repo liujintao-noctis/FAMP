@@ -3,6 +3,7 @@
 #include <QFileInfo>
 #include <QTemporaryDir>
 
+#include <cmath>
 #include <limits>
 
 #include "CloudCrop.h"
@@ -36,10 +37,43 @@ TEST(CloudCropTest, ComputesFiniteBoundsAndExpandsFlatAxes)
     famp::crop::Options bounds;
     QString error;
     ASSERT_TRUE(famp::crop::dataBounds(cloud, bounds, &error));
-    EXPECT_DOUBLE_EQ(bounds.minimumX, -2.0);
-    EXPECT_DOUBLE_EQ(bounds.maximumX, 2.0);
+    EXPECT_LT(bounds.minimumX, -2.0);
+    EXPECT_GT(bounds.maximumX, 2.0);
     EXPECT_LT(bounds.minimumZ, 5.0);
     EXPECT_GT(bounds.maximumZ, 5.0);
+}
+
+TEST(CloudCropTest, EditableRoundedBoundsKeepEveryFiniteExtremum)
+{
+    auto cloud = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    for (const float value : {-2.4337337F, -0.1234568F, 4.5118008F})
+    {
+        pcl::PointXYZRGB point;
+        point.x = value;
+        point.y = value * 0.37F;
+        point.z = value * -0.21F;
+        cloud->push_back(point);
+    }
+
+    famp::crop::Options bounds;
+    QString error;
+    ASSERT_TRUE(famp::crop::dataBounds(cloud, bounds, &error));
+    const auto roundForEditor = [](double value) {
+        constexpr double scale = 1.0e9;
+        return std::round(value * scale) / scale;
+    };
+    bounds.minimumX = roundForEditor(bounds.minimumX);
+    bounds.maximumX = roundForEditor(bounds.maximumX);
+    bounds.minimumY = roundForEditor(bounds.minimumY);
+    bounds.maximumY = roundForEditor(bounds.maximumY);
+    bounds.minimumZ = roundForEditor(bounds.minimumZ);
+    bounds.maximumZ = roundForEditor(bounds.maximumZ);
+
+    const auto result = famp::crop::process(cloud, bounds);
+    ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
+    EXPECT_EQ(result.outputPointCount, cloud->size());
+    EXPECT_EQ(result.sourceIndices, QVector<qint64>({0, 1, 2}));
 }
 
 TEST(CloudCropTest, KeepsInsideOrOutsideInclusiveBounds)
@@ -49,11 +83,13 @@ TEST(CloudCropTest, KeepsInsideOrOutsideInclusiveBounds)
     auto inside = famp::crop::process(cloud, options);
     ASSERT_TRUE(inside.succeeded()) << inside.error.toStdString();
     EXPECT_EQ(inside.outputPointCount, 3U);
+    EXPECT_EQ(inside.sourceIndices, QVector<qint64>({1, 2, 3}));
 
     options.keepInside = false;
     auto outside = famp::crop::process(cloud, options);
     ASSERT_TRUE(outside.succeeded()) << outside.error.toStdString();
     EXPECT_EQ(outside.outputPointCount, 2U);
+    EXPECT_EQ(outside.sourceIndices, QVector<qint64>({0, 4}));
 }
 
 TEST(CloudCropTest, RejectsInvalidRangeAndEmptyResult)

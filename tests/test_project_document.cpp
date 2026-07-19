@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 
 #include "ProjectDocument.h"
+#include "WorkspaceSnapshot.h"
 #include "CloudLayer.h"
 
 TEST(ProjectDocumentTest, RoundTripsRelativeCloudPathsAndScale)
@@ -483,6 +484,42 @@ TEST(ProjectDocumentTest, RejectsInvalidJsonWithoutMutatingOutput)
     EXPECT_FALSE(error.isEmpty());
 }
 
+TEST(ProjectDocumentTest, InvalidAutosaveDoesNotOverwriteLastValidProject)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString projectPath = directory.filePath(
+        QStringLiteral("autosave.famp"));
+    famp::project::Document valid;
+    valid.mapScale = QStringLiteral("1:50");
+    valid.projectCrs = QStringLiteral("EPSG:4490");
+    QString error;
+    ASSERT_TRUE(famp::project::save(
+        projectPath, valid, QStringLiteral("9.0.0"), &error))
+        << error.toStdString();
+
+    QFile saved(projectPath);
+    ASSERT_TRUE(saved.open(QIODevice::ReadOnly));
+    const QByteArray lastValidBytes = saved.readAll();
+    saved.close();
+    ASSERT_FALSE(lastValidBytes.isEmpty());
+
+    famp::project::Document invalid = valid;
+    invalid.mapScale = QStringLiteral("1:25");
+    EXPECT_FALSE(famp::project::save(
+        projectPath, invalid, QStringLiteral("9.0.0"), &error));
+    EXPECT_FALSE(error.isEmpty());
+
+    ASSERT_TRUE(saved.open(QIODevice::ReadOnly));
+    EXPECT_EQ(saved.readAll(), lastValidBytes);
+    saved.close();
+    famp::project::Document recovered;
+    ASSERT_TRUE(famp::project::load(projectPath, recovered, &error))
+        << error.toStdString();
+    EXPECT_EQ(recovered.mapScale, valid.mapScale);
+    EXPECT_EQ(recovered.projectCrs, QStringLiteral("EPSG:4490"));
+}
+
 TEST(ProjectDocumentTest, RejectsUnsupportedSchema)
 {
     QTemporaryDir directory;
@@ -511,6 +548,89 @@ TEST(ProjectDocumentTest, EnforcesProjectSuffix)
     EXPECT_EQ(famp::project::pathWithProjectSuffix(QStringLiteral("site.FAMP")),
               QStringLiteral("site.FAMP"));
     EXPECT_TRUE(famp::project::pathWithProjectSuffix({}).isEmpty());
+}
+
+TEST(ProjectDocumentTest, PersistsSchemaFourWorkspaceHierarchy)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    famp::workspace::WorkspaceStore store;
+    ASSERT_TRUE(store.setName(store.rootId(), QStringLiteral("大墓坑项目")));
+    const auto group = store.addEntity(famp::workspace::makeEntity(
+        famp::workspace::EntityKind::Group, QStringLiteral("配准成果")));
+    ASSERT_FALSE(group.isNull());
+
+    famp::project::Document source;
+    QString error;
+    source.workspaceState = famp::workspace::serializeSnapshot(store, &error);
+    ASSERT_FALSE(source.workspaceState.isEmpty()) << error.toStdString();
+    const QString path = directory.filePath(QStringLiteral("workspace-v4.famp"));
+    ASSERT_TRUE(famp::project::save(
+        path, source, QStringLiteral("1.0.0"), &error))
+        << error.toStdString();
+
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(path, loaded, &error))
+        << error.toStdString();
+    famp::workspace::WorkspaceSnapshot snapshot;
+    ASSERT_TRUE(famp::workspace::deserializeSnapshot(
+        loaded.workspaceState, snapshot, &error)) << error.toStdString();
+    EXPECT_EQ(snapshot.rootName, QStringLiteral("大墓坑项目"));
+    ASSERT_EQ(snapshot.entities.size(), 1);
+    EXPECT_EQ(snapshot.entities.front().id, group);
+}
+
+TEST(ProjectDocumentTest, ResolvesWorkspaceAssetsRelativeToProject)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    const QString assetsDirectory = directory.filePath(
+        QStringLiteral("site.famp-assets"));
+    ASSERT_TRUE(QDir().mkpath(assetsDirectory));
+    const QString assetPath = QDir(assetsDirectory).filePath(
+        QStringLiteral("dem.famp-dem"));
+    QFile asset(assetPath);
+    ASSERT_TRUE(asset.open(QIODevice::WriteOnly));
+    asset.write("dem");
+    asset.close();
+
+    famp::workspace::WorkspaceStore store;
+    auto dem = famp::workspace::makeEntity(
+        famp::workspace::EntityKind::Dem, QStringLiteral("dem"));
+    dem.assetPath = assetPath;
+    ASSERT_FALSE(store.addEntity(dem).isNull());
+
+    famp::project::Document source;
+    QString error;
+    source.workspaceState = famp::workspace::serializeSnapshot(store, &error);
+    ASSERT_FALSE(source.workspaceState.isEmpty()) << error.toStdString();
+    const QString projectPath = directory.filePath(QStringLiteral("site.famp"));
+    ASSERT_TRUE(famp::project::save(
+        projectPath, source, QStringLiteral("1.0.0"), &error))
+        << error.toStdString();
+
+    QFile projectFile(projectPath);
+    ASSERT_TRUE(projectFile.open(QIODevice::ReadOnly));
+    const QJsonObject root = QJsonDocument::fromJson(
+        projectFile.readAll()).object();
+    const QJsonArray records = root.value(QStringLiteral("workspaceState"))
+                                   .toObject()
+                                   .value(QStringLiteral("entities"))
+                                   .toArray();
+    ASSERT_EQ(records.size(), 1);
+    EXPECT_FALSE(QFileInfo(records.at(0).toObject().value(
+        QStringLiteral("assetPath")).toString()).isAbsolute());
+
+    famp::project::Document loaded;
+    ASSERT_TRUE(famp::project::load(projectPath, loaded, &error))
+        << error.toStdString();
+    famp::workspace::WorkspaceSnapshot snapshot;
+    ASSERT_TRUE(famp::workspace::deserializeSnapshot(
+        loaded.workspaceState, snapshot, &error)) << error.toStdString();
+    ASSERT_EQ(snapshot.entities.size(), 1);
+    ASSERT_TRUE(snapshot.entities.front().assetPath.has_value());
+    EXPECT_EQ(QFileInfo(*snapshot.entities.front().assetPath).absoluteFilePath(),
+              QFileInfo(assetPath).absoluteFilePath());
 }
 
 TEST(ProjectDocumentTest, RejectsUnsupportedScaleWithoutCreatingFile)

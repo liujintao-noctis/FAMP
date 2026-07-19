@@ -193,3 +193,79 @@ TEST(GraphicsSceneDocumentTest, RejectsInvalidItemWithoutMutatingScene)
     EXPECT_EQ(target.items().front(), preserved);
     EXPECT_EQ(preserved->toPlainText(), QStringLiteral("keep me"));
 }
+
+TEST(GraphicsSceneDocumentTest, KeepsStableItemIdAcrossSaveAndRestore)
+{
+    QGraphicsScene source(QRectF(-100.0, -100.0, 200.0, 200.0));
+    QGraphicsTextItem* text = source.addText(QStringLiteral("stable"));
+    QString error;
+
+    const QJsonObject first = famp::graphicsdoc::saveScene(&source, &error);
+    ASSERT_FALSE(first.isEmpty()) << error.toStdString();
+    const QString firstId = first.value(QStringLiteral("items")).toArray()
+        .at(0).toObject().value(QStringLiteral("id")).toString();
+    ASSERT_FALSE(firstId.isEmpty());
+    EXPECT_EQ(famp::graphicsdoc::itemId(text), firstId);
+
+    const QJsonObject second = famp::graphicsdoc::saveScene(&source, &error);
+    ASSERT_FALSE(second.isEmpty()) << error.toStdString();
+    EXPECT_EQ(second.value(QStringLiteral("items")).toArray()
+                  .at(0).toObject().value(QStringLiteral("id")).toString(),
+              firstId);
+
+    QGraphicsScene restored;
+    ASSERT_TRUE(famp::graphicsdoc::restoreScene(
+        &restored, first, nullptr, &error)) << error.toStdString();
+    const QJsonObject third = famp::graphicsdoc::saveScene(&restored, &error);
+    ASSERT_FALSE(third.isEmpty()) << error.toStdString();
+    EXPECT_EQ(third.value(QStringLiteral("items")).toArray()
+                  .at(0).toObject().value(QStringLiteral("id")).toString(),
+              firstId);
+}
+
+TEST(GraphicsSceneDocumentTest, GeneratesIdForLegacyItemWithoutOne)
+{
+    QGraphicsScene source(QRectF(-100.0, -100.0, 200.0, 200.0));
+    source.addText(QStringLiteral("legacy without id"));
+    QString error;
+    QJsonObject document = famp::graphicsdoc::saveScene(&source, &error);
+    ASSERT_FALSE(document.isEmpty()) << error.toStdString();
+    document.insert(QStringLiteral("schemaVersion"), 1);
+    QJsonArray items = document.value(QStringLiteral("items")).toArray();
+    QJsonObject item = items.at(0).toObject();
+    item.remove(QStringLiteral("id"));
+    items.replace(0, item);
+    document.insert(QStringLiteral("items"), items);
+
+    QGraphicsScene restored;
+    QList<QGraphicsItem*> restoredItems;
+    ASSERT_TRUE(famp::graphicsdoc::restoreScene(
+        &restored, document, &restoredItems, &error)) << error.toStdString();
+    ASSERT_EQ(restoredItems.size(), 1);
+    EXPECT_FALSE(famp::graphicsdoc::itemId(restoredItems.front()).isEmpty());
+}
+
+TEST(GraphicsSceneDocumentTest, RejectsDuplicateItemIdsWithoutMutatingScene)
+{
+    QGraphicsScene source(QRectF(-100.0, -100.0, 200.0, 200.0));
+    source.addText(QStringLiteral("first"));
+    source.addText(QStringLiteral("second"));
+    QString error;
+    QJsonObject document = famp::graphicsdoc::saveScene(&source, &error);
+    ASSERT_FALSE(document.isEmpty()) << error.toStdString();
+    QJsonArray items = document.value(QStringLiteral("items")).toArray();
+    ASSERT_EQ(items.size(), 2);
+    QJsonObject duplicate = items.at(1).toObject();
+    duplicate.insert(QStringLiteral("id"),
+                     items.at(0).toObject().value(QStringLiteral("id")));
+    items.replace(1, duplicate);
+    document.insert(QStringLiteral("items"), items);
+
+    QGraphicsScene target(QRectF(-20.0, -20.0, 40.0, 40.0));
+    QGraphicsTextItem* preserved = target.addText(QStringLiteral("keep me"));
+    EXPECT_FALSE(famp::graphicsdoc::restoreScene(
+        &target, document, nullptr, &error));
+    EXPECT_FALSE(error.isEmpty());
+    ASSERT_EQ(target.items().size(), 1);
+    EXPECT_EQ(target.items().front(), preserved);
+}

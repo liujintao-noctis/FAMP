@@ -18,7 +18,11 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("重投影所选点云")));
     EXPECT_TRUE(content.contains(QStringLiteral("拖入主窗口")));
     EXPECT_TRUE(content.contains(QStringLiteral("最近打开")));
-    EXPECT_TRUE(content.contains(QStringLiteral("切割与投影")));
+    EXPECT_TRUE(content.contains(QStringLiteral("切割与点云准备")));
+    EXPECT_TRUE(content.contains(QStringLiteral("考古制图流程")));
+    EXPECT_TRUE(content.contains(QStringLiteral("关闭预览")));
+    EXPECT_TRUE(content.contains(QStringLiteral("临时投影自动消失")));
+    EXPECT_TRUE(content.contains(QStringLiteral("二维制图”文件夹")));
     EXPECT_TRUE(content.contains(QStringLiteral("体素降采样")));
     EXPECT_TRUE(content.contains(QStringLiteral("统计离群点")));
     EXPECT_TRUE(content.contains(QStringLiteral("ICP")));
@@ -49,6 +53,16 @@ TEST(HelpContentTest, QuickStartCoversTheMainWorkflow)
     EXPECT_TRUE(content.contains(QStringLiteral("SVG")));
     EXPECT_TRUE(content.contains(QStringLiteral("自定义纸张")));
     EXPECT_TRUE(content.contains(QStringLiteral("打印预览")));
+    EXPECT_TRUE(content.contains(QStringLiteral("1 mm")));
+    EXPECT_TRUE(content.contains(QStringLiteral("254")));
+    EXPECT_TRUE(content.contains(QStringLiteral("实际大小/100%")));
+    EXPECT_TRUE(content.contains(QStringLiteral("YOZ 始终在俯视图正上方")));
+    EXPECT_TRUE(content.contains(QStringLiteral("XOZ 始终在俯视图正右方")));
+    EXPECT_TRUE(content.contains(QStringLiteral("XOZ/YOZ 各自保存确认角度")));
+    EXPECT_TRUE(content.contains(QStringLiteral("鼠标悬停")));
+    EXPECT_TRUE(content.contains(QStringLiteral("对应剖面切割线")));
+    EXPECT_TRUE(content.contains(QStringLiteral("实尺，不缩放")));
+    EXPECT_TRUE(content.contains(QStringLiteral("缩小超大页面")));
     EXPECT_TRUE(content.contains(QStringLiteral("300")));
 }
 

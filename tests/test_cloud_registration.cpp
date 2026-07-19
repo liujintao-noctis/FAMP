@@ -36,6 +36,15 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloudWithTranslation(float dx,
     cloud->is_dense = true;
     return cloud;
 }
+
+void appendCloud(pcl::PointCloud<pcl::PointXYZRGB>& destination,
+                 float dx,
+                 float dy,
+                 float dz)
+{
+    const auto translated = cloudWithTranslation(dx, dy, dz);
+    destination += *translated;
+}
 }
 
 TEST(CloudRegistrationTest, AlignsTranslatedAsymmetricCloud)
@@ -47,10 +56,15 @@ TEST(CloudRegistrationTest, AlignsTranslatedAsymmetricCloud)
     const auto result = famp::registration::align(source, target, options);
     ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
     EXPECT_LT(result.fitnessScore, 1.0e-8);
+    EXPECT_DOUBLE_EQ(result.sourceOverlapRatio, 1.0);
+    EXPECT_DOUBLE_EQ(result.targetOverlapRatio, 1.0);
+    EXPECT_DOUBLE_EQ(result.overlapRatio, 1.0);
     EXPECT_NEAR(result.transform(0, 3), 0.18F, 1.0e-3F);
     EXPECT_NEAR(result.transform(1, 3), -0.12F, 1.0e-3F);
     EXPECT_NEAR(result.transform(2, 3), 0.09F, 1.0e-3F);
     ASSERT_EQ(result.cloud->size(), target->size());
+    ASSERT_EQ(result.sourceIndices.size(),
+              static_cast<qsizetype>(source->size()));
     for (std::size_t index = 0; index < target->size(); ++index)
     {
         EXPECT_NEAR((*result.cloud)[index].x, (*target)[index].x, 1.0e-3F);
@@ -79,6 +93,33 @@ TEST(CloudRegistrationTest, SupportsVoxelSamplingAndRejectsNoOverlap)
     EXPECT_FALSE(separated.error.isEmpty());
 }
 
+TEST(CloudRegistrationTest, AlignsCloudsUsingTargetLocalFrame)
+{
+    const auto source = cloudWithTranslation(10.0F, 0.0F, 0.0F);
+    const auto target = cloudWithTranslation(0.0F, 0.0F, 0.0F);
+    famp::cloud::SpatialReference sourceSpatial;
+    sourceSpatial.origin = {100.0, 200.0, 0.0};
+    famp::cloud::SpatialReference targetSpatial;
+    targetSpatial.origin = {110.0, 200.0, 0.0};
+
+    famp::registration::Options options;
+    options.maximumCorrespondenceDistance = 0.5;
+    const auto result = famp::registration::alignInTargetFrame(
+        source, sourceSpatial, target, targetSpatial, options);
+
+    ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
+    EXPECT_NEAR(result.sourceToTargetFrame(0, 3), -10.0, 1.0e-12);
+    EXPECT_NEAR(result.transform(0, 3), 0.0F, 1.0e-3F);
+    EXPECT_NEAR(result.combinedTransform(0, 3), -10.0, 1.0e-3);
+    ASSERT_EQ(result.cloud->size(), target->size());
+    for (std::size_t index = 0; index < target->size(); ++index)
+    {
+        EXPECT_NEAR((*result.cloud)[index].x, (*target)[index].x, 1.0e-3F);
+        EXPECT_NEAR((*result.cloud)[index].y, (*target)[index].y, 1.0e-3F);
+        EXPECT_NEAR((*result.cloud)[index].z, (*target)[index].z, 1.0e-3F);
+    }
+}
+
 TEST(CloudRegistrationTest, RejectsInvalidInputsAndOptions)
 {
     const auto source = cloudWithTranslation(0.0F, 0.0F, 0.0F);
@@ -90,6 +131,65 @@ TEST(CloudRegistrationTest, RejectsInvalidInputsAndOptions)
     tiny->resize(2);
     options.maximumIterations = 10;
     EXPECT_FALSE(famp::registration::align(tiny, source, options).succeeded());
+
+    QString error;
+    options.minimumOverlapRatio = 0.009;
+    EXPECT_FALSE(famp::registration::validateOptions(options, &error));
+    EXPECT_FALSE(error.isEmpty());
+    options.minimumOverlapRatio = std::numeric_limits<double>::quiet_NaN();
+    EXPECT_FALSE(famp::registration::validateOptions(options, &error));
+}
+
+TEST(CloudRegistrationTest, RejectsAccidentalSmallOverlapUnlessExplicitlyAllowed)
+{
+    auto source = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    for (int cluster = 0; cluster < 5; ++cluster)
+        appendCloud(*source, static_cast<float>(cluster * 10), 0.0F, 0.0F);
+    source->width = static_cast<std::uint32_t>(source->size());
+    source->height = 1;
+    source->is_dense = true;
+    const auto target = cloudWithTranslation(0.15F, -0.08F, 0.04F);
+
+    famp::registration::Options options;
+    options.maximumCorrespondenceDistance = 0.8;
+    options.minimumOverlapRatio = 0.5;
+    const auto rejected = famp::registration::align(source, target, options);
+    EXPECT_FALSE(rejected.succeeded());
+    EXPECT_NEAR(rejected.sourceOverlapRatio, 0.2, 1.0e-9);
+    EXPECT_DOUBLE_EQ(rejected.targetOverlapRatio, 1.0);
+    EXPECT_NEAR(rejected.overlapRatio, 0.2, 1.0e-9);
+    EXPECT_NE(rejected.error.indexOf(QStringLiteral("重叠率")), -1);
+
+    options.minimumOverlapRatio = 0.15;
+    const auto accepted = famp::registration::align(source, target, options);
+    ASSERT_TRUE(accepted.succeeded()) << accepted.error.toStdString();
+    EXPECT_NEAR(accepted.overlapRatio, 0.2, 1.0e-9);
+}
+
+TEST(CloudRegistrationTest, RejectsBadInitialPoseForLargeRotation)
+{
+    const auto source = cloudWithTranslation(0.0F, 0.0F, 0.0F);
+    auto target = pcl::PointCloud<pcl::PointXYZRGB>::Ptr(
+        new pcl::PointCloud<pcl::PointXYZRGB>);
+    target->reserve(source->size());
+    for (const pcl::PointXYZRGB& sourcePoint : source->points)
+    {
+        pcl::PointXYZRGB point = sourcePoint;
+        point.x = -sourcePoint.y + 25.0F;
+        point.y = sourcePoint.x - 10.0F;
+        point.z = sourcePoint.z + 3.0F;
+        target->push_back(point);
+    }
+    target->width = static_cast<std::uint32_t>(target->size());
+    target->height = 1;
+    target->is_dense = true;
+
+    famp::registration::Options options;
+    options.maximumCorrespondenceDistance = 0.1;
+    const auto result = famp::registration::align(source, target, options);
+    EXPECT_FALSE(result.succeeded());
+    EXPECT_FALSE(result.error.isEmpty());
 }
 
 TEST(CloudRegistrationTest, CancelsWithoutWritingOutput)

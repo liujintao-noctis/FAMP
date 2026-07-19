@@ -54,6 +54,10 @@ TEST(CloudProcessingTest, VoxelDownsampleReducesPointsAndRemovesNonFiniteInput)
     EXPECT_EQ(result.inputPointCount, 102U);
     EXPECT_EQ(result.finitePointCount, 101U);
     EXPECT_LT(result.outputPointCount, result.finitePointCount);
+    EXPECT_EQ(result.sourceIndices.size(),
+              static_cast<qsizetype>(result.outputPointCount));
+    for (qint64 index : result.sourceIndices)
+        EXPECT_GE(index, 0);
     EXPECT_TRUE(result.cloud->is_dense);
 }
 
@@ -69,6 +73,8 @@ TEST(CloudProcessingTest, StatisticalFilterRemovesDistantOutlier)
 
     ASSERT_TRUE(result.succeeded()) << result.error.toStdString();
     EXPECT_LT(result.outputPointCount, result.inputPointCount);
+    EXPECT_EQ(result.sourceIndices.size(),
+              static_cast<qsizetype>(result.outputPointCount));
     for (const pcl::PointXYZRGB& point : result.cloud->points)
         EXPECT_LT(point.x, 1.0f);
 }

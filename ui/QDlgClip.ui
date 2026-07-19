@@ -163,9 +163,15 @@
    <item row="5" column="1" colspan="3">
     <layout class="QHBoxLayout" name="horizontalLayout_2">
      <item>
-      <widget class="QPushButton" name="pBnSave">
+      <widget class="QPushButton" name="pBnConfirm">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
        <property name="text">
-        <string>保存</string>
+        <string>确认</string>
+       </property>
+       <property name="toolTip">
+        <string>确认当前切割预览并加入左侧内容列表</string>
        </property>
       </widget>
      </item>

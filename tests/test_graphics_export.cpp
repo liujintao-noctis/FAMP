@@ -8,8 +8,29 @@
 #include <QGraphicsTextItem>
 #include <QImage>
 #include <QPen>
+#include <QPrinter>
 #include <QTemporaryDir>
 #include <QtGlobal>
+
+namespace
+{
+bool hasRedGridPixelNear(const QImage& image, int expectedX, int y)
+{
+    for (int x = expectedX - 2; x <= expectedX + 2; ++x)
+    {
+        if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            continue;
+        const QColor color = image.pixelColor(x, y);
+        if (color.red() > 220
+            && color.green() < 210
+            && color.blue() < 210)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+}
 
 TEST(GraphicsExportTest, EnforcesFormatSuffixCaseInsensitively)
 {
@@ -121,6 +142,163 @@ TEST(GraphicsExportTest, ExportsA4LandscapePngWithPhysicalResolution)
     EXPECT_NEAR(maximumX - minimumX + 1, 156, 4);
 }
 
+TEST(GraphicsExportTest, ExportsA4RasterGridAtExactlyOneMillimeter)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 10.0, 10.0), QPen(Qt::black));
+
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Png;
+    options.paperSize = famp::exporting::PaperSize::A4;
+    options.orientation = famp::exporting::Orientation::Landscape;
+    options.dotsPerInch = 254;
+    options.includeMetricGrid = true;
+    const QString previewPath = qEnvironmentVariable(
+        "FAMP_EXPORT_GRID_PNG_PATH");
+    const QString path = previewPath.isEmpty()
+        ? directory.filePath(QStringLiteral("一毫米米格.png"))
+        : previewPath;
+    QString error;
+
+    ASSERT_TRUE(famp::exporting::exportScene(
+        &scene, path, options, &error)) << error.toStdString();
+    const QImage image(path);
+    ASSERT_FALSE(image.isNull());
+    EXPECT_EQ(image.width(), 2970);
+    EXPECT_EQ(image.height(), 2100);
+    EXPECT_EQ(image.dotsPerMeterX(), 10000);
+    EXPECT_EQ(image.dotsPerMeterY(), 10000);
+
+    // A4 uses a 10 mm export margin. At 254 DPI, both the margin and every
+    // following millimetre are exact multiples of 10 pixels.
+    constexpr int sampleY = 105;
+    for (int expectedX = 110; expectedX <= 290; expectedX += 10)
+    {
+        EXPECT_TRUE(hasRedGridPixelNear(image, expectedX, sampleY))
+            << "missing 1 mm grid line at x=" << expectedX;
+    }
+    const QColor betweenLines = image.pixelColor(105, sampleY);
+    EXPECT_GT(betweenLines.green(), 240);
+    EXPECT_GT(betweenLines.blue(), 240);
+}
+
+TEST(GraphicsExportTest, ExportsA3RasterGridAtExactlyOneMillimeter)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 10.0, 10.0), QPen(Qt::black));
+
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Png;
+    options.paperSize = famp::exporting::PaperSize::A3;
+    options.orientation = famp::exporting::Orientation::Landscape;
+    options.dotsPerInch = 254;
+    options.includeMetricGrid = true;
+    const QString path = directory.filePath(QStringLiteral("A3一毫米米格.png"));
+    QString error;
+
+    ASSERT_TRUE(famp::exporting::exportScene(
+        &scene, path, options, &error)) << error.toStdString();
+    const QImage image(path);
+    ASSERT_FALSE(image.isNull());
+    EXPECT_EQ(image.width(), 4200);
+    EXPECT_EQ(image.height(), 2970);
+    EXPECT_EQ(image.dotsPerMeterX(), 10000);
+    EXPECT_EQ(image.dotsPerMeterY(), 10000);
+
+    constexpr int sampleY = 105;
+    for (int expectedX = 110; expectedX <= 390; expectedX += 10)
+    {
+        EXPECT_TRUE(hasRedGridPixelNear(image, expectedX, sampleY))
+            << "missing A3 1 mm grid line at x=" << expectedX;
+    }
+}
+
+TEST(GraphicsExportTest, ConfiguresA3PrintPreviewWithExactPhysicalPage)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 100.0, 50.0), QPen(Qt::black));
+
+    famp::exporting::Options options;
+    options.paperSize = famp::exporting::PaperSize::A3;
+    options.orientation = famp::exporting::Orientation::Landscape;
+    options.scaleMode = famp::exporting::ScaleMode::PreservePhysicalScale;
+    options.includeMetricGrid = true;
+    options.dotsPerInch = 254;
+    options.sceneUnitsPerMillimeterX = 10.0;
+    options.sceneUnitsPerMillimeterY = 10.0;
+    QPrinter printer(QPrinter::HighResolution);
+    printer.setOutputFormat(QPrinter::PdfFormat);
+    printer.setOutputFileName(
+        directory.filePath(QStringLiteral("A3打印预览.pdf")));
+    QString error;
+
+    ASSERT_TRUE(famp::exporting::printScene(
+        &scene, &printer, options, &error)) << error.toStdString();
+    const QRectF pageMillimeters = printer.pageLayout().fullRect(
+        QPageLayout::Millimeter);
+    EXPECT_NEAR(pageMillimeters.width(), 420.0, 0.01);
+    EXPECT_NEAR(pageMillimeters.height(), 297.0, 0.01);
+    EXPECT_EQ(printer.resolution(), 254);
+    EXPECT_TRUE(QFile::exists(printer.outputFileName()));
+}
+
+TEST(GraphicsExportTest, RejectsInexactRasterDpiForMetricGrid)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 10.0, 10.0));
+
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Png;
+    options.dotsPerInch = 300;
+    options.includeMetricGrid = true;
+    const QString path = directory.filePath(QStringLiteral("非整数像素米格.png"));
+    QString error;
+
+    EXPECT_FALSE(famp::exporting::exportScene(
+        &scene, path, options, &error));
+    EXPECT_TRUE(error.contains(QStringLiteral("254 或 508 DPI")));
+    EXPECT_FALSE(QFile::exists(path));
+}
+
+TEST(GraphicsExportTest, ExportsA4SvgWithPhysicalMillimeterGrid)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    QGraphicsScene scene;
+    scene.addRect(QRectF(0.0, 0.0, 10.0, 10.0), QPen(Qt::black));
+
+    famp::exporting::Options options;
+    options.format = famp::exporting::Format::Svg;
+    options.paperSize = famp::exporting::PaperSize::A4;
+    options.orientation = famp::exporting::Orientation::Landscape;
+    options.dotsPerInch = 254;
+    options.includeMetricGrid = true;
+    const QString previewPath = qEnvironmentVariable(
+        "FAMP_EXPORT_GRID_SVG_PATH");
+    const QString path = previewPath.isEmpty()
+        ? directory.filePath(QStringLiteral("一毫米米格.svg"))
+        : previewPath;
+    QString error;
+
+    ASSERT_TRUE(famp::exporting::exportScene(
+        &scene, path, options, &error)) << error.toStdString();
+    QFile file(path);
+    ASSERT_TRUE(file.open(QIODevice::ReadOnly));
+    const QByteArray contents = file.readAll();
+    EXPECT_TRUE(contents.contains("width=\"297mm\""));
+    EXPECT_TRUE(contents.contains("height=\"210mm\""));
+    EXPECT_TRUE(contents.contains("viewBox=\"0 0 2970 2100\""));
+    EXPECT_TRUE(contents.contains("#ff0000"));
+}
+
 TEST(GraphicsExportTest, ExportsAtomicPdfWithMetadata)
 {
     QTemporaryDir directory;
@@ -141,6 +319,8 @@ TEST(GraphicsExportTest, ExportsAtomicPdfWithMetadata)
 
     famp::exporting::Options options;
     options.format = famp::exporting::Format::Pdf;
+    options.dotsPerInch = 254;
+    options.includeMetricGrid = true;
     options.title = QStringLiteral("Test map");
     options.creator = QStringLiteral("FAMP test");
     const QString previewPath = qEnvironmentVariable("FAMP_EXPORT_PREVIEW_PATH");

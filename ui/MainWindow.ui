@@ -288,6 +288,7 @@
    <addaction name="separator"/>
    <addaction name="actCompass"/>
    <addaction name="actMiGe"/>
+   <addaction name="actCalibrateMetricGrid"/>
    <addaction name="actPlotTab"/>
    <addaction name="actProjLine"/>
    <addaction name="separator"/>
@@ -579,6 +580,18 @@
    </property>
    <property name="iconText">
     <string> 米格纸</string>
+   </property>
+  </action>
+  <action name="actCalibrateMetricGrid">
+   <property name="icon">
+    <iconset>
+     <normaloff>:/images/images/4方格纸.png</normaloff>:/images/images/4方格纸.png</iconset>
+   </property>
+   <property name="text">
+    <string>校准米格纸…</string>
+   </property>
+   <property name="toolTip">
+    <string>用100 mm实体直尺按当前显示器校准米格纸</string>
    </property>
   </action>
   <action name="actpoints">

@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QCheckBox>
 #include <QTemporaryDir>
 
 TEST(TerrainDialogTest, DerivesStableSiblingExportPaths)
@@ -39,4 +40,23 @@ TEST(TerrainDialogTest, ValidatesOutputDirectoryAndAnalysisOptions)
         QStringLiteral("missing/subdir/dem.famp-dem"));
     EXPECT_FALSE(famp::terrainui::validateOptions(options, &error));
     EXPECT_TRUE(error.contains(QStringLiteral("目录")));
+}
+
+TEST(TerrainDialogTest, DefaultsToMemoryOnlyOutput)
+{
+    QTemporaryDir directory;
+    ASSERT_TRUE(directory.isValid());
+    famp::terrainui::TerrainDialog dialog(
+        QStringLiteral("layer"), QStringLiteral("EPSG:4547"),
+        QStringLiteral("metre"), 1.0,
+        directory.filePath(QStringLiteral("dem.famp-dem")));
+    const auto* saveImmediately = dialog.findChild<QCheckBox*>(
+        QStringLiteral("terrainSaveImmediately"));
+    ASSERT_NE(saveImmediately, nullptr);
+    EXPECT_FALSE(saveImmediately->isChecked());
+    const auto options = dialog.options();
+    EXPECT_TRUE(options.sidecarPath.isEmpty());
+    QString error;
+    EXPECT_TRUE(famp::terrainui::validateOptions(options, &error))
+        << error.toStdString();
 }

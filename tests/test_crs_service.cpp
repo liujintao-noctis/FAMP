@@ -54,6 +54,57 @@ TEST(CrsServiceTest, TransformsWgs84ToWebMercator)
     EXPECT_NEAR(target.z, source.z, 1e-9);
 }
 
+TEST(CrsServiceTest, InspectsCgcs2000GeographicAndGaussKrugerCrs)
+{
+    famp::crs::Info geographic;
+    famp::crs::Info projected;
+    QString error;
+    ASSERT_TRUE(famp::crs::inspect(
+        QStringLiteral("EPSG:4490"), geographic, &error))
+        << error.toStdString();
+    EXPECT_EQ(geographic.identifier, QStringLiteral("EPSG:4490"));
+    EXPECT_TRUE(geographic.geographic);
+    EXPECT_FALSE(geographic.projected);
+    EXPECT_TRUE(
+        geographic.name.contains(
+            QStringLiteral("CGCS2000"), Qt::CaseInsensitive)
+        || geographic.name.contains(
+            QStringLiteral("China Geodetic Coordinate System 2000"),
+            Qt::CaseInsensitive));
+
+    ASSERT_TRUE(famp::crs::inspect(
+        QStringLiteral("EPSG:4547"), projected, &error))
+        << error.toStdString();
+    EXPECT_EQ(projected.identifier, QStringLiteral("EPSG:4547"));
+    EXPECT_TRUE(projected.projected);
+    EXPECT_FALSE(projected.geographic);
+    EXPECT_TRUE(projected.name.contains(
+        QStringLiteral("CGCS2000"), Qt::CaseInsensitive));
+    EXPECT_DOUBLE_EQ(projected.horizontalUnitToMetre, 1.0);
+}
+
+TEST(CrsServiceTest, RoundTripsCgcs2000GaussKrugerCoordinates)
+{
+    const famp::crs::Coordinate geographic{114.0, 32.0, 18.75};
+    famp::crs::Coordinate projected;
+    QString error;
+    ASSERT_TRUE(famp::crs::transform(
+        QStringLiteral("EPSG:4490"), QStringLiteral("EPSG:4547"),
+        geographic, projected, &error)) << error.toStdString();
+    EXPECT_NEAR(projected.x, 500000.0, 0.001);
+    EXPECT_GT(projected.y, 3'500'000.0);
+    EXPECT_LT(projected.y, 3'600'000.0);
+    EXPECT_NEAR(projected.z, geographic.z, 1.0e-9);
+
+    famp::crs::Coordinate restored;
+    ASSERT_TRUE(famp::crs::transform(
+        QStringLiteral("EPSG:4547"), QStringLiteral("EPSG:4490"),
+        projected, restored, &error)) << error.toStdString();
+    EXPECT_NEAR(restored.x, geographic.x, 1.0e-10);
+    EXPECT_NEAR(restored.y, geographic.y, 1.0e-10);
+    EXPECT_NEAR(restored.z, geographic.z, 1.0e-9);
+}
+
 TEST(CrsServiceTest, RejectsNonFiniteCoordinateWithoutMutatingOutput)
 {
     const famp::crs::Coordinate original{1.0, 2.0, 3.0};
@@ -93,4 +144,25 @@ TEST(CrsServiceTest, ReusesInitializedTransformerAndMovesSafely)
     EXPECT_TRUE(moved.isValid());
     EXPECT_FALSE(transformer.transform({12.0, 55.0, 0.0}, second, &error));
     EXPECT_FALSE(error.isEmpty());
+}
+
+TEST(CrsServiceTest, FailedReinitializationPreservesValidTransformer)
+{
+    famp::crs::Transformer transformer;
+    QString error;
+    ASSERT_TRUE(transformer.initialize(
+        QStringLiteral("EPSG:4490"), QStringLiteral("EPSG:4547"), &error))
+        << error.toStdString();
+
+    EXPECT_FALSE(transformer.initialize(
+        QStringLiteral("EPSG:4490"), QStringLiteral("EPSG:99999999"),
+        &error));
+    EXPECT_TRUE(transformer.isValid());
+    EXPECT_EQ(transformer.sourceIdentifier(), QStringLiteral("EPSG:4490"));
+    EXPECT_EQ(transformer.targetIdentifier(), QStringLiteral("EPSG:4547"));
+
+    famp::crs::Coordinate projected;
+    ASSERT_TRUE(transformer.transform({114.0, 32.0, 5.0}, projected, &error))
+        << error.toStdString();
+    EXPECT_NEAR(projected.x, 500000.0, 0.001);
 }

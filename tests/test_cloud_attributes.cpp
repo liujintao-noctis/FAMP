@@ -93,6 +93,37 @@ TEST(CloudAttributesTest, ConvertsStableTypeNames)
     EXPECT_EQ(unchanged, famp::cloud::AttributeValueType::SignedInteger);
 }
 
+TEST(CloudAttributesTest, SelectsTypedValuesByPointIndexAtomically)
+{
+    famp::cloud::CloudAttributes attributes;
+    famp::cloud::AttributeChannel floating;
+    floating.name = QStringLiteral("intensity");
+    floating.floatingValues = {10.0, 20.0, 30.0};
+    ASSERT_TRUE(attributes.insert(floating, 3));
+
+    famp::cloud::AttributeChannel classification;
+    classification.name = QStringLiteral("classification");
+    classification.type = famp::cloud::AttributeValueType::UnsignedInteger;
+    classification.unsignedValues = {1, 2, 3};
+    ASSERT_TRUE(attributes.insert(classification, 3));
+
+    famp::cloud::CloudAttributes selected;
+    QString error;
+    ASSERT_TRUE(attributes.select({2, 0, 2}, selected, &error))
+        << error.toStdString();
+    ASSERT_TRUE(selected.validate(3, &error)) << error.toStdString();
+    ASSERT_NE(selected.channel(QStringLiteral("intensity")), nullptr);
+    EXPECT_EQ(selected.channel(QStringLiteral("intensity"))->floatingValues,
+              QVector<double>({30.0, 10.0, 30.0}));
+    EXPECT_EQ(selected.channel(QStringLiteral("classification"))->unsignedValues,
+              QVector<quint64>({3, 1, 3}));
+
+    const famp::cloud::CloudAttributes before = selected;
+    EXPECT_FALSE(attributes.select({3}, selected, &error));
+    EXPECT_EQ(selected.channel(QStringLiteral("intensity"))->floatingValues,
+              before.channel(QStringLiteral("intensity"))->floatingValues);
+}
+
 TEST(CloudAttributesTest, RejectsUnknownTypesAndNonFiniteSerializedRanges)
 {
     famp::cloud::CloudAttributes attributes;

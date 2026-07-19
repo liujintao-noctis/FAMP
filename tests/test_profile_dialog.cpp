@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <QCheckBox>
 #include <QLabel>
 #include <QTemporaryDir>
 
@@ -58,6 +59,11 @@ TEST(ProfileDialogTest, ConvertsMetreInputsToProjectedUnits)
     EXPECT_GT(options.analysis.binSize, 0.0);
     EXPECT_TRUE(options.exportBinsCsv);
     EXPECT_TRUE(options.exportSvg);
+    const auto* saveImmediately = dialog.findChild<QCheckBox*>(
+        QStringLiteral("profileSaveImmediately"));
+    ASSERT_NE(saveImmediately, nullptr);
+    EXPECT_FALSE(saveImmediately->isChecked());
+    EXPECT_TRUE(options.sidecarPath.isEmpty());
 }
 
 TEST(ProfileDialogTest, ResultDialogExposesSummaryAndPlot)
