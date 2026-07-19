@@ -59,6 +59,15 @@ jobs:
             libxkbcommon-dev libxkbcommon-x11-dev
 
       # ── Setup vcpkg ───────────────────────────────────────────
+      # vcpkg includes CMake and Ninja versions in package ABI decisions. Pin
+      # both so weekly hosted-runner image updates do not invalidate Windows.
+      - name: Pin Windows CMake and Ninja
+        if: runner.os == 'Windows'
+        uses: lukka/get-cmake@e6906078ebd1ccb8ce51ab4626ac46a1b5a517e3
+        with:
+          cmakeVersion: 4.4.0
+          ninjaVersion: 1.13.2
+
       - name: Setup vcpkg
         uses: lukka/run-vcpkg@v11
         with:
@@ -91,9 +100,10 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}
+          key: vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ matrix.os == 'windows-latest' && 'cmake-4.4.0-ninja-1.13.2' || 'system-tools' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}
           restore-keys: |
-            vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-
+            vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ matrix.os == 'windows-latest' && 'cmake-4.4.0-ninja-1.13.2' || 'system-tools' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-
+            vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ matrix.os == 'windows-latest' && 'cmake-4.4.0-ninja-1.13.2' || 'system-tools' }}-
             vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
             vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
 
@@ -207,7 +217,7 @@ jobs:
         uses: actions/cache/save@v5
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ matrix.os == 'windows-latest' && 'cmake-4.4.0-ninja-1.13.2' || 'system-tools' }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Verify release-only Windows dependencies
         if: runner.os == 'Windows'
