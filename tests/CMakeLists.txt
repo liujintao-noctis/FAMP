@@ -84,18 +84,23 @@ if(TARGET VTK::CommonCore)
     vtk_module_autoinit(TARGETS famp_tests MODULES ${VTK_LIBRARIES})
 endif()
 
-if(TARGET Qt6::QOffscreenIntegrationPlugin)
+set(famp_qt_platform_plugin_dir
+    "${QT6_INSTALL_PREFIX}/${QT6_INSTALL_PLUGINS}/platforms")
+if(IS_DIRECTORY "${famp_qt_platform_plugin_dir}")
     add_custom_command(
         TARGET famp_tests
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
             "$<TARGET_FILE_DIR:famp_tests>/platforms"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:Qt6::QOffscreenIntegrationPlugin>"
-            "$<TARGET_FILE_DIR:famp_tests>/platforms/$<TARGET_FILE_NAME:Qt6::QOffscreenIntegrationPlugin>"
-        COMMENT "Deploying the Qt offscreen platform plugin for GUI tests"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${famp_qt_platform_plugin_dir}"
+            "$<TARGET_FILE_DIR:famp_tests>/platforms"
+        COMMENT "Deploying Qt platform plugins for GUI tests"
         VERBATIM
     )
+else()
+    message(FATAL_ERROR
+        "Qt platform plugin directory was not found: ${famp_qt_platform_plugin_dir}")
 endif()
 
 include(GoogleTest)
