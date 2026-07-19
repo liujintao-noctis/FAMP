@@ -167,7 +167,10 @@ jobs:
 
       # ── Build ─────────────────────────────────────────────────
       - name: Build
-        run: cmake --build build --config ${{ matrix.build-type }} --parallel
+        # An argument-less --parallel lets the native tool choose its own
+        # limit. With the modular Qt/VTK/PCL targets that can start dozens of
+        # memory-heavy C++ compilations at once on a hosted runner.
+        run: cmake --build build --config ${{ matrix.build-type }} --parallel 2
 
       # ── Test ──────────────────────────────────────────────────
       - name: Test
