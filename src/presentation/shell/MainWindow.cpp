@@ -394,11 +394,16 @@ MainWindow::MainWindow(QWidget *parent)
 
     // Content tree on the left, matching the CloudCompare-style workspace.
     ui.dockWidget1->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    ui.dockWidget1->setMinimumWidth(250);
     addDockWidget(Qt::LeftDockWidgetArea, ui.dockWidget1);
 
     // Archaeological drafting canvas on the right. The deferred layout pass
     // below gives it the same initial width as the central VTK viewport.
     ui.dockWidget2->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    // Keep the drafting pane flexible enough for equal VTK/drafting widths on
+    // 1024-wide and display-scaled desktops. The designer's 500 px minimum
+    // made the right pane consume most of the available workspace on Windows.
+    ui.dockWidget2->setMinimumWidth(250);
     addDockWidget(Qt::RightDockWidgetArea, ui.dockWidget2);
     ui.dockWidget2->setWindowTitle("");
 

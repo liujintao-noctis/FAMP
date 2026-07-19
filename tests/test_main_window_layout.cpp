@@ -17,6 +17,9 @@
 TEST(MainWindowLayoutTest, StartsWithContentLeftAndEqualWorkAreas)
 {
     MainWindow window;
+    // Exercise the smallest common desktop width so the initial three-column
+    // layout remains usable on lower-resolution and scaled Windows displays.
+    window.resize(1024, 768);
     window.show();
     QApplication::processEvents();
     QApplication::processEvents();

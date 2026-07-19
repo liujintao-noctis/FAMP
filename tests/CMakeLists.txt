@@ -77,7 +77,7 @@ target_link_libraries(famp_tests
 target_compile_definitions(famp_tests
     PRIVATE
         FAMP_SAMPLE_DIR="${FAMP_ROOT_DIR}/samples"
-        FAMP_ACCEPTANCE_CLOUD_PATH="${CMAKE_BINARY_DIR}/bin/大墓坑_对齐_sampling_25000.pcd"
+        FAMP_ACCEPTANCE_CLOUD_PATH="${FAMP_ROOT_DIR}/samples/大墓坑_对齐_sampling_25000.pcd"
 )
 
 if(TARGET VTK::CommonCore)
@@ -101,6 +101,24 @@ if(IS_DIRECTORY "${famp_qt_platform_plugin_dir}")
 else()
     message(FATAL_ERROR
         "Qt platform plugin directory was not found: ${famp_qt_platform_plugin_dir}")
+endif()
+
+set(famp_proj_data_dir "${PROJ_DIR}")
+if(EXISTS "${famp_proj_data_dir}/proj.db")
+    add_custom_command(
+        TARGET famp_tests
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:famp_tests>/share/proj"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${famp_proj_data_dir}"
+            "$<TARGET_FILE_DIR:famp_tests>/share/proj"
+        COMMENT "Deploying PROJ data for geospatial tests"
+        VERBATIM
+    )
+else()
+    message(FATAL_ERROR
+        "PROJ data directory is missing proj.db: ${famp_proj_data_dir}")
 endif()
 
 include(GoogleTest)
