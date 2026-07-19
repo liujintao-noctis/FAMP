@@ -250,7 +250,7 @@ jobs:
             # process. Starting the Qt/VTK/PCL-linked binary hundreds of times
             # dominates Windows runtime, so execute the same 313 cases in one
             # GoogleTest process while retaining per-case console reporting.
-            plugin_dir="$(pwd)/build/vcpkg_installed/${{ matrix.triplet }}/Qt6/plugins/platforms"
+            plugin_dir="$(pwd)/build/tests/${{ matrix.build-type }}/platforms"
             test -f "${plugin_dir}/qoffscreen.dll"
             export QT_QPA_PLATFORM=offscreen
             export QT_QPA_PLATFORM_PLUGIN_PATH="${plugin_dir}"
