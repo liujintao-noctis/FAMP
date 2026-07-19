@@ -30,8 +30,6 @@ vcpkg_installed/
 PCD2Las.pcd
 Point_PCD2LAS.pcd
 cloud_DP_*.pcd
-ordercloud*.pcd
-projectPointCloud*.pcd
 KNNAlphaShape.pcd
 vog_cloud.pcd
 inCloud.pcd
