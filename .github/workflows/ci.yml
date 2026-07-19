@@ -242,7 +242,17 @@ jobs:
 
       # ── Test ──────────────────────────────────────────────────
       - name: Test
-        run: ctest --test-dir build -C ${{ matrix.build-type }} --output-on-failure
+        shell: bash
+        run: |
+          if [ "${RUNNER_OS}" = "Windows" ]; then
+            # gtest_discover_tests registers every case as a separate CTest
+            # process. Starting the Qt/VTK/PCL-linked binary hundreds of times
+            # dominates Windows runtime, so execute the same 313 cases in one
+            # GoogleTest process while retaining per-case console reporting.
+            cmake -E chdir build/tests ./famp_tests.exe --gtest_color=yes
+          else
+            ctest --test-dir build -C "${{ matrix.build-type }}" --output-on-failure
+          fi
 
       # ── Package runnable artifacts ────────────────────────────
       - name: Package Linux artifact
