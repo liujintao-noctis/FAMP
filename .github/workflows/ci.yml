@@ -251,8 +251,8 @@ jobs:
             # dominates Windows runtime, so execute the same 313 cases in one
             # GoogleTest process while retaining per-case console reporting.
             plugin_dir="$(pwd)/build/tests/${{ matrix.build-type }}/platforms"
-            test -f "${plugin_dir}/qoffscreen.dll"
-            export QT_QPA_PLATFORM=offscreen
+            test -f "${plugin_dir}/qwindows.dll"
+            export QT_QPA_PLATFORM=windows
             export QT_QPA_PLATFORM_PLUGIN_PATH="${plugin_dir}"
             cmake -E chdir "build/tests/${{ matrix.build-type }}" \
               ./famp_tests.exe --gtest_color=yes

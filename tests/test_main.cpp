@@ -22,7 +22,13 @@ int main(int argc, char **argv)
         return RUN_ALL_TESTS();
 
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+    {
+#if defined(Q_OS_WIN)
+        qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("windows"));
+#else
         qputenv("QT_QPA_PLATFORM", QByteArrayLiteral("offscreen"));
+#endif
+    }
     QApplication application(argc, argv);
     return RUN_ALL_TESTS();
 }
