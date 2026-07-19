@@ -149,7 +149,7 @@ jobs:
           }
 
           $nugetMode = if ('${{ github.event_name }}' -eq 'pull_request') { 'read' } else { 'readwrite' }
-          $binarySources = "clear;nuget,$env:VCPKG_NUGET_FEED,$nugetMode;files,$env:VCPKG_BINARY_CACHE,readwrite"
+          $binarySources = "clear;nuget,$env:VCPKG_NUGET_FEED,$nugetMode;nugettimeout,600;files,$env:VCPKG_BINARY_CACHE,readwrite"
           "VCPKG_BINARY_SOURCES=$binarySources" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           Write-Host "Windows vcpkg binary cache uses GitHub Packages in $nugetMode mode with a file-cache fallback."
 

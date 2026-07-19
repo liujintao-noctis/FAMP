@@ -85,4 +85,11 @@ if(TARGET VTK::CommonCore)
 endif()
 
 include(GoogleTest)
-gtest_discover_tests(famp_tests)
+gtest_discover_tests(
+    famp_tests
+    # Windows needs to load the deployed Qt/VTK/PCL DLL graph before it can
+    # answer --gtest_list_tests. The CMake default of five seconds is too low
+    # for a cold hosted runner and turns successful compilation into a build
+    # failure during post-build test discovery.
+    DISCOVERY_TIMEOUT 60
+)
