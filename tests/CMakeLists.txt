@@ -84,12 +84,24 @@ if(TARGET VTK::CommonCore)
     vtk_module_autoinit(TARGETS famp_tests MODULES ${VTK_LIBRARIES})
 endif()
 
+if(TARGET Qt6::QOffscreenIntegrationPlugin)
+    add_custom_command(
+        TARGET famp_tests
+        POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+            "$<TARGET_FILE_DIR:famp_tests>/platforms"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Qt6::QOffscreenIntegrationPlugin>"
+            "$<TARGET_FILE_DIR:famp_tests>/platforms/$<TARGET_FILE_NAME:Qt6::QOffscreenIntegrationPlugin>"
+        COMMENT "Deploying the Qt offscreen platform plugin for GUI tests"
+        VERBATIM
+    )
+endif()
+
 include(GoogleTest)
 gtest_discover_tests(
     famp_tests
-    # Windows needs to load the deployed Qt/VTK/PCL DLL graph before it can
-    # answer --gtest_list_tests. The CMake default of five seconds is too low
-    # for a cold hosted runner and turns successful compilation into a build
-    # failure during post-build test discovery.
+    # Test listing bypasses QApplication, while the real GUI tests still need
+    # time to load the deployed Qt/VTK/PCL runtime graph on Windows.
     DISCOVERY_TIMEOUT 60
 )
