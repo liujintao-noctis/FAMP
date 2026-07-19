@@ -19,6 +19,7 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
@@ -27,6 +28,8 @@ jobs:
     env:
       VCPKG_BINARY_CACHE: ${{ github.workspace }}/.vcpkg-binary-cache
       VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.vcpkg-binary-cache,readwrite
+      VCPKG_NUGET_FEED: https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json
+      VCPKG_NUGET_REPOSITORY: ${{ github.server_url }}/${{ github.repository }}
     strategy:
       fail-fast: false
       matrix:
@@ -65,11 +68,10 @@ jobs:
           vcpkgJsonGlob: 'vcpkg.json'
 
       - name: Restore vcpkg source downloads
-        id: vcpkg-source-cache
-        uses: actions/cache/restore@v5
+        uses: actions/cache@v5
         with:
           path: ${{ runner.temp }}/vcpkg/downloads
-          key: vcpkg-downloads-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}-${{ github.run_id }}-${{ github.run_attempt }}
+          key: vcpkg-downloads-v2-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'ci/vcpkg-overlay-ports/**') }}
           restore-keys: |
             vcpkg-downloads-v1-${{ matrix.os }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json') }}-
 
@@ -85,14 +87,61 @@ jobs:
           echo "Runner image version: ${ImageVersion}"
 
       - name: Restore vcpkg binary cache
-        uses: actions/cache@v5
+        id: vcpkg-binary-cache
+        uses: actions/cache/restore@v5
         with:
           path: ${{ env.VCPKG_BINARY_CACHE }}
-          key: vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake') }}
+          key: vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}
           restore-keys: |
+            vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-
+            vcpkg-v3-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
             vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-
-            vcpkg-v2-${{ matrix.os }}-${{ matrix.triplet }}-
-            vcpkg-${{ matrix.os }}-${{ matrix.triplet }}-
+
+      # GitHub Packages receives each completed Windows port immediately. This
+      # preserves expensive Qt/VTK/PCL builds even when a later port fails.
+      - name: Configure GitHub Packages vcpkg cache (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          FAMP_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $vcpkg = Join-Path '${{ runner.temp }}' 'vcpkg/vcpkg.exe'
+          if (-not (Test-Path $vcpkg)) {
+            throw "vcpkg executable was not found: $vcpkg"
+          }
+
+          $nugetOutput = & $vcpkg fetch nuget
+          if ($LASTEXITCODE -ne 0) {
+            throw 'vcpkg failed to acquire nuget.exe.'
+          }
+          $nuget = ($nugetOutput | Select-Object -Last 1).Trim()
+          if (-not (Test-Path $nuget)) {
+            throw "nuget.exe was not found: $nuget"
+          }
+
+          & $nuget sources add `
+            -Source $env:VCPKG_NUGET_FEED `
+            -StorePasswordInClearText `
+            -Name FampGitHubPackages `
+            -UserName '${{ github.repository_owner }}' `
+            -Password $env:FAMP_GITHUB_TOKEN `
+            -NonInteractive
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to add the authenticated GitHub Packages NuGet source.'
+          }
+
+          & $nuget setapikey $env:FAMP_GITHUB_TOKEN `
+            -Source $env:VCPKG_NUGET_FEED `
+            -NonInteractive
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to configure the GitHub Packages NuGet API key.'
+          }
+
+          $nugetMode = if ('${{ github.event_name }}' -eq 'pull_request') { 'read' } else { 'readwrite' }
+          $binarySources = "clear;nuget,$env:VCPKG_NUGET_FEED,$nugetMode;files,$env:VCPKG_BINARY_CACHE,readwrite"
+          "VCPKG_BINARY_SOURCES=$binarySources" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Windows vcpkg binary cache uses GitHub Packages in $nugetMode mode with a file-cache fallback."
 
       # ── Configure ─────────────────────────────────────────────
       - name: Configure CMake (Linux, with download retry)
@@ -118,6 +167,7 @@ jobs:
           done
 
       - name: Configure CMake (Windows, with download retry)
+        id: configure-windows
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
@@ -128,6 +178,7 @@ jobs:
             '-DCMAKE_TOOLCHAIN_FILE=${{ runner.temp }}/vcpkg/scripts/buildsystems/vcpkg.cmake',
             '-DVCPKG_TARGET_TRIPLET=${{ matrix.triplet }}',
             '-DVCPKG_HOST_TRIPLET=${{ matrix.triplet }}',
+            '-DVCPKG_OVERLAY_PORTS=${{ github.workspace }}/ci/vcpkg-overlay-ports',
             '-DCMAKE_BUILD_TYPE=${{ matrix.build-type }}',
             '-DBUILD_TESTING=ON'
           )
@@ -144,12 +195,19 @@ jobs:
             Start-Sleep -Seconds $delay
           }
 
-      - name: Save vcpkg source downloads
-        if: always() && steps.vcpkg-source-cache.outputs.cache-hit != 'true'
+      - name: Save vcpkg binary cache
+        if: steps.vcpkg-binary-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v5
         with:
-          path: ${{ runner.temp }}/vcpkg/downloads
-          key: ${{ steps.vcpkg-source-cache.outputs.cache-primary-key }}
+          path: ${{ env.VCPKG_BINARY_CACHE }}
+          key: ${{ steps.vcpkg-binary-cache.outputs.cache-primary-key }}
+
+      - name: Save failed Windows vcpkg checkpoint
+        if: always() && runner.os == 'Windows' && steps.configure-windows.outcome == 'failure'
+        uses: actions/cache/save@v5
+        with:
+          path: ${{ env.VCPKG_BINARY_CACHE }}
+          key: vcpkg-checkpoint-v1-${{ matrix.os }}-${{ matrix.triplet }}-${{ steps.runner-image.outputs.version }}-${{ hashFiles('vcpkg.json', 'vcpkg-configuration.json', 'triplets/*.cmake', 'ci/vcpkg-overlay-ports/**') }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Verify release-only Windows dependencies
         if: runner.os == 'Windows'
