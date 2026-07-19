@@ -498,7 +498,17 @@ MainWindow::MainWindow(QWidget *parent)
     updateWindowTitle();
     QTimer::singleShot(0, this, [this]() {
         applyInitialDockLayout();
-        checkForRecoveryProject();
+        // QVTKOpenGLNativeWidget and the native Windows style finish their
+        // first-show size negotiation in later event-loop turns. Re-apply the
+        // requested proportions after those platform-specific adjustments so
+        // the initial VTK and drafting work areas remain equal everywhere.
+        QTimer::singleShot(0, this, [this]() {
+            applyInitialDockLayout();
+            QTimer::singleShot(0, this, [this]() {
+                applyInitialDockLayout();
+                checkForRecoveryProject();
+            });
+        });
     });
 
 }
@@ -1031,13 +1041,23 @@ void MainWindow::applyInitialDockLayout()
     if (QMainWindow::layout())
         QMainWindow::layout()->activate();
 
-    // resizeDocks() cannot resize the central widget directly. Resizing the
-    // right dock to half of the combined VTK/drafting span gives both work
-    // areas equal initial widths; QMainWindow assigns the remainder to VTK.
-    const int workspaceWidth = centerDock->width() + ui.dockWidget2->width();
-    if (workspaceWidth > 0)
+    // resizeDocks() cannot resize the central widget directly. Correct the
+    // right dock from the measured post-layout geometry and iterate until the
+    // platform's frame, splitter and size-hint constraints have converged.
+    for (int pass = 0; pass < 3; ++pass)
     {
-        resizeDocks({ui.dockWidget2}, {workspaceWidth / 2}, Qt::Horizontal);
+        const int vtkWidth = centerDock->width();
+        const int draftingWidth = ui.dockWidget2->width();
+        if (vtkWidth <= 0 || draftingWidth <= 0
+            || std::abs(vtkWidth - draftingWidth) <= 2)
+        {
+            break;
+        }
+
+        const int targetDraftingWidth =
+            std::max(ui.dockWidget2->minimumWidth(),
+                     draftingWidth + (vtkWidth - draftingWidth) / 2);
+        resizeDocks({ui.dockWidget2}, {targetDraftingWidth}, Qt::Horizontal);
         if (QMainWindow::layout())
             QMainWindow::layout()->activate();
     }

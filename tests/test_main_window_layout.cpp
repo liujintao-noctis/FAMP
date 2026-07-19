@@ -21,8 +21,10 @@ TEST(MainWindowLayoutTest, StartsWithContentLeftAndEqualWorkAreas)
     // layout remains usable on lower-resolution and scaled Windows displays.
     window.resize(1024, 768);
     window.show();
-    QApplication::processEvents();
-    QApplication::processEvents();
+    // Initial native-window and QVTK sizing settles over several event-loop
+    // turns on Windows. Exercise the final geometry seen by the user.
+    for (int pass = 0; pass < 5; ++pass)
+        QApplication::processEvents();
 
     QDockWidget* content = window.findChild<QDockWidget*>(
         QStringLiteral("dockWidget1"));
@@ -45,7 +47,11 @@ TEST(MainWindowLayoutTest, StartsWithContentLeftAndEqualWorkAreas)
     EXPECT_GE(content->width(), 250);
     EXPECT_LE(content->width(), 350);
     EXPECT_LE(std::abs(window.centralWidget()->width() - drafting->width()),
-              20);
+              20)
+        << "window=" << window.width()
+        << " content=" << content->width()
+        << " vtk=" << window.centralWidget()->width()
+        << " drafting=" << drafting->width();
     EXPECT_TRUE(draftingTools->actions().contains(calibration));
     EXPECT_TRUE(calibration->isEnabled());
 }
